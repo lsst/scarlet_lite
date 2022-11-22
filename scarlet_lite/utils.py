@@ -1,30 +1,59 @@
-import numpy as np
-from scipy.special import erfc
+# This file is part of scarlet_lite.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from typing import Sequence
+
+import numpy as np
+import numpy.typing as npt
+from scipy.special import erfc
 
 from .bbox import overlapped_slices, Box
 from .initialization import get_minimal_boxsize
 
 
-def insert_image(image_box, sub_box, sub_image, fill=0, dtype=None):
+def insert_image(
+    image_box: Box,
+    sub_box: Box,
+    sub_image: np.ndarray,
+    fill: float = 0,
+    dtype: npt.DTypeLike = None,
+) -> np.ndarray:
     """Insert an image given both an image box and sub-image box
 
     Parameters
     ----------
-    image_box: `scarlet.bbox.Box`
+    image_box: Box
         The bounding box that will contain the full image.
-    sub_box: `scarlet.bbox.Box`
+    sub_box: Box
         The bounding box of the sub-image that is inserted into the full image.
-    sub_image: `numpy.ndarray`
+    sub_image: np.ndarray
         The image that will be inserted.
-    dtype: `numpy.dtype`
+    dtype: npt.DTypeLike
         The dtype of the resulting image.
-    fill: `float`
+    fill: float
         The fill value of the image for pixels outside of `sub_image`.
 
-    Results
+    Returns
     -------
-    image: `numpy.ndarray`
+    image: np.ndarray
         An image of `fill` with the pixels in `sub_box` replaced
         with `sub_image`.
     """
@@ -38,7 +67,14 @@ def insert_image(image_box, sub_box, sub_image, fill=0, dtype=None):
     image[slices[0]] = sub_image[slices[1]]
     return image
 
-def project_morph_to_center(morph, center, bbox, fullbox, boxsize=None):
+
+def project_morph_to_center(
+    morph: np.ndarray,
+    center: Sequence[int],
+    bbox: Box,
+    fullbox: Box,
+    boxsize: int = None,
+) -> tuple[np.ndarray, Box]:
     """Project an uncentered morphology into a box that is centered on it
 
     Since most astrophysical sources are roughly symmetric,
@@ -50,16 +86,16 @@ def project_morph_to_center(morph, center, bbox, fullbox, boxsize=None):
 
     Parameters
     ----------
-    morph: `numpy.ndarray`
+    morph: np.ndarray
         The 2D morphology that is to be centered.
-    center: `list` of `int`
+    center: Squence[int]
         The center pixel of `morph` in `fullbox`.
-    bbox: `scarlet.bbox.Box`
+    bbox: Box
         The bounding box of `morph`.
-    `fullbox`: `scarlet.bbox.Box`
+    fullbox: Box
         The bounding box of the full `image` in which
         `center` describes the center of the source.
-    `boxsize`: int
+    boxsize: int
         The size of the centered morphology.
         If `boxsize` is `None` then the minimal box needed to
         contain the centered morphology with an odd number of
@@ -67,7 +103,7 @@ def project_morph_to_center(morph, center, bbox, fullbox, boxsize=None):
 
     Returns
     -------
-    centered: `numpy.ndarray`
+    centered: np.ndarray
         The centered morphology.
     centered_box: `scarlet.bbox.Box`
         The bounding box that contains the centered morphology
@@ -75,7 +111,7 @@ def project_morph_to_center(morph, center, bbox, fullbox, boxsize=None):
     """
     # find fitting bbox
     if bbox.contains(center):
-        size = 2*max(
+        size = 2 * max(
             (
                 center[0] - bbox.start[-2],
                 bbox.stop[0] - center[-2],
@@ -90,10 +126,10 @@ def project_morph_to_center(morph, center, bbox, fullbox, boxsize=None):
     if boxsize is None:
         boxsize = get_minimal_boxsize(size)
 
-    bottom = center[0] - boxsize//2
-    top = center[0] + boxsize//2 + 1
-    left = center[1] - boxsize//2
-    right = center[1] + boxsize//2 + 1
+    bottom = center[0] - boxsize // 2
+    top = center[0] + boxsize // 2 + 1
+    left = center[1] - boxsize // 2
+    right = center[1] + boxsize // 2 + 1
     centered_box = Box.from_bounds((bottom, top), (left, right))
 
     centered = np.zeros(centered_box.shape, dtype=morph.dtype)
@@ -103,28 +139,30 @@ def project_morph_to_center(morph, center, bbox, fullbox, boxsize=None):
     return centered, centered_box
 
 
-def integrated_gaussian_psf(X, sigma):
-    """A Gaussian function evaluated at `X`
+def integrated_gaussian_psf(x: np.ndarray, sigma: float) -> np.ndarray:
+    """A Gaussian function evaluated at `x`
 
     Parameters
     ----------
-    X: `numpy.ndarray`
+    x: np.ndarray
         The coordinates to evaluate the integrated Gaussian.
-    sigma: `float`
+    sigma: float
         The standard deviation of the Gaussian.
 
     Returns
     -------
-    gaussian: `numpy.ndarray`
-        A Gaussian function integrated over `X`
+    gaussian: np.ndarray
+        A Gaussian function integrated over `x`
     """
     sqrt2 = np.sqrt(2)
-    lhs = erfc((0.5 - X)/(sqrt2*sigma))
-    rhs = erfc((2*X + 1)/(2*sqrt2*sigma))
-    return np.sqrt(np.pi/2)*sigma*(1 - lhs + 1 - rhs)
+    lhs = erfc((0.5 - x) / (sqrt2 * sigma))
+    rhs = erfc((2 * x + 1) / (2 * sqrt2 * sigma))
+    return np.sqrt(np.pi / 2) * sigma * (1 - lhs + 1 - rhs)
 
 
-def integrated_circular_gaussian(X=None, Y=None, sigma=0.8):
+def integrated_circular_gaussian(
+    x: npt.ArrayLike = None, y: npt.ArrayLike = None, sigma: float = 0.8
+) -> np.ndarray:
     """Create a circular Gaussian that is integrated over pixels
 
     This is typically used for the model PSF,
@@ -132,7 +170,7 @@ def integrated_circular_gaussian(X=None, Y=None, sigma=0.8):
 
     Parameters
     ----------
-    X, Y: `numpy.ndarray`
+    x, y: npt.ArrayLike
         The x,y-coordinates to evaluate the integrated Gaussian.
         If `X` and `Y` are `None` then they will both be given the
         default value `numpy.arange(-7, 8)`, resulting in a
@@ -142,29 +180,33 @@ def integrated_circular_gaussian(X=None, Y=None, sigma=0.8):
 
     Returns
     -------
-    image: `numpy.ndarray`
+    image: np.ndarray
         A Gaussian function integrated over `X` and `Y`.
     """
-    if X is None:
-        if Y is None:
-            X = np.arange(-7, 8)
-            Y = X
+    if x is None:
+        if y is None:
+            x = np.arange(-7, 8)
+            y = x
         else:
             raise Exception(
-                f"Either X and Y must be specified, or neither must be specified, got X={X} and Y={Y}")
-    result = integrated_gaussian_psf(X, sigma)[None, :]*integrated_gaussian_psf(Y, sigma)[:, None]
-    return result/np.sum(result)
+                f"Either X and Y must be specified, or neither must be specified, got X={x} and Y={y}"
+            )
+    result = (
+        integrated_gaussian_psf(x, sigma)[None, :]
+        * integrated_gaussian_psf(y, sigma)[:, None]
+    )
+    return result / np.sum(result)
 
 
-def get_circle_mask(diameter, dtype=np.float64):
+def get_circle_mask(diameter: int, dtype: npt.DTypeLike = np.float64):
     """Get a boolean image of a circle
 
     Parameters
     ----------
-    diameter: `int`
+    diameter: int
         The diameter of the circle and width
         of the image.
-    dtype: `numpy.dtype`
+    dtype: npt.DTypeLike
         The `dtype` of the image.
 
     Returns
@@ -174,18 +216,18 @@ def get_circle_mask(diameter, dtype=np.float64):
         inside of the circle and zeros
         outside of the circle.
     """
-    c = (diameter - 1)/2
+    c = (diameter - 1) / 2
     # The center of the circle and its radius are
     # off by half a pixel for circles with
     # even numbered diameter
     if diameter % 2 == 0:
-        r = diameter/2
+        radius = diameter / 2
     else:
-        r = c
-    X = np.arange(diameter)
-    X, Y = np.meshgrid(X, X)
-    R = np.sqrt((X - c)**2 + (Y - c)**2)
+        radius = c
+    x = np.arange(diameter)
+    x, y = np.meshgrid(x, x)
+    r = np.sqrt((x - c) ** 2 + (y - c) ** 2)
 
     circle = np.ones((diameter, diameter), dtype=dtype)
-    circle[R>r] = 0
+    circle[r > radius] = 0
     return circle

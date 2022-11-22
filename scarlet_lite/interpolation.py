@@ -225,18 +225,16 @@ def cubic_spline(dx, a=1, b=0):
         raise ValueError("The fractional shift dx must be between -1 and 1")
 
     def inner(x):
-        """Cubic from 0<=abs(x)<=1
-        """
-        third = (-6 * a - 9 * b + 12) * x ** 3
-        second = (6 * a + 12 * b - 18) * x ** 2
+        """Cubic from 0<=abs(x)<=1"""
+        third = (-6 * a - 9 * b + 12) * x**3
+        second = (6 * a + 12 * b - 18) * x**2
         zero = -2 * b + 6
         return (zero + second + third) / 6
 
     def outer(x):
-        """Cubic from 1<=abs(x)<=2
-        """
-        third = (-6 * a - b) * x ** 3
-        second = (30 * a + 6 * b) * x ** 2
+        """Cubic from 1<=abs(x)<=2"""
+        third = (-6 * a - b) * x**3
+        second = (30 * a + 6 * b) * x**2
         first = (-48 * a - 12 * b) * x
         zero = 24 * a + 8 * b
         return (zero + first + second + third) / 6
@@ -291,13 +289,13 @@ def lanczos(dx, a=3):
 
 def quintic_spline(dx, dtype=np.float64):
     def inner(x):
-        return 1 + x ** 3 / 12 * (-95 + 138 * x - 55 * x ** 2)
+        return 1 + x**3 / 12 * (-95 + 138 * x - 55 * x**2)
 
     def middle(x):
-        return (x - 1) * (x - 2) / 24 * (-138 + 348 * x - 249 * x ** 2 + 55 * x ** 3)
+        return (x - 1) * (x - 2) / 24 * (-138 + 348 * x - 249 * x**2 + 55 * x**3)
 
     def outer(x):
-        return (x - 2) * (x - 3) ** 2 / 24 * (-54 + 50 * x - 11 * x ** 2)
+        return (x - 2) * (x - 3) ** 2 / 24 * (-54 + 50 * x - 11 * x**2)
 
     window = np.arange(-3, 4)
     x = np.abs(dx - window)
@@ -339,7 +337,7 @@ def get_separable_kernel(dy, dx, kernel=lanczos, **kwargs):
 
 
 def mk_shifter(shape, real=False):
-    """ Performs shifts in the Fourier domain on Fourier objects
+    """Performs shifts in the Fourier domain on Fourier objects
 
     Parameters:
     -----------
@@ -385,8 +383,7 @@ def get_affine(wcs):
 
 
 def get_pixel_size(model_affine):
-    """ Extracts the pixel size from a wcs
-    """
+    """Extracts the pixel size from a wcs"""
     pix = np.sqrt(
         np.abs(model_affine[0, 0])
         * np.abs(model_affine[1, 1] - model_affine[0, 1] * model_affine[1, 0])
@@ -396,7 +393,7 @@ def get_pixel_size(model_affine):
 
 def get_angles(frame_wcs, model_wcs):
 
-    """ Computes the angles between two WCS
+    """Computes the angles between two WCS
     Parameters
     ----------
         frame_wcs: WCS
@@ -414,8 +411,8 @@ def get_angles(frame_wcs, model_wcs):
     self_framevector = np.sum(frame_affine, axis=0)[:2] / frame_pix
     model_framevector = np.sum(model_affine, axis=0)[:2] / model_pix
     # normalisation
-    self_framevector /= np.sum(self_framevector ** 2) ** 0.5
-    model_framevector /= np.sum(model_framevector ** 2) ** 0.5
+    self_framevector /= np.sum(self_framevector**2) ** 0.5
+    model_framevector /= np.sum(model_framevector**2) ** 0.5
 
     # sin of the angle between datasets (normalised cross product)
     sin_rot = np.cross(self_framevector, model_framevector)
@@ -465,7 +462,7 @@ def sinc_interp(images, coord_hr, coord_lr, angle=None, padding=3):
     cos = angle[0]
     sin = angle[1]
 
-    fft_shape = fft._get_fft_shape(images, images, padding=padding, axes=[1, 2])
+    fft_shape = fft.get_fft_shape(images, images, padding=padding, axes=[1, 2])
 
     X = fft.Fourier(images)
     # Fourier transform
@@ -503,7 +500,7 @@ def sinc_interp(images, coord_hr, coord_lr, angle=None, padding=3):
 
 
 def sinc_interp_inplace(image, h_image, h_target, angle, pad_shape=None):
-    """ In place interpolation of a cube of images
+    """In place interpolation of a cube of images
 
     Performs interpolation from a grid defined by the grid of `image` to a grid spanning the same physical area scaled
     by a factor `h` and rotated by `angle` radians. The center for the rotation is the central pixel of the image.
@@ -561,7 +558,7 @@ def sinc_interp_inplace(image, h_image, h_target, angle, pad_shape=None):
 
 
 def interpolate_observation(observation, frame, wave_filter=False):
-    """ Interpolates the images in an observation on the grid described by a frame
+    """Interpolates the images in an observation on the grid described by a frame
     and returns the interpolated images.
 
     Paramters
@@ -580,16 +577,19 @@ def interpolate_observation(observation, frame, wave_filter=False):
     """
     # Interpolate low resolution data to high resolution
     coord_lr0 = np.array(
-        (np.arange(observation.shape[1]),
-         np.arange(observation.shape[2]),)
+        (
+            np.arange(observation.shape[1]),
+            np.arange(observation.shape[2]),
+        )
     )
-    coord_hr = (np.arange(frame.shape[1]),
-                np.arange(frame.shape[2]))
+    coord_hr = (np.arange(frame.shape[1]), np.arange(frame.shape[2]))
     coord_lr = observation.convert_pixel_to(frame, pixel=coord_lr0.T).T
 
     interp = []
     if wave_filter is True:
-        images = np.array([apply_wavelet_denoising(image) for image in observation.data])
+        images = np.array(
+            [apply_wavelet_denoising(image) for image in observation.data]
+        )
     else:
         images = observation.data
     for image in images:
@@ -706,7 +706,7 @@ def apply_2D_trapezoid_rule(y, x, f, dNy, dNx=None, dy=None, dx=None):
 
 
 def get_psf_size(psf):
-    """ Measures the size of a psf by computing the size of the area in 3 sigma around the center.
+    """Measures the size of a psf by computing the size of the area in 3 sigma around the center.
 
     This is an approximate method to estimate the size of the psf for setting the size of the frame,
     which does not require a precise measurement.

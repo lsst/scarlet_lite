@@ -28,7 +28,7 @@ def calculate_snr(images, variance, psfs, center):
     """
     py = psfs.shape[1] // 2
     px = psfs.shape[2] // 2
-    bbox = Box(psfs.shape, origin=(0,-py+center[0], -px+center[1]))
+    bbox = Box(psfs.shape, origin=(0, -py + center[0], -px + center[1]))
     noise = bbox.extract_from(variance)
     img = bbox.extract_from(images)
     numerator = img * psfs
@@ -64,10 +64,10 @@ def weight_sources(blend, mask_footprint=True):
 
     images = observation.images.copy()
     if mask_footprint:
-        images = images * (observation.weights>0)
+        images = images * (observation.weights > 0)
     model = blend.get_model()
     model = observation.convolve(model, mode="real")
-    model[model<0] = 0
+    model[model < 0] = 0
 
     for src in blend.sources:
         if len(src.components) == 0:
@@ -75,10 +75,10 @@ def weight_sources(blend, mask_footprint=True):
             src.flux_box = Box((0, 0, 0))
             continue
         _model = src.get_model()
-        bbox = src.bbox.grow((0,py,px))
+        bbox = src.bbox.grow((0, py, px))
         _model = insert_image(bbox, src.bbox, _model)
         _model = observation.convolve(_model, mode="real")
-        _model[_model<0] = 0
+        _model[_model < 0] = 0
         slices = overlapped_slices(observation.bbox, bbox)
         numerator = _model[slices[1]]
         denominator = model[slices[0]]
@@ -87,5 +87,5 @@ def weight_sources(blend, mask_footprint=True):
         # sometimes numerical errors can cause a hot pixel to have a slightly
         # higher ratio than 1
         ratio[ratio > 1] = 1
-        src.flux = ratio*images[slices[0]]
+        src.flux = ratio * images[slices[0]]
         src.flux_box = observation.bbox & bbox

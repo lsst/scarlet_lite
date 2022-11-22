@@ -1,214 +1,100 @@
-__all__ = ["Starlet", "starlet_transform", "starlet_transform", "multiband_starlet_transform",
-           "multiband_starlet_reconstruction", "get_multiresolution_support"]
+# This file is part of scarlet_lite.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+__all__ = [
+    "starlet_transform",
+    "starlet_transform",
+    "multiband_starlet_transform",
+    "multiband_starlet_reconstruction",
+    "get_multiresolution_support",
+]
+
+import typing
+from typing import Iterable, Callable
 
 import numpy as np
+import numpy.typing as npt
 
 
-class Starlet(object):
-    """ A class used to create the Wavelet transform of a cube of images from the 'a trou' algorithm.
-
-        The transform is performed by convolving the image by a seed starlet: the transform of an all-zero
-        image with its central pixel set to one. This requires 2-fold padding of the image and an odd pad
-        shape. The fft of the seed starlet is cached so that it can be reused in the transform of other
-        images that have the same shape.
-    """
-
-    def __init__(self, image, coefficients, generation, convolve2D):
-        """ Initialise the Starlet object
-
-        Parameters
-        ----------
-        image: numpy ndarray
-            Image in real space.
-        coefficients: array
-            Starlet transform of the image.
-        generation: int
-            The generation of the starlet transform (either `1` or `2`).
-        convolve2D: array-like
-            The filter used to convolve the image and create the wavelets.
-            When `convolve2D` is `None` this uses a cubic bspline.
-        """
-        self._image = image
-        self._coeffs = coefficients
-        self._generation = generation
-        self._convolve2D = convolve2D
-        self._norm = None
-
-    @staticmethod
-    def from_image(image, scales=None, generation=2, convolve2D=None):
-        """Generate a set of starlet coefficients for an image
-
-        Parameters
-        ----------
-        image: array-like
-            The image that is converted into starlet coefficients
-        scales: int
-            The number of starlet scales to use.
-            If `scales` is `None` then the maximum number of scales is used.
-            Note: this is the length of the coefficients-1, as in the notation
-            of `Starck et al. 2011`.
-        generation: int
-            The generation of the starlet transform (either `1` or `2`).
-        convolve2D: array-like
-            The filter used to convolve the image and create the wavelets.
-            When `convolve2D` is `None` this uses a cubic bspline.
-
-        Returns
-        -------
-        result: Starlet
-            The resulting `Starlet` that contains the image, starlet coefficients,
-            as well as the parameters used to generate the coefficients.
-        """
-        if scales is None:
-            scales = get_scales(image.shape)
-        coefficients = starlet_transform(image, scales, generation, convolve2D)
-        return Starlet(image, coefficients, generation, convolve2D)
-
-    @staticmethod
-    def from_coefficients(coefficients, generation=2, convolve2D=None):
-        """Generate an image from a set of starlet coefficients
-
-        Parameters
-        ----------
-        coefficients: array-like
-            The starlet coefficients used to generate the image
-        generation: int
-            The generation of the starlet transform (either `1` or `2`).
-        convolve2D: array-like
-            The filter used to convolve the image and create the wavelets.
-            When `convolve2D` is `None` this uses a cubic bspline.
-
-        Returns
-        -------
-        result: Starlet
-            The resulting `Starlet` that contains the image, starlet coefficients,
-            as well as the parameters used to generate the image.
-        """
-        image = starlet_reconstruction(coefficients, generation, convolve2D)
-        return Starlet(image, coefficients, generation, convolve2D)
-
-    @property
-    def image(self):
-        """The real space image"""
-        return self._image
-
-    @image.setter
-    def image(self, image):
-        """Update the coefficients if the image has changed"""
-        self._image = image
-        self._coeffs = starlet_transform(self.image, self.generation, self.convolve2D)
-
-    @property
-    def coefficients(self):
-        """Starlet coefficients"""
-        return self._coeffs
-
-    @coefficients.setter
-    def coefficients(self, coeffs):
-        """Update the image if the coefficients have changed"""
-        self._coeffs = coeffs
-        self._image = starlet_reconstruction(self.coefficients, self.generation, self.convolve2D)
-
-    @property
-    def scales(self):
-        """Number of starlet scales"""
-        return len(self.coefficients)-1
-
-    @property
-    def generation(self):
-        """The generation of the starlet transform"""
-        return self._generation
-
-    @generation.setter
-    def generation(self, value):
-        """Update the generation of a starlet transform, which involve recalculating the coefficients"""
-        if value != self.generation:
-            self._generation = value
-            self._coeffs = starlet_transform(self.image, self.generation, self.convolve2D)
-            self._norm = None
-
-    @property
-    def convolve2D(self):
-        """Filter used to create starlet coefficients"""
-        return self._convolve2D
-
-    @convolve2D.setter
-    def convolve2D(self, value):
-        """Update the filter used to calculate starlet coefficients, which also involves recreating the coefficients"""
-        if value != self.convolve2D:
-            self._convolve2D = value
-            self._coeffs = starlet_transform(self.image, self.generation, self.convolve2D)
-            self._norm = None
-
-    @property
-    def norm(self):
-        """The norm of a convolved dirac"""
-        if self._norm is None:
-            cy, cx = np.array(self.image.shape[-2:])//2
-            dirac = np.zeros(self.image.shape[-2:])
-            dirac[cy, cx] = 1
-            seed = starlet_transform(dirac, generation=self.generation, convolve2D=self.convolve2D)
-            self._norm = np.sqrt(np.sum(seed**2, axis=(-2, -1)))
-        return self._norm
-
-
-def bspline_convolve(image, scale):
+def bspline_convolve(image: npt.ArrayLike, scale: int) -> np.ndarray:
     """Convolve an image with a bpsline at a given scale.
 
     This uses the spline
-    `h1D = np.array([1.0 / 16, 1.0 / 4, 3.0 / 8, 1.0 / 4, 1.0 / 16])`
+    `h1d = np.array([1.0 / 16, 1.0 / 4, 3.0 / 8, 1.0 / 4, 1.0 / 16])`
     from Starck et al. 2011.
 
     Parameters
     ----------
-    image: 2D array
-        The image or wavelet coefficients to convolve.
+    image: npt.ArrayLike
+        The 2D image or wavelet coefficients to convolve.
     scale: int
         The wavelet scale for the convolution. This sets the
         spacing between adjacent pixels with the spline.
 
+    Returns
+    -------
+    result: np.ndarray
+        The result of convolving the `image` with the spline.
     """
     # Filter for the scarlet transform. Here bspline
-    h1D = np.array([1.0 / 16, 1.0 / 4, 3.0 / 8, 1.0 / 4, 1.0 / 16])
+    h1d = np.array([1.0 / 16, 1.0 / 4, 3.0 / 8, 1.0 / 4, 1.0 / 16])
     j = scale
 
-    slice0 = slice(None, -2**(j+1))
-    slice1 = slice(None, -2**j)
+    slice0 = slice(None, -(2 ** (j + 1)))
+    slice1 = slice(None, -(2**j))
     slice3 = slice(2**j, None)
-    slice4 = slice(2**(j+1), None)
+    slice4 = slice(2 ** (j + 1), None)
     # row
-    col = image * h1D[2]
-    col[slice4] += image[slice0] * h1D[0]
-    col[slice3] += image[slice1] * h1D[1]
-    col[slice1] += image[slice3] * h1D[3]
-    col[slice0] += image[slice4] * h1D[4]
+    col = image * h1d[2]
+    col[slice4] += image[slice0] * h1d[0]
+    col[slice3] += image[slice1] * h1d[1]
+    col[slice1] += image[slice3] * h1d[3]
+    col[slice0] += image[slice4] * h1d[4]
 
     # column
-    result = col * h1D[2]
-    result[:, slice4] += col[:, slice0] * h1D[0]
-    result[:, slice3] += col[:, slice1] * h1D[1]
-    result[:, slice1] += col[:, slice3] * h1D[3]
-    result[:, slice0] += col[:, slice4] * h1D[4]
+    result = col * h1d[2]
+    result[:, slice4] += col[:, slice0] * h1d[0]
+    result[:, slice3] += col[:, slice1] * h1d[1]
+    result[:, slice1] += col[:, slice3] * h1d[3]
+    result[:, slice0] += col[:, slice4] * h1d[4]
     return result
 
 
-def _grad_bspline_convolve(input_grad, image, scale):
-    return lambda input_grad: bspline_convolve(input_grad, scale)
-
-
-def get_scales(image_shape, scales=None):
+def get_scales(image_shape: Iterable[int], scales: int = None) -> int:
     """Get the number of scales to use in the starlet transform.
 
     Parameters
     ----------
-    image_shape: tuple
+    image_shape: Iterable[int]
         The 2D shape of the image that is being transformed
     scales: int
         The number of scale to transform with starlets.
         The total dimension of the starlet will have
         `scales+1` dimensions, since it will also hold
         the image at all scales higher than `scales`.
+
+    Returns
+    -------
+    result: int
+        Number of scales, adjusted for the size of the image.
     """
     # Number of levels for the Starlet decomposition
     max_scale = int(np.log2(np.min(image_shape[-2:]))) - 1
@@ -217,12 +103,17 @@ def get_scales(image_shape, scales=None):
     return int(scales)
 
 
-def starlet_transform(image, scales=None, generation=2, convolve2D=None):
+def starlet_transform(
+    image: np.ndarray,
+    scales: int = None,
+    generation: int = 2,
+    convolve2d: Callable = None,
+) -> np.ndarray:
     """Perform a scarlet transform, or 2nd gen starlet transform.
 
     Parameters
     ----------
-    image: 2D array
+    image: np.ndarray
         The image to transform into starlet coefficients.
     scales: int
         The number of scale to transform with starlets.
@@ -232,7 +123,7 @@ def starlet_transform(image, scales=None, generation=2, convolve2D=None):
     generation: int
         The generation of the transform.
         This must be `1` or `2`.
-    convolve2D: function
+    convolve2d: Callale
         The filter function to use to convolve the image
         with starlets in 2D.
 
@@ -246,16 +137,16 @@ def starlet_transform(image, scales=None, generation=2, convolve2D=None):
 
     scales = get_scales(image.shape, scales)
     c = image
-    if convolve2D is None:
-        convolve2D = bspline_convolve
+    if convolve2d is None:
+        convolve2d = bspline_convolve
 
-    ## wavelet set of coefficients.
+    # wavelet set of coefficients.
     starlet = np.zeros((scales + 1,) + image.shape)
     for j in range(scales):
-        gen1 = convolve2D(c, j)
+        gen1 = convolve2d(c, j)
 
         if generation == 2:
-            gen2 = convolve2D(gen1, j)
+            gen2 = convolve2d(gen1, j)
             starlet[j] = c - gen2
         else:
             starlet[j] = c - gen1
@@ -266,52 +157,72 @@ def starlet_transform(image, scales=None, generation=2, convolve2D=None):
     return starlet
 
 
-def multiband_starlet_transform(image, scales=None, generation=2, convolve2D=None):
+def multiband_starlet_transform(
+    image: np.ndarray,
+    scales: int = None,
+    generation: int = 2,
+    convolve2d: Callable = None,
+) -> np.ndarray:
     """Perform a starlet transform of a multiband image.
 
     See `starlet_transform` for a description of the parameters.
     """
-    assert len(image.shape) == 3, f"Image should be 3D (bands, height, width), got shape {len(image.shape)}"
+    assert (
+        len(image.shape) == 3
+    ), f"Image should be 3D (bands, height, width), got shape {len(image.shape)}"
     assert generation in (1, 2), f"generation should be 1 or 2, got {generation}"
     scales = get_scales(image.shape, scales)
 
-    wavelets = np.empty((scales+1,)+image.shape, dtype=image.dtype)
+    wavelets = np.empty((scales + 1,) + image.shape, dtype=image.dtype)
     for b, image in enumerate(image):
-        wavelets[:, b] = starlet_transform(image, scales=scales, generation=generation, convolve2D=convolve2D)
+        wavelets[:, b] = starlet_transform(
+            image, scales=scales, generation=generation, convolve2d=convolve2d
+        )
     return wavelets
 
 
-def starlet_reconstruction(starlets, generation=2, convolve2D=None):
+def starlet_reconstruction(
+    starlets: np.ndarray,
+    generation: int = 2,
+    convolve2d: Callable = None,
+) -> np.ndarray:
     """Reconstruct an image from a dictionary of starlets
 
     Parameters
     ----------
-    starlets: array with dimension (scales+1, Ny, Nx)
-        The starlet dictionary used to reconstruct the image.
-    convolve2D: function
+    starlets: np.ndarray
+        The starlet dictionary used to reconstruct the image
+        with dimension (scales+1, Ny, Nx).
+    generation: int
+        The generation of the starlet transform (either ``1`` or ``2``).
+    convolve2d: Callable
         The filter function to use to convolve the image
         with starlets in 2D.
 
     Returns
     -------
-    image: 2D array
-        The image reconstructed from the input `starlet`.
+    image: np.ndarray
+        The 2D image reconstructed from the input `starlet`.
     """
     if generation == 1:
         return np.sum(starlets, axis=0)
-    if convolve2D is None:
-        convolve2D = bspline_convolve
+    if convolve2d is None:
+        convolve2d = bspline_convolve
     scales = len(starlets) - 1
 
     c = starlets[-1]
     for i in range(1, scales + 1):
         j = scales - i
-        cj = convolve2D(c, j)
+        cj = convolve2d(c, j)
         c = cj + starlets[j]
     return c
 
 
-def multiband_starlet_reconstruction(starlets, generation=2, convolve2D=None):
+def multiband_starlet_reconstruction(
+    starlets: np.ndarray,
+    generation: int = 2,
+    convolve2d: Callable = None,
+) -> np.ndarray:
     """Reconstruct a multiband image
 
     See `starlet_reconstruction` for a description of the
@@ -321,15 +232,22 @@ def multiband_starlet_reconstruction(starlets, generation=2, convolve2D=None):
     result = np.array((bands, width, height), dtype=starlets.dtype)
     for band in bands:
         result[:, band] = starlet_reconstruction(
-            starlets[:, band],
-            generation=generation,
-            convolve2D=convolve2D
+            starlets[:, band], generation=generation, convolve2d=convolve2d
         )
     return result
 
 
-def get_multiresolution_support(image, starlets, sigma, K=3, epsilon=1e-1, max_iter=20, image_type="ground"):
-    """Calculate the multi-resolution support for a dictionary of starlet coefficients
+def get_multiresolution_support(
+    image: np.ndarray,
+    starlets: np.ndarray,
+    sigma: float,
+    sigma_scaling: float = 3,
+    epsilon: float = 1e-1,
+    max_iter: int = 20,
+    image_type: str = "ground",
+) -> np.ndarray[int]:
+    """Calculate the multi-resolution support for a
+    dictionary of starlet coefficients
 
     This is different for ground and space based telescopes.
     For space-based telescopes the procedure in Starck and Murtagh 1998
@@ -340,13 +258,14 @@ def get_multiresolution_support(image, starlets, sigma, K=3, epsilon=1e-1, max_i
 
     Parameters
     ----------
-    image: 2D array
+    image: np.ndarray
         The image to transform into starlet coefficients.
-    starlets: array with dimension (scales+1, Ny, Nx)
-        The starlet dictionary used to reconstruct `image`.
+    starlets: np.ndarray
+        The starlet dictionary used to reconstruct `image` with
+        dimension (scales+1, Ny, Nx).
     sigma: float
         The standard deviation of the `image`.
-    K: float
+    sigma_scaling: float
         The multiple of `sigma` to use to calculate significance.
         Coefficients `w` where `|w| > K*sigma_j`, where `sigma_j` is
         standard deviation at the jth scale, are considered significant.
@@ -363,7 +282,7 @@ def get_multiresolution_support(image, starlets, sigma, K=3, epsilon=1e-1, max_i
 
     Returns
     -------
-    M: array of `int`
+    M: np.ndarray[int]
         Mask with significant coefficients in `starlets` set to `True`.
     """
     assert image_type in ("ground", "space")
@@ -373,7 +292,7 @@ def get_multiresolution_support(image, starlets, sigma, K=3, epsilon=1e-1, max_i
         # each scale due to gaussian noise
         shape = (get_scales(image.shape),) + image.shape
         noise_img = np.random.normal(size=image.shape)
-        noise_starlet = starlet_transform(shape, noise_img, generation=1)
+        noise_starlet = starlet_transform(np.array(shape), noise_img, generation=1)
         sigma_je = np.zeros((len(noise_starlet),))
         for j, star in enumerate(noise_starlet):
             sigma_je[j] = np.std(star)
@@ -381,10 +300,10 @@ def get_multiresolution_support(image, starlets, sigma, K=3, epsilon=1e-1, max_i
 
         last_sigma_i = sigma
         for it in range(max_iter):
-            M = (np.abs(starlets) > K * sigma * sigma_je[:, None, None])
-            S = np.sum(M, axis=0) == 0
-            sigma_i = np.std(noise * S)
-            if np.abs(sigma_i-last_sigma_i)/sigma_i < epsilon:
+            m = np.abs(starlets) > sigma_scaling * sigma * sigma_je[:, None, None]
+            s = np.sum(m, axis=0) == 0
+            sigma_i = np.std(noise * s)
+            if np.abs(sigma_i - last_sigma_i) / sigma_i < epsilon:
                 break
             last_sigma_i = sigma_i
     else:
@@ -393,51 +312,51 @@ def get_multiresolution_support(image, starlets, sigma, K=3, epsilon=1e-1, max_i
         sigma_j = np.ones((len(starlets),), dtype=image.dtype) * sigma
         last_sigma_j = sigma_j
         for it in range(max_iter):
-            M = (np.abs(starlets) > K * sigma_j[:, None, None])
-            # Take the standard deviation of the current insignificant coeffs at each scale
-            S = ~M
-            sigma_j = np.std(starlets * S.astype(int), axis=(1, 2))
+            m = np.abs(starlets) > sigma_scaling * sigma_j[:, None, None]
+            # Take the standard deviation of the current
+            # insignificant coeffs at each scale
+            s = typing.cast(~m, np.ndarray)
+            sigma_j = np.std(starlets * s.astype(int), axis=(1, 2))
             # At lower scales all of the pixels may be significant,
             # so sigma is effectively zero. To avoid infinities we
             # only check the scales with non-zero sigma
             cut = sigma_j > 0
-            if np.all(np.abs(sigma_j[cut] - last_sigma_j[cut]) / sigma_j[cut] < epsilon):
+            if np.all(
+                np.abs(sigma_j[cut] - last_sigma_j[cut]) / sigma_j[cut] < epsilon
+            ):
                 break
 
             last_sigma_j = sigma_j
-    return M.astype(int)
+    # noinspection PyUnboundLocalVariable
+    return m.astype(int)
 
 
-class InputError(Exception):
-    """Exception raised for errors in the input.
-
-    Attributes:
-        expression -- input expression in which the error occurred
-        message -- explanation of the error
-    """
-
-    def __init__(self, message):
-        self.message = message
-
-
-def apply_wavelet_denoising(image, sigma=None, k=3, epsilon=1e-1, max_iter=20, image_type="ground", positive=True):
+def apply_wavelet_denoising(
+    image: np.ndarray,
+    sigma: float = None,
+    sigma_scaling: float = 3,
+    epsilon: float = 1e-1,
+    max_iter: int = 20,
+    image_type: str = "ground",
+    positive: bool = True,
+) -> np.ndarray:
     """Apply wavelet denoising
 
     Uses the algorithm and notation from Starck et al. 2011, section 4.1
 
     Parameters
     ----------
-    image: array-like
+    image: np.ndarray
         The image to denoise
     sigma: float
         The standard deviation of the image
-    k: float
+    sigma_scaling: float
         The threshold in units of sigma to declare a coefficient significant
     epsilon: float
         Convergence criteria for determining the support
     max_iter: int
-        The maximum number of iterations. This applies to both finding the support
-        and the denoising loop.
+        The maximum number of iterations.
+        This applies to both finding the support and the denoising loop.
     image_type: str
         The type of image that is being used.
         This should be "ground" for ground based images with wide PSFs or
@@ -454,12 +373,14 @@ def apply_wavelet_denoising(image, sigma=None, k=3, epsilon=1e-1, max_iter=20, i
     if sigma is None:
         sigma = np.median(np.absolute(image - np.median(image)))
     coeffs = image_coeffs.copy()
-    support = get_multiresolution_support(image, coeffs, sigma, k, epsilon, max_iter, image_type)
+    support = get_multiresolution_support(
+        image, coeffs, sigma, sigma_scaling, epsilon, max_iter, image_type
+    )
     x = starlet_reconstruction(coeffs)
 
     for n in range(max_iter):
         coeffs = starlet_transform(x)
         x = x + starlet_reconstruction(support * (image_coeffs - coeffs))
         if positive:
-            x[x<0] = 0
+            x[x < 0] = 0
     return x

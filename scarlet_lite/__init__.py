@@ -1,9 +1,14 @@
 from .bbox import *
 from .blend import *
+import cache
 from .component import *
-from .constraint import *
 import detect
-import display
+
+try:
+    import matplotlib
+    import display
+except ImportError:
+    pass
 from .frame import *
 import initialization
 import interpolation

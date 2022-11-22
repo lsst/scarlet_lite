@@ -20,6 +20,9 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
+from typing import Hashable, Any
+
+
 class Cache:
     """Cache to hold all complex proximal operators, transformation etc.
 
@@ -31,7 +34,7 @@ class Cache:
     _cache = {}
 
     @staticmethod
-    def check(name, key):
+    def check(name: Hashable, key: Hashable) -> Any:
         try:
             Cache._cache[name]
         except KeyError:
@@ -39,7 +42,7 @@ class Cache:
         return Cache._cache[name][key]
 
     @staticmethod
-    def set(name, key, content):
+    def set(name: Hashable, key: Hashable, content: Any):
         try:
             Cache._cache[name]
         except KeyError:

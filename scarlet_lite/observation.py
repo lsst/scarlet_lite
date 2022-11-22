@@ -10,8 +10,7 @@ from .parameters import FistaParameter
 
 
 def convolve(image, psf, bounds):
-    """Convolve an image with a PSF in real space
-    """
+    """Convolve an image with a PSF in real space"""
     from .operators_pybind11 import apply_filter
 
     result = np.empty(image.shape, dtype=image.dtype)
@@ -34,8 +33,7 @@ def convolve(image, psf, bounds):
 
 
 def _grad_convolve(convolved, image, psf, slices):
-    """Gradient of a real space convolution
-    """
+    """Gradient of a real space convolution"""
     return lambda input_grad: convolve(input_grad, psf[:, ::-1, ::-1], slices)
 
 
@@ -48,8 +46,19 @@ class LiteObservation:
     onto the same pixel grid and that the `images` contain all
     of the information for all of the model bands.
     """
-    def __init__(self, images, variance, weights, psfs, model_psf=None, noise_rms=None,
-                 bbox=None, padding=3, convolution_mode="fft"):
+
+    def __init__(
+        self,
+        images,
+        variance,
+        weights,
+        psfs,
+        model_psf=None,
+        noise_rms=None,
+        bbox=None,
+        padding=3,
+        convolution_mode="fft",
+    ):
         self.images = images
         self.variance = variance
         self.weights = weights
@@ -58,7 +67,10 @@ class LiteObservation:
             psfs = psfs.astype(images.dtype)
         self.psfs = psfs
 
-        assert convolution_mode in ["fft", "real"], "convolution_mode must be either 'fft' or 'real'"
+        assert convolution_mode in [
+            "fft",
+            "real",
+        ], "convolution_mode must be either 'fft' or 'real'"
         self.mode = convolution_mode
         if noise_rms is None:
             noise_rms = np.array(np.mean(np.sqrt(variance), axis=(1, 2)))
@@ -110,7 +122,9 @@ class LiteObservation:
             mode = self.mode
         if mode == "fft":
             result = fft_convolve(
-                Fourier(image), kernel, axes=(1, 2),
+                Fourier(image),
+                kernel,
+                axes=(1, 2),
             ).image
         elif mode == "real":
             result = convolve(image, kernel.image, self.convolution_bounds)
@@ -119,14 +133,12 @@ class LiteObservation:
         return result
 
     def render(self, model):
-        """Mirror of `Observation.render to make APIs match
-        """
+        """Mirror of `Observation.render to make APIs match"""
         return self.convolve(model)
 
     @property
     def data(self):
-        """Mirror of `Observation.data` to make APIs match
-        """
+        """Mirror of `Observation.data` to make APIs match"""
         return self.images
 
     @property
@@ -141,14 +153,12 @@ class LiteObservation:
 
     @property
     def dtype(self):
-        """The dtype of the observation is the dtype of the images
-        """
+        """The dtype of the observation is the dtype of the images"""
         return self.images.dtype
 
     @property
     def convolution_bounds(self):
-        """Build the slices needed for convolution in real space
-        """
+        """Build the slices needed for convolution in real space"""
         if not hasattr(self, "_convolution_bounds"):
             coords = interpolation.get_filter_coords(self.diff_kernel[0])
             self._convolution_bounds = interpolation.get_filter_bounds(
@@ -157,8 +167,7 @@ class LiteObservation:
         return self._convolution_bounds
 
     def __getitem__(self, i):
-        """Allow the user to slice the observations with python indexing
-        """
+        """Allow the user to slice the observations with python indexing"""
         images = self.images[i]
         variance = self.variance[i]
         weights = self.weights[i]
@@ -186,12 +195,33 @@ class LiteObservation:
 
 
 class FitPsfObservation(LiteObservation):
-    """An observation that fits the PSF used to convolve the model.
-    """
-    def __init__(self, diff_kernel, fft_shape, images, variance, weights, psfs, model_psf=None, noise_rms=None,
-                 bbox=None, padding=3, convolution_mode="fft"):
-        super().__init__(images, variance, weights, psfs, model_psf, noise_rms,
-                 bbox, padding, convolution_mode)
+    """An observation that fits the PSF used to convolve the model."""
+
+    def __init__(
+        self,
+        diff_kernel,
+        fft_shape,
+        images,
+        variance,
+        weights,
+        psfs,
+        model_psf=None,
+        noise_rms=None,
+        bbox=None,
+        padding=3,
+        convolution_mode="fft",
+    ):
+        super().__init__(
+            images,
+            variance,
+            weights,
+            psfs,
+            model_psf,
+            noise_rms,
+            bbox,
+            padding,
+            convolution_mode,
+        )
 
         self.mode = "fft"
         self.axes = (-2, -1)
@@ -218,7 +248,7 @@ class FitPsfObservation(LiteObservation):
 
     @property
     def gradFitKernel(self):
-        return self.fitKernel.real - self.fitKernel.imag*1j
+        return self.fitKernel.real - self.fitKernel.imag * 1j
 
     def convolve(self, image, mode=None, grad=False):
         """Convolve the model into the observed seeing in each band.
@@ -244,12 +274,14 @@ class FitPsfObservation(LiteObservation):
         if kernel is None:
             return image
 
-        assert(mode is None or mode == "fft")
+        assert mode is None or mode == "fft"
 
         image = Fourier(image)
         fft = image.fft(self.fft_shape, self.axes)
 
-        result = fft.Fourier.from_fft(fft*kernel, self.fft_shape, image.shape, self.axes)
+        result = fft.Fourier.from_fft(
+            fft * kernel, self.fft_shape, image.shape, self.axes
+        )
         return result.image
 
     def update(self, it, input_grad, model):

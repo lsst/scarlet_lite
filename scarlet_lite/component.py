@@ -19,9 +19,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
-__all__ = ["LiteComponent", "LiteFactorizedComponent", "SedComponent",
-           "ParametricComponent", "EllipticalParametricComponent"]
+__all__ = [
+    "LiteComponent",
+    "LiteFactorizedComponent",
+    "SedComponent",
+    "ParametricComponent",
+    "EllipticalParametricComponent",
+]
 
 from functools import partial
 
@@ -29,13 +33,13 @@ import numpy as np
 from scipy.special import erf
 from scipy.stats import gamma
 
-from .parameters import FixedParameter, AdaproxParameter, DEFAULT_FACTOR
-from .frame import CartesianFrame, EllipseFrame
 from .bbox import overlapped_slices
+from .frame import CartesianFrame, EllipseFrame
+import initialization
+from .operators import MonotonicityConstraint
+from .parameters import FixedParameter, AdaproxParameter, DEFAULT_FACTOR
 from .parameters import relative_step
-from . import initialization
-from .constraint import MonotonicityConstraint
-from .detect import scarletFootprintsToImage
+from .detect import scarlet_footprints_to_image
 
 
 # Some operations fail at the origin in radial coordinates,
@@ -43,7 +47,7 @@ from .detect import scarletFootprintsToImage
 MIN_RADIUS = 1e-20
 
 # Useful constants
-SQRT_PI_2 = np.sqrt(np.pi/2)
+SQRT_PI_2 = np.sqrt(np.pi / 2)
 
 # Stored sersic constants
 SERSIC_B1 = gamma.ppf(0.5, 2)
@@ -73,8 +77,17 @@ class LiteComponent:
     bg_rms: `float`
         The RMS of the background, required by some parameterizations.
     """
-    def __init__(self, center, bbox, sed=None, morph=None, initialized=False,
-                 bg_thresh=0.25, bg_rms=0):
+
+    def __init__(
+        self,
+        center,
+        bbox,
+        sed=None,
+        morph=None,
+        initialized=False,
+        bg_thresh=0.25,
+        bg_rms=0,
+    ):
         self._center = center
         self._bbox = bbox
         self._sed = sed
@@ -104,8 +117,7 @@ class LiteComponent:
         return self._morph
 
     def resize(self):
-        """Test whether or not the component needs to be resized
-        """
+        """Test whether or not the component needs to be resized"""
         # No need to resize if there is no size threshold.
         # To allow box sizing but no thresholding use `bg_thresh=0`.
         if self.bg_thresh is None:
@@ -117,17 +129,21 @@ class LiteComponent:
         # shrink the box? peel the onion
         dist = 0
         while (
-            np.all(morph[dist, :] == 0) and
-            np.all(morph[-dist, :] == 0) and
-            np.all(morph[:, dist] == 0) and
-            np.all(morph[:, -dist] == 0)
+            np.all(morph[dist, :] == 0)
+            and np.all(morph[-dist, :] == 0)
+            and np.all(morph[:, dist] == 0)
+            and np.all(morph[:, -dist] == 0)
         ):
             dist += 1
 
         new_size = initialization.get_minimal_boxsize(size - 2 * dist)
         if new_size < size:
             dist = (size - new_size) // 2
-            self.bbox.origin = (self.bbox.origin[0], self.bbox.origin[1]+dist, self.bbox.origin[2]+dist)
+            self.bbox.origin = (
+                self.bbox.origin[0],
+                self.bbox.origin[1] + dist,
+                self.bbox.origin[2] + dist,
+            )
             self.bbox.shape = (self.bbox.shape[0], new_size, new_size)
             self._morph.shrink(dist)
             self.slices = overlapped_slices(self.model_bbox, self.bbox)
@@ -135,24 +151,32 @@ class LiteComponent:
 
         # grow the box?
         model = self.get_model()
-        edge_flux = np.array([
-            np.sum(model[:, 0]),
-            np.sum(model[:, -1]),
-            np.sum(model[0, :]),
-            np.sum(model[-1, :]),
-        ])
+        edge_flux = np.array(
+            [
+                np.sum(model[:, 0]),
+                np.sum(model[:, -1]),
+                np.sum(model[0, :]),
+                np.sum(model[-1, :]),
+            ]
+        )
 
-        edge_mask = np.array([
-            np.sum(model[:, 0] > 0),
-            np.sum(model[:, -1] > 0),
-            np.sum(model[0, :] > 0),
-            np.sum(model[-1, :] > 0),
-        ])
+        edge_mask = np.array(
+            [
+                np.sum(model[:, 0] > 0),
+                np.sum(model[:, -1] > 0),
+                np.sum(model[0, :] > 0),
+                np.sum(model[-1, :] > 0),
+            ]
+        )
 
-        if np.any(edge_flux/edge_mask > self.bg_thresh*self.bg_rms[:, None, None]):
+        if np.any(edge_flux / edge_mask > self.bg_thresh * self.bg_rms[:, None, None]):
             new_size = initialization.get_minimal_boxsize(size + 1)
             dist = (new_size - size) // 2
-            self.bbox.origin = (self.bbox.origin[0], self.bbox.origin[1]-dist, self.bbox.origin[2]-dist)
+            self.bbox.origin = (
+                self.bbox.origin[0],
+                self.bbox.origin[1] - dist,
+                self.bbox.origin[2] - dist,
+            )
             self.bbox.shape = (self.bbox.shape[0], new_size, new_size)
             self._morph.grow(self.bbox.shape[1:], dist)
             self.slices = overlapped_slices(self.model_bbox, self.bbox)
@@ -167,10 +191,20 @@ class LiteComponent:
 
 
 class LiteFactorizedComponent(LiteComponent):
-    """Implementation of a `FactorizedComponent` for simplified observations.
-    """
-    def __init__(self, sed, morph, center, bbox, model_bbox, bg_rms, bg_thresh=0.25, floor=1e-20,
-                 fit_center_radius=1):
+    """Implementation of a `FactorizedComponent` for simplified observations."""
+
+    def __init__(
+        self,
+        sed,
+        morph,
+        center,
+        bbox,
+        model_bbox,
+        bg_rms,
+        bg_thresh=0.25,
+        floor=1e-20,
+        fit_center_radius=1,
+    ):
         """Initialize the component.
 
         Parameters
@@ -195,12 +229,18 @@ class LiteFactorizedComponent(LiteComponent):
             Minimum value of the SED or center morphology pixel.
         """
         # Initialize all of the base attributes
-        super().__init__(center, bbox, sed, morph, initialized=True, bg_thresh=bg_thresh, bg_rms=bg_rms)
+        super().__init__(
+            center,
+            bbox,
+            sed,
+            morph,
+            initialized=True,
+            bg_thresh=bg_thresh,
+            bg_rms=bg_rms,
+        )
         # Initialize the monotonicity constraint
         self.monotonicity = MonotonicityConstraint(
-            neighbor_weight="angle",
-            min_gradient=0,
-            fit_center_radius=fit_center_radius
+            neighbor_weight="angle", min_gradient=0, fit_center_radius=fit_center_radius
         )
         self.floor = floor
         self.model_bbox = model_bbox
@@ -295,7 +335,18 @@ class SedComponent(LiteComponent):
     or part of a set of components to deconvolve an image by separating out
     the different spectral components.
     """
-    def __init__(self, sed, morph, model_bbox, bg_thresh=None, bg_rms=None, floor=1e-20, peaks=None, min_area=0):
+
+    def __init__(
+        self,
+        sed,
+        morph,
+        model_bbox,
+        bg_thresh=None,
+        bg_rms=None,
+        floor=1e-20,
+        peaks=None,
+        min_area=0,
+    ):
         """Initialize the component.
 
         See `~LiteComponent` for the rest of the parameters.
@@ -315,8 +366,8 @@ class SedComponent(LiteComponent):
         floor: `float`
             Minimum value of the SED or center morphology pixel.
         """
-        cy = (model_bbox.shape[0]-1)//2
-        cx = (model_bbox.shape[1]-1)//2
+        cy = (model_bbox.shape[0] - 1) // 2
+        cx = (model_bbox.shape[1] - 1) // 2
         self.floor = floor
         self.model_bbox = model_bbox
         self.peaks = peaks
@@ -329,7 +380,7 @@ class SedComponent(LiteComponent):
             morph,
             initialized=True,
             bg_thresh=bg_thresh,
-            bg_rms=bg_rms
+            bg_rms=bg_rms,
         )
 
         # update the parameters
@@ -377,12 +428,13 @@ class SedComponent(LiteComponent):
         # prevent divergent SED
         sed[sed < self.floor] = self.floor
         # Normalize the SED
-        sed = sed/np.sum(sed)
+        sed = sed / np.sum(sed)
         return sed
 
     def prox_morph(self, morph, prox_step=0):
         """Apply a prox-like update to the morphology"""
         from .detect_pybind11 import get_connected_multipeak, get_footprints
+
         if self.bg_thresh is not None:
             bg_thresh = self.bg_rms * self.bg_thresh
             # Enforce background thresholding
@@ -393,14 +445,14 @@ class SedComponent(LiteComponent):
             morph[morph < 0] = 0
 
         if self.peaks is not None:
-            morph = morph * get_connected_multipeak(morph>0, self.peaks, 0)
+            morph = morph * get_connected_multipeak(morph > 0, self.peaks, 0)
 
         if self.min_area > 0:
-            footprints = get_footprints(morph>0, 4.0, self.min_area, 0, False)
-            morph = morph * (scarletFootprintsToImage(footprints, morph.shape) > 0)
+            footprints = get_footprints(morph > 0, 4.0, self.min_area, 0, False)
+            morph = morph * (scarlet_footprints_to_image(footprints, morph.shape) > 0)
 
-        if np.all(morph==0):
-            morph[0,0] = self.floor
+        if np.all(morph == 0):
+            morph[0, 0] = self.floor
 
         return morph
 
@@ -438,7 +490,7 @@ def gaussian2d(params, ellipse):
     result: `numpy.ndarray`
         The 2D guassian for the given ellipse parameters
     """
-    return np.exp(-ellipse.R2)
+    return np.exp(-ellipse.r2_grid)
 
 
 def grad_gaussian(input_grad, params, cls, morph, sed, ellipse):
@@ -463,7 +515,7 @@ def grad_gaussian(input_grad, params, cls, morph, sed, ellipse):
     # wrt the Gaussian e^-r**2
     _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
     _grad[cls.slices[1]] = input_grad[cls.slices[0]]
-    _grad = -morph*np.einsum("i,i...", sed, _grad)
+    _grad = -morph * np.einsum("i,i...", sed, _grad)
     dY0 = ellipse.grad_y0(_grad, True)
     dX0 = ellipse.grad_x0(_grad, True)
     dSigmaY = ellipse.grad_major(_grad, True)
@@ -490,8 +542,8 @@ def circular_gaussian(center, frame, sigma):
         The image of the circular Gaussian.
     """
     y0, x0 = center[:2]
-    two_sigma = 2*sigma
-    r2 = ((frame.X - x0)/two_sigma)**2 + ((frame.Y - y0)/two_sigma)**2
+    two_sigma = 2 * sigma
+    r2 = ((frame.x_grid - x0) / two_sigma) ** 2 + ((frame.y_grid - y0) / two_sigma) ** 2
     return np.exp(-r2)
 
 
@@ -517,11 +569,11 @@ def grad_circular_gaussian(input_grad, params, cls, morph, sed, frame, sigma):
     # wrt the Gaussian e^-r**2
     _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
     _grad[cls.slices[1]] = input_grad[cls.slices[0]]
-    _grad = -morph*np.einsum("i,i...", sed, _grad)
+    _grad = -morph * np.einsum("i,i...", sed, _grad)
 
     y0, x0 = params[:2]
-    dY0 = -2*np.sum((frame.Y - y0)*_grad)
-    dX0 = -2*np.sum((frame.X - x0)*_grad)
+    dY0 = -2 * np.sum((frame.y_grid - y0) * _grad)
+    dX0 = -2 * np.sum((frame.x_grid - x0) * _grad)
     return np.array([dY0, dX0], dtype=params.dtype)
 
 
@@ -546,12 +598,12 @@ def integrated_gaussian(params, frame):
     """
     # Unpack the parameters and define constants
     y0, x0, sigma = params
-    r = np.sqrt((frame.X - x0)**2 + (frame.Y - y0)**2)
-    sqrt_c = 1/np.sqrt(2)/sigma
+    r = np.sqrt((frame.x_grid - x0) ** 2 + (frame.y_grid - y0) ** 2)
+    sqrt_c = 1 / np.sqrt(2) / sigma
     # Integrate from half a pixel left and right
-    lhs = erf((r - 0.5)*sqrt_c)
-    rhs = erf((r + 0.5)*sqrt_c)
-    z = 0.5*np.sqrt(np.pi)/sqrt_c*(rhs - lhs)
+    lhs = erf((r - 0.5) * sqrt_c)
+    rhs = erf((r + 0.5) * sqrt_c)
+    z = 0.5 * np.sqrt(np.pi) / sqrt_c * (rhs - lhs)
     return z
 
 
@@ -582,9 +634,9 @@ def grad_integrated_gaussian(input_grad, params, cls, morph, sed, frame):
     # Extract the parameters
     y0, x0, sigma = params
     # define useful constants
-    x = frame.X - x0
-    y = frame.Y - y0
-    c = 0.5/sigma**2
+    x = frame.x_grid - x0
+    y = frame.y_grid - y0
+    c = 0.5 / sigma**2
     sqrt_c = np.sqrt(c)
     # Add a small constant to the radius to prevent a divergence at r==0
     r = np.sqrt(x**2 + y**2 + MIN_RADIUS)
@@ -592,14 +644,14 @@ def grad_integrated_gaussian(input_grad, params, cls, morph, sed, frame):
     r1 = r - 0.5
     r2 = r + 0.5
     # Calculate the gradient of the ERF wrt. each shifted radius
-    dModel1 = np.exp(-c*r1**2)
-    dModel2 = np.exp(-c*r2**2)
+    dModel1 = np.exp(-c * r1**2)
+    dModel2 = np.exp(-c * r2**2)
     # Calculate the gradients of the parameters
-    dX0 = np.sum(-x/r*(dModel2 - dModel1)*_grad)
-    dY0 = np.sum(-y/r*(dModel2 - dModel1)*_grad)
-    dSigma1 = -(r1*dModel1/sigma - SQRT_PI_2*erf(r1*sqrt_c))
-    dSigma2 = -(r2*dModel2/sigma - SQRT_PI_2*erf(r2*sqrt_c))
-    dSigma = np.sum((dSigma2 - dSigma1)*_grad)
+    dX0 = np.sum(-x / r * (dModel2 - dModel1) * _grad)
+    dY0 = np.sum(-y / r * (dModel2 - dModel1) * _grad)
+    dSigma1 = -(r1 * dModel1 / sigma - SQRT_PI_2 * erf(r1 * sqrt_c))
+    dSigma2 = -(r2 * dModel2 / sigma - SQRT_PI_2 * erf(r2 * sqrt_c))
+    dSigma = np.sum((dSigma2 - dSigma1) * _grad)
 
     return np.array([dY0, dX0, dSigma])
 
@@ -654,15 +706,15 @@ def sersic(params, ellipse):
     result: `numpy.ndarray`
         The 2D guassian for the given ellipse parameters
     """
-    n, = params
+    (n,) = params
 
-    r = ellipse.R
+    r = ellipse.r_grid
 
     if n == 1:
-        result = np.exp(-SERSIC_B1*r)
+        result = np.exp(-SERSIC_B1 * r)
     else:
-        bn = gamma.ppf(0.5, 2*n)
-        result = np.exp(-bn*(r**(1/n) - 1))
+        bn = gamma.ppf(0.5, 2 * n)
+        result = np.exp(-bn * (r ** (1 / n) - 1))
     return result
 
 
@@ -685,19 +737,26 @@ def grad_sersic(input_grad, params, cls, morph, sed, ellipse):
         The ellipse parameters to scale the radius in all directions.
     """
     n = params[5]
-    bn = gamma.ppf(0.5, 2*n)
+    bn = gamma.ppf(0.5, 2 * n)
     if n == 1:
         # Use a simplified model for faster calculation
-        dExp = -SERSIC_B1*morph
+        dExp = -SERSIC_B1 * morph
     else:
-        r = ellipse.R
-        dExp = -bn/n*morph*r**(1 / n - 1)
+        r = ellipse.r_grid
+        dExp = -bn / n * morph * r ** (1 / n - 1)
 
     _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
     _grad[cls.slices[1]] = input_grad[cls.slices[0]]
     _grad = np.einsum("i,i...", sed, _grad)
-    dN = np.sum(_grad*bn*morph*ellipse.R**(1/n)*np.log10(ellipse.R)/n**2)
-    _grad = _grad*dExp
+    dN = np.sum(
+        _grad
+        * bn
+        * morph
+        * ellipse.r_grid ** (1 / n)
+        * np.log10(ellipse.r_grid)
+        / n**2
+    )
+    _grad = _grad * dExp
     dY0 = ellipse.grad_y0(_grad, False)
     dX0 = ellipse.grad_x0(_grad, False)
     dSigmaY = ellipse.grad_major(_grad, False)
@@ -707,11 +766,21 @@ def grad_sersic(input_grad, params, cls, morph, sed, ellipse):
 
 
 class ParametricComponent:
-    """A parametric model of an astrophysical source
-    """
+    """A parametric model of an astrophysical source"""
 
-    def __init__(self, sed, morph_params, morph_func, morph_grad, morph_prox,
-                 morph_step, model_frame, bbox, prox_sed=None, floor=1e-20):
+    def __init__(
+        self,
+        sed,
+        morph_params,
+        morph_func,
+        morph_grad,
+        morph_prox,
+        morph_step,
+        model_frame,
+        bbox,
+        prox_sed=None,
+        floor=1e-20,
+    ):
         """Initialize the component
 
         Parameters
@@ -918,7 +987,9 @@ class ParametricComponent:
         """
         self._sed = AdaproxParameter(
             self._sed.x,
-            step=partial(relative_step, factor=DEFAULT_FACTOR, minimum=noise_rms/factor),
+            step=partial(
+                relative_step, factor=DEFAULT_FACTOR, minimum=noise_rms / factor
+            ),
             max_prox_iter=max_prox_iter,
             prox=self._prox_sed,
             grad=self.grad_sed,
@@ -933,11 +1004,21 @@ class ParametricComponent:
 
 
 class EllipticalParametricComponent(ParametricComponent):
-    """A radial density/surface brightness profile with elliptical symmetry
-    """
+    """A radial density/surface brightness profile with elliptical symmetry"""
 
-    def __init__(self, sed, morph_params, morph_func, morph_grad, morph_prox, morph_step,
-                 bbox, model_frame, prox_sed=None, floor=1e-20):
+    def __init__(
+        self,
+        sed,
+        morph_params,
+        morph_func,
+        morph_grad,
+        morph_prox,
+        morph_step,
+        bbox,
+        model_frame,
+        prox_sed=None,
+        floor=1e-20,
+    ):
         """Initialize the component
 
         Parameters
@@ -979,7 +1060,7 @@ class EllipticalParametricComponent(ParametricComponent):
             model_frame=model_frame,
             bbox=bbox,
             prox_sed=prox_sed,
-            floor=floor
+            floor=floor,
         )
 
     @property

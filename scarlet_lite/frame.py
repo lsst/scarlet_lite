@@ -1,14 +1,41 @@
-__all__ = ["CartesianFrame", "EllipseFrame"]
+# This file is part of scarlet_lite.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+__all__ = ["CartesianFrame", "EllipseFrame"]
 
 import numpy as np
 
+from .bbox import Box
+
 
 class CartesianFrame:
-    """A grid of X and Y values contained in a bbox
-    """
+    """A grid of X and Y values contained in a bbox"""
 
-    def __init__(self, bbox):
+    def __init__(self, bbox: Box):
+        """
+        Parameters
+        ----------
+        bbox: Box
+            The bounding box that contains this frame.
+        """
         # Store the new bounding box
         self._bbox = bbox
         # Get the range of x and y
@@ -18,25 +45,29 @@ class CartesianFrame:
         y = np.linspace(yi, yf - 1, height)
         x = np.linspace(xi, xf - 1, width)
         # Create the grid used to create the image of the frame
-        self._X, self._Y = np.meshgrid(x, y)
-        self._R = None
-        self._R2 = None
+        self._x, self._y = np.meshgrid(x, y)
+        self._r = None
+        self._r2 = None
 
     @property
-    def shape(self):
+    def shape(self) -> tuple[int]:
+        """Shape of the frame."""
         return self._bbox.shape
 
     @property
-    def bbox(self):
+    def bbox(self) -> Box:
+        """Bounding box containing the frame"""
         return self._bbox
 
     @property
-    def X(self):
-        return self._X
+    def x_grid(self) -> np.ndarray:
+        """The grid of x-values for the entire frame"""
+        return self._x
 
     @property
-    def Y(self):
-        return self._Y
+    def y_grid(self) -> np.ndarray:
+        """The grid of y-values for the entire frame"""
+        return self._y
 
 
 class EllipseFrame(CartesianFrame):
@@ -49,23 +80,34 @@ class EllipseFrame(CartesianFrame):
     radius**2 or radius for all of the model parameters.
     """
 
-    def __init__(self, y0, x0, major, minor, theta, bbox, r_min=1e-20):
+    def __init__(
+        self,
+        y0: float,
+        x0: float,
+        major: float,
+        minor: float,
+        theta: float,
+        bbox: Box,
+        r_min: float = 1e-20,
+    ):
         """Initialize the EllipseFrame
 
         Parameters
         ----------
-        y0: `float`
+        y0: float
             The y-center of the ellipse.
-        x0: `float`
+        x0: float
             The x-center of the ellipse.
-        major: `float`
+        major: float
             The length of the semi-major axis.
-        minor: `float`
+        minor: float
             The length of the semi-minor axis.
-        theta: `float`
+        theta: float
             The counter-clockwise rotation angle
             from the semi-major axis.
-        r_min: `float`
+        bbox: Box
+            The bounding box that contains the entire frame.
+        r_min: float
             The minimum value of the radius.
             This is used to prevent divergences that occur
             when calculating the gradient at radius == 0.
@@ -77,11 +119,11 @@ class EllipseFrame(CartesianFrame):
 
         # Rotate into the frame with xMajor as the x-axis
         # and xMinor as the y-axis
-        self._xMajor = (self._X - x0)*cos + (self._Y - y0)*sin
-        self._xMinor = -(self._X - x0)*sin + (self._Y - y0)*cos
+        self._xMajor = (self._x - x0) * cos + (self._y - y0) * sin
+        self._xMinor = -(self._x - x0) * sin + (self._y - y0) * cos
         # The scaled major and minor axes
-        self._xa = self._xMajor/major
-        self._yb = self._xMinor/minor
+        self._xa = self._xMajor / major
+        self._yb = self._xMinor / minor
 
         # Store parameters useful for gradient calculation
         self._y0, self._x0 = y0, x0
@@ -95,164 +137,172 @@ class EllipseFrame(CartesianFrame):
         self._radius2 = self._xa**2 + self._yb**2
         self._radius = None
 
-    def grad_x0(self, input_grad, use_r2):
+    def grad_x0(self, input_grad: np.ndarray, use_r2: bool) -> float:
         """The gradient of either the radius or radius**2 wrt. the x-center
 
         Parameters
         ----------
-        input_grad: np.array
+        input_grad: np.ndarray
             Gradient of the likelihood wrt the component model
         use_r2: bool
-            Whether to calculate the gradient of the radius**2 (``useR2==True``)
-            or the radius (``useR2==False``).
+            Whether to calculate the gradient of the radius**2
+            (``useR2==True``) or the radius (``useR2==False``).
 
         Returns
         -------
         result: float
             The gradient of the likelihood wrt x0.
         """
-        grad = -self._xa*self._cos/self._major + self._yb*self._sin/self._minor
+        grad = -self._xa * self._cos / self._major + self._yb * self._sin / self._minor
         if use_r2:
             grad *= 2
         else:
-            r = self.R
-            grad *= 1/r
-        return np.sum(grad*input_grad)
+            r = self.r_grid
+            grad *= 1 / r
+        return np.sum(grad * input_grad)  # type: ignore
 
-    def grad_y0(self, input_grad, use_r2):
+    def grad_y0(self, input_grad: np.ndarray, use_r2: bool) -> float:
         """The gradient of either the radius or radius**2 wrt. the y-center
 
         Parameters
         ----------
-        input_grad: np.array
+        input_grad: np.ndarray
             Gradient of the likelihood wrt the component model
         use_r2: bool
-            Whether to calculate the gradient of the radius**2 (``useR2==True``)
-            or the radius (``useR2==False``).
+            Whether to calculate the gradient of the radius**2
+            (``useR2==True``) or the radius (``useR2==False``).
 
         Returns
         -------
         result: float
             The gradient of the likelihood wrt y0.
         """
-        grad = -(self._xa*self._sin/self._major + self._yb*self._cos/self._minor)
+        grad = -(
+            self._xa * self._sin / self._major + self._yb * self._cos / self._minor
+        )
         if use_r2:
             grad *= 2
         else:
-            r = self.R
-            grad *= 1/r
-        return np.sum(grad*input_grad)
+            r = self.r_grid
+            grad *= 1 / r
+        return np.sum(grad * input_grad)  # type: ignore
 
-    def grad_major(self, input_grad, use_r2):
-        """The gradient of either the radius or radius**2 wrt. the semi-major axis
+    def grad_major(self, input_grad: np.ndarray, use_r2: bool) -> float:
+        """The gradient of either the radius or radius**2 wrt.
+        the semi-major axis
 
         Parameters
         ----------
-        input_grad: np.array
+        input_grad: np.ndarray
             Gradient of the likelihood wrt the component model
         use_r2: bool
-            Whether to calculate the gradient of the radius**2 (``useR2==True``)
-            or the radius (``useR2==False``).
+            Whether to calculate the gradient of the radius**2
+            (``useR2==True``) or the radius (``useR2==False``).
 
         Returns
         -------
         result: float
             The gradient of the likelihood wrt the semi-major axis.
         """
-        grad = - 2/self._major*self._xa**2
+        grad = -2 / self._major * self._xa**2
         if use_r2:
             grad *= 2
         else:
-            r = self.R
-            grad *= 1/r
-        return np.sum(grad*input_grad)
+            r = self.r_grid
+            grad *= 1 / r
+        return np.sum(grad * input_grad)  # type: ignore
 
-    def grad_minor(self, input_grad, use_r2):
-        """The gradient of either the radius or radius**2 wrt. the semi-minor axis
+    def grad_minor(self, input_grad: np.ndarray, use_r2: bool) -> float:
+        """The gradient of either the radius or radius**2 wrt.
+        the semi-minor axis
 
         Parameters
         ----------
-        input_grad: np.array
+        input_grad: np.ndarray
             Gradient of the likelihood wrt the component model
         use_r2: bool
-            Whether to calculate the gradient of the radius**2 (``useR2==True``)
-            or the radius (``useR2==False``).
+            Whether to calculate the gradient of the radius**2
+            (``useR2==True``) or the radius (``useR2==False``).
 
         Returns
         -------
         result: float
             The gradient of the likelihood wrt the semi-minor axis.
         """
-        grad = -2/self._minor*self._yb**2
+        grad = -2 / self._minor * self._yb**2
         if use_r2:
             grad *= 2
         else:
-            r = self.R
-            grad *= 1/r
-        return np.sum(grad*input_grad)
+            r = self.r_grid
+            grad *= 1 / r
+        return np.sum(grad * input_grad)  # type: ignore
 
-    def grad_theta(self, input_grad, use_r2):
-        """The gradient of either the radius or radius**2 wrt. the rotation angle
+    def grad_theta(self, input_grad: np.ndarray, use_r2: bool) -> float:
+        """The gradient of either the radius or radius**2 wrt.
+        the rotation angle
 
         Parameters
         ----------
         input_grad: np.array
             Gradient of the likelihood wrt the component model
         use_r2: bool
-            Whether to calculate the gradient of the radius**2 (``useR2==True``)
-            or the radius (``useR2==False``).
+            Whether to calculate the gradient of the radius**2
+            (``useR2==True``) or the radius (``useR2==False``).
 
         Returns
         -------
         result: float
             The gradient of the likelihood wrt the rotation angle.
         """
-        grad = self._xa*self._xMinor/self._major - self._yb*self._xMajor/self._minor
+        grad = (
+            self._xa * self._xMinor / self._major
+            - self._yb * self._xMajor / self._minor
+        )
         if use_r2:
             grad *= 2
         else:
-            r = self.R
-            grad *= 1/r
-        return np.sum(grad*input_grad)
+            r = self.r_grid
+            grad *= 1 / r
+        return np.sum(grad * input_grad)  # type: ignore
 
     @property
-    def x0(self):
+    def x0(self) -> float:
         """The x-center"""
         return self._x0
 
     @property
-    def y0(self):
+    def y0(self) -> float:
         """The y-center"""
         return self._y0
 
     @property
-    def major(self):
+    def major(self) -> float:
         """The semi-major axis"""
         return self._major
 
     @property
-    def minor(self):
+    def minor(self) -> float:
         """The semi-minor axis"""
         return self._minor
 
     @property
-    def theta(self):
+    def theta(self) -> float:
         """The rotation angle"""
         return self._theta
 
     @property
-    def bbox(self):
+    def bbox(self) -> Box:
         """The bounding box to old the model"""
         return self._bbox
 
     @property
-    def R(self):
+    def r_grid(self) -> np.ndarray:
         """The radial coordinates of each pixel"""
         if self._radius is None:
-            self._radius = np.sqrt(self.R2)
+            self._radius = np.sqrt(self.r2_grid)
         return self._radius
 
     @property
-    def R2(self):
+    def r2_grid(self) -> np.ndarray:
         """The radius squared located at each pixel"""
         return self._radius2 + self._rMin**2

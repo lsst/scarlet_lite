@@ -35,6 +35,7 @@ class LiteSource:
     A source can have a single component, or multiple components, and each can be
     contained in different bounding boxes.
     """
+
     def __init__(self, components, dtype):
         self.components = components
         self.dtype = dtype
@@ -117,6 +118,7 @@ class LiteBlend:
     complicated insertion, for example multiplication of a dust lane,
     then a new blend class will need to be created.
     """
+
     def __init__(self, sources, observation):
         """Initialize the class.
 
@@ -163,7 +165,10 @@ class LiteBlend:
         """Gradient of the likelihood wrt the unconvolved model"""
         model = self.get_model(convolve=True)
         # Update the loss
-        self.loss.append(0.5 * -np.sum(self.observation.weights * (self.observation.images - model)**2))
+        self.loss.append(
+            0.5
+            * -np.sum(self.observation.weights * (self.observation.images - model) ** 2)
+        )
         # Calculate the gradient wrt the model d(logL)/d(model)
         result = self.observation.weights * (model - self.observation.images)
         result = self.observation.convolve(result, grad=True)
@@ -209,7 +214,9 @@ class LiteBlend:
     def log_likelihood(self, model=None):
         if model is None:
             return np.array(self.loss)
-        return 0.5 * -np.sum(self.observation.weights * (self.observation.images - model)**2)
+        return 0.5 * -np.sum(
+            self.observation.weights * (self.observation.images - model) ** 2
+        )
 
     def fit(self, max_iter, e_rel=1e-4, min_iter=1, resize=10, reweight=True):
         """Fit all of the parameters
@@ -243,7 +250,9 @@ class LiteBlend:
                     if hasattr(component, "resize"):
                         component.resize()
             # Stopping criteria
-            if it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(self.loss[-1]):
+            if it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(
+                self.loss[-1]
+            ):
                 break
             it += 1
         self.it = it
@@ -257,7 +266,10 @@ class FitPsfBlend(LiteBlend):
         """Gradient of the likelihood wrt the unconvolved model"""
         model = self.get_model(convolve=True)
         # Update the loss
-        self.loss.append(0.5 * -np.sum(self.observation.weights * (self.observation.images - model)**2))
+        self.loss.append(
+            0.5
+            * -np.sum(self.observation.weights * (self.observation.images - model) ** 2)
+        )
         # Calculate the gradient wrt the model d(logL)/d(model)
         result = self.observation.weights * (model - self.observation.images)
         return result
@@ -285,7 +297,9 @@ class FitPsfBlend(LiteBlend):
         while it < max_iter:
             # Calculate the gradient wrt the on-convolved model
             grad_log_likelihood = self.grad_log_likelihood()
-            _grad_log_likelihood = self.observation.convolve(grad_log_likelihood, grad=True)
+            _grad_log_likelihood = self.observation.convolve(
+                grad_log_likelihood, grad=True
+            )
             # Update each component given the current gradient
             for component in self.components:
                 component.update(it, _grad_log_likelihood)
@@ -298,7 +312,9 @@ class FitPsfBlend(LiteBlend):
             # Update the PSF
             self.observation.update(it, grad_log_likelihood, self.get_model())
             # Stopping criteria
-            if it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(self.loss[-1]):
+            if it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(
+                self.loss[-1]
+            ):
                 break
             it += 1
         self.it = it

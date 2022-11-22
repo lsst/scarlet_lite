@@ -2,7 +2,11 @@ from functools import partial
 import logging
 import numpy as np
 
-from .operators import prox_monotonic_mask, prox_uncentered_symmetry, prox_weighted_monotonic
+from .operators import (
+    prox_monotonic_mask,
+    prox_uncentered_symmetry,
+    prox_weighted_monotonic,
+)
 from .detect import bounds_to_bbox, get_detect_wavelets
 from .bbox import Box, overlapped_slices
 from .parameters import relative_step
@@ -90,15 +94,15 @@ def get_min_psf(psfs, thresh=0.01):
     X = np.arange(psfs.shape[-1])
     Y = np.arange(psfs.shape[-2])
     X, Y = np.meshgrid(X, Y)
-    R = np.sqrt((X-px)**2 + (Y-py)**2)
+    R = np.sqrt((X - px) ** 2 + (Y - py) ** 2)
 
     max_radius = 0
-    for p1 in range(len(psfs)-1):
-        for p2 in range(p1+1,len(psfs)):
+    for p1 in range(len(psfs) - 1):
+        for p2 in range(p1 + 1, len(psfs)):
             # Calculate the difference between the PSFs
             psf1 = psfs[p1]
             psf2 = psfs[p2]
-            diff = (psf1 - psf2)/np.max([psf1, psf2])
+            diff = (psf1 - psf2) / np.max([psf1, psf2])
             # keep all pixels greater than the threshold
             significant = np.abs(diff) > thresh
             # extract the radius for all of the significant pixels
@@ -120,8 +124,9 @@ def get_min_psf(psfs, thresh=0.01):
     return psfs[:, sy, sx].copy()
 
 
-def init_monotonic_morph(detect, center, full_box, grow=0, normalize=True,
-        use_mask=True, thresh=0):
+def init_monotonic_morph(
+    detect, center, full_box, grow=0, normalize=True, use_mask=True, thresh=0
+):
     """Initialize a morphology for a monotonic source
 
     Parameters
@@ -151,7 +156,7 @@ def init_monotonic_morph(detect, center, full_box, grow=0, normalize=True,
     if use_mask:
         _, morph, bounds = prox_monotonic_mask(detect, 0, center, max_iter=0)
         bbox = bounds_to_bbox(bounds)
-        if bbox.shape == (1, 1) and morph[bbox.slices][0,0] == 0:
+        if bbox.shape == (1, 1) and morph[bbox.slices][0, 0] == 0:
             return bbox, None
 
         if grow is not None and grow > 0:
@@ -170,7 +175,7 @@ def init_monotonic_morph(detect, center, full_box, grow=0, normalize=True,
         # truncate morph at thresh * bg_rms
         morph, bbox = trim_morphology(center, morph, bg_thresh=thresh)
         if np.max(morph) == 0:
-            return Box((0,0,0)), None
+            return Box((0, 0, 0)), None
 
     if normalize:
         morph /= np.max(morph)
@@ -195,8 +200,10 @@ def multifit_seds(observation, morphs, boxes):
         The SED for each component, in the same order as `morphs` and `boxes`.
     """
     if len(morphs) != len(boxes):
-        msg = (f"morphs and boxes should have the same number of parameters, "
-               f"got {len(morphs)} and {len(boxes)} respectively")
+        msg = (
+            f"morphs and boxes should have the same number of parameters, "
+            f"got {len(morphs)} and {len(boxes)} respectively"
+        )
         raise ValueError(msg)
     bands = observation.images.shape[0]
     dtype = observation.images.dtype
@@ -214,7 +221,7 @@ def multifit_seds(observation, morphs, boxes):
     morph_images = np.zeros((bands, len(morphs), img[0].size), dtype=dtype)
     for idx, (morph, bbox) in enumerate(zip(morphs, boxes)):
         _img = insert_image(full_box, spec_box @ bbox, morph[None, :, :])
-        morph_images[:, idx] = observation.convolve(_img).reshape(bands,-1)
+        morph_images[:, idx] = observation.convolve(_img).reshape(bands, -1)
 
     seds = np.zeros((len(morphs), bands), dtype=dtype)
 
@@ -225,8 +232,9 @@ def multifit_seds(observation, morphs, boxes):
     return seds
 
 
-def init_main_parameters(detect, center, observation,
-        convolved=None, use_mask=False, thresh=0.5):
+def init_main_parameters(
+    detect, center, observation, convolved=None, use_mask=False, thresh=0.5
+):
     """Initialize parameters using the same general algorithm as scarlet main
 
     This is currently up to date as of commit `6619736`, but might get out of
@@ -278,17 +286,20 @@ def init_main_parameters(detect, center, observation,
         # Convolve the morphology to get the exact SED to match the image,
         # accurate to machine precision
         _morph = insert_image(observation.bbox[1:], bbox, morph)
-        convolved = observation.convolve(np.repeat(_morph[None, :, :], images.shape[0], axis=0), mode="real")
+        convolved = observation.convolve(
+            np.repeat(_morph[None, :, :], images.shape[0], axis=0), mode="real"
+        )
     sed = images[sed_center] / convolved[sed_center]
-    sed[sed<0] = 0
+    sed[sed < 0] = 0
     morph_max = np.max(morph)
     sed *= morph_max
     morph /= morph_max
     return bbox, morph, sed
 
 
-def init_adaprox_component(center, bbox, sed, morph, observation, factor=10, bg_thresh=None,
-                            max_prox_iter=1):
+def init_adaprox_component(
+    center, bbox, sed, morph, observation, factor=10, bg_thresh=None, max_prox_iter=1
+):
     """Initialize sed and morph as parameters optimized using adaprox
 
     Parameters
@@ -313,13 +324,21 @@ def init_adaprox_component(center, bbox, sed, morph, observation, factor=10, bg_
         The component created using the input parameters.
     """
     sed = AdaproxParameter(
-            sed,
-            step=partial(relative_step, factor=1e-2, minimum=observation.noise_rms/factor),
-            max_prox_iter=max_prox_iter,
-        )
+        sed,
+        step=partial(
+            relative_step, factor=1e-2, minimum=observation.noise_rms / factor
+        ),
+        max_prox_iter=max_prox_iter,
+    )
     morph = AdaproxParameter(morph, step=1e-2, max_prox_iter=max_prox_iter)
     component = LiteFactorizedComponent(
-        sed, morph, center, bbox, observation.bbox, observation.noise_rms, bg_thresh=bg_thresh,
+        sed,
+        morph,
+        center,
+        bbox,
+        observation.bbox,
+        observation.noise_rms,
+        bg_thresh=bg_thresh,
     )
     return component
 
@@ -349,11 +368,17 @@ def init_fista_component(center, bbox, sed, morph, observation, bg_thresh=None):
     """
     slices = overlapped_slices(bbox, observation.bbox)
     _weights = observation.weights[slices[1]]
-    step = 2*np.mean(_weights[_weights > 0])
-    _sed = FistaParameter(sed, step=1/step)
-    _morph = FistaParameter(morph, step=1/step)
+    step = 2 * np.mean(_weights[_weights > 0])
+    _sed = FistaParameter(sed, step=1 / step)
+    _morph = FistaParameter(morph, step=1 / step)
     component = LiteFactorizedComponent(
-        _sed, _morph, center, bbox, observation.bbox, observation.noise_rms, bg_thresh=bg_thresh,
+        _sed,
+        _morph,
+        center,
+        bbox,
+        observation.bbox,
+        observation.noise_rms,
+        bg_thresh=bg_thresh,
     )
     return component
 
@@ -368,7 +393,16 @@ class Chi2InitParameters:
     It also creates temporary objects that only need to be created once for
     all of the sources in a blend.
     """
-    def __init__(self, observation, detect=None, min_snr=50, use_mask=False, disk_percentile=25, thresh=0.5):
+
+    def __init__(
+        self,
+        observation,
+        detect=None,
+        min_snr=50,
+        use_mask=False,
+        disk_percentile=25,
+        thresh=0.5,
+    ):
         """Initialize the class
 
         Parameters
@@ -395,22 +429,27 @@ class Chi2InitParameters:
         self.observation = observation
         if detect is None:
             # Build the morphology detection image
-            detect = np.sum(observation.images/(observation.noise_rms**2)[:, None, None], axis=0)
+            detect = np.sum(
+                observation.images / (observation.noise_rms**2)[:, None, None], axis=0
+            )
         self.detect = detect
         # Convolve the detection image.
         # This may seem counter-intuitive, since this is effectively growing the model,
         # but this is exactly what convolution will do to the model in each iteration.
         # So we create the convolved model in order to correctly set the SED.
         self.convolved = observation.convolve(
-            np.repeat(detect[None, :, :], observation.shape[0], axis=0), mode="real")
+            np.repeat(detect[None, :, :], observation.shape[0], axis=0), mode="real"
+        )
         # Get the model PSF
         self.model_psf = observation.model_psf[0]
         # Convolve the PSF in order to set the SED of a point source correctly.
         self.convolved_psf = observation.convolve(
-            np.repeat(observation.model_psf, observation.images.shape[0], axis=0), mode="real")
+            np.repeat(observation.model_psf, observation.images.shape[0], axis=0),
+            mode="real",
+        )
         # Get the "SED" of the PSF
-        self.py = self.model_psf.shape[0]//2
-        self.px = self.model_psf.shape[1]//2
+        self.py = self.model_psf.shape[0] // 2
+        self.px = self.model_psf.shape[1] // 2
         self.psf_sed = self.convolved_psf[:, self.py, self.px]
         # Set the input parameters
         self.min_snr = min_snr
@@ -420,20 +459,27 @@ class Chi2InitParameters:
 
 
 def init_main_source(center, init):
-    """
-    """
+    """ """
     # Calculate the signal to noise at the center of this source
-    snr = np.floor(calculate_snr(
-        init.observation.images,
-        init.observation.variance,
-        init.observation.psfs,
-        center,
-    ))
+    snr = np.floor(
+        calculate_snr(
+            init.observation.images,
+            init.observation.variance,
+            init.observation.psfs,
+            center,
+        )
+    )
     component_snr = snr / init.min_snr
 
     # Initialize the bbox, morph, sed for a single component source
     bbox, morph, sed = bbox, morph, sed = init_main_parameters(
-        init.detect, center, init.observation, init.convolved, init.use_mask, init.thresh)
+        init.detect,
+        center,
+        init.observation,
+        init.convolved,
+        init.use_mask,
+        init.thresh,
+    )
 
     if morph is None:
         # There wasn't sufficient flux for an extended source,
@@ -442,9 +488,13 @@ def init_main_source(center, init):
         sed = init.observation.images[sed_center] / init.psf_sed
         sed[sed < 0] = 0
         morph = init.model_psf.copy()
-        morph = morph/np.max(morph)
-        bbox = Box(init.model_psf.shape, origin=(center[0]-init.py, center[1]-init.px))
-        components = [LiteComponent(center, init.observation.bbox[0] @ bbox, sed, morph)]
+        morph = morph / np.max(morph)
+        bbox = Box(
+            init.model_psf.shape, origin=(center[0] - init.py, center[1] - init.px)
+        )
+        components = [
+            LiteComponent(center, init.observation.bbox[0] @ bbox, sed, morph)
+        ]
     elif component_snr >= 2:
         # There was enough flux for a 2-component source,
         # so split the single component model into two components, using the
@@ -466,25 +516,42 @@ def init_main_source(center, init):
                 morph = bulge_morph
             # One of the components was null,
             # so initialize as a single component
-            components = [LiteComponent(center, init.observation.bbox @ bbox, sed, morph)]
+            components = [
+                LiteComponent(center, init.observation.bbox @ bbox, sed, morph)
+            ]
         else:
             bulge_morph /= np.max(bulge_morph)
             disk_morph /= np.max(disk_morph)
 
-            bulge_sed, disk_sed = multifit_seds(init.observation, [bulge_morph, disk_morph], [bbox, bbox])
+            bulge_sed, disk_sed = multifit_seds(
+                init.observation, [bulge_morph, disk_morph], [bbox, bbox]
+            )
 
             components = [
-                LiteComponent(center, init.observation.bbox[0] @ bbox, bulge_sed, bulge_morph),
-                LiteComponent(center, init.observation.bbox[0] @ bbox, disk_sed, disk_morph),
+                LiteComponent(
+                    center, init.observation.bbox[0] @ bbox, bulge_sed, bulge_morph
+                ),
+                LiteComponent(
+                    center, init.observation.bbox[0] @ bbox, disk_sed, disk_morph
+                ),
             ]
     else:
-        components = [LiteComponent(center, init.observation.bbox[0] @ bbox, sed, morph)]
+        components = [
+            LiteComponent(center, init.observation.bbox[0] @ bbox, sed, morph)
+        ]
 
     return LiteSource(components, init.observation.dtype)
 
 
-def init_all_sources_main(observation, centers, detect=None,
-        min_snr=50, use_mask=False, disk_percentile=25, thresh=0.5):
+def init_all_sources_main(
+    observation,
+    centers,
+    detect=None,
+    min_snr=50,
+    use_mask=False,
+    disk_percentile=25,
+    thresh=0.5,
+):
     """Initialize all of the sources in a blend into factorized components
 
     This function uses a set of algorithms to give similar results to the
@@ -524,16 +591,27 @@ class WaveletInitParameters:
     To simplify the API those parameters are all initialized by this class
     and passed to `init_wavelet_source` for each source.
     """
-    def __init__(self, observation,
-            bulge_slice=slice(None,2), disk_slice=slice(2, -1),
-            bulge_grow=5, disk_grow=5, use_psf=True, scales=5, wavelets=None):
+
+    def __init__(
+        self,
+        observation,
+        bulge_slice=slice(None, 2),
+        disk_slice=slice(2, -1),
+        bulge_grow=5,
+        disk_grow=5,
+        use_psf=True,
+        scales=5,
+        wavelets=None,
+    ):
         """Initialize the parameters.
 
         See `init_all_sources_wavelets` for a description of the parameters.
         """
         if wavelets is None:
-            wavelets = get_detect_wavelets(observation.images, observation.variance, scales=scales)
-        wavelets[wavelets<0] = 0
+            wavelets = get_detect_wavelets(
+                observation.images, observation.variance, scales=scales
+            )
+        wavelets[wavelets < 0] = 0
         # The detection coadd for single component sources
         detectlets = np.sum(wavelets[:-1], axis=0)
         # The detection coadd for the bulge
@@ -547,17 +625,14 @@ class WaveletInitParameters:
 
         # The convolve image, used to initialize the SED
         convolved = observation.convolve(
-            np.repeat(detectlets[None, :, :],
-            observation.shape[0], axis=0),
-            mode="real"
+            np.repeat(detectlets[None, :, :], observation.shape[0], axis=0), mode="real"
         )
         convolved_psf = observation.convolve(
-            np.repeat(model_psf[None, :, :],
-            observation.images.shape[0], axis=0),
-            mode="real"
+            np.repeat(model_psf[None, :, :], observation.images.shape[0], axis=0),
+            mode="real",
         )
-        py = observation.model_psf.shape[1]//2
-        px = observation.model_psf.shape[2]//2
+        py = observation.model_psf.shape[1] // 2
+        px = observation.model_psf.shape[2] // 2
         psf_sed = convolved_psf[:, py, px]
 
         self.observation = observation
@@ -598,31 +673,39 @@ def init_wavelet_source(center, nbr_components, init):
     model_psf = observation.model_psf[0]
     sed_center = (slice(None), center[0], center[1])
 
-    if nbr_components < 1 and init.use_psf or init.detectlets[center[0], center[1]] <= 0:
+    if (
+        nbr_components < 1
+        and init.use_psf
+        or init.detectlets[center[0], center[1]] <= 0
+    ):
         sed = init.images[sed_center] / init.psf_sed
-        sed[sed<0] = 0
+        sed[sed < 0] = 0
         morph = model_psf.copy()
-        morph = morph/np.max(morph)
-        bbox = Box(model_psf.shape, origin=(center[0]-init.py, center[1]-init.px))
+        morph = morph / np.max(morph)
+        bbox = Box(model_psf.shape, origin=(center[0] - init.py, center[1] - init.px))
 
         component = LiteComponent(center, observation.bbox[0] @ bbox, sed, morph)
         source = LiteSource([component], observation.dtype)
     elif nbr_components < 2:
-        bbox, morph = init_monotonic_morph(init.detectlets, center, observation.bbox[1:], init.disk_grow)
+        bbox, morph = init_monotonic_morph(
+            init.detectlets, center, observation.bbox[1:], init.disk_grow
+        )
         if morph is None or np.max(morph) <= 0:
             return LiteSource([], observation.dtype)
 
         sed = init.images[sed_center] / init.convolved[sed_center]
-        sed[sed<0] = 0
-        morph = morph/np.max(morph)
+        sed[sed < 0] = 0
+        morph = morph / np.max(morph)
 
         component = LiteComponent(center, observation.bbox[0] @ bbox, sed, morph)
         source = LiteSource([component], observation.dtype)
     else:
         bulge_box, bulge_morph = init_monotonic_morph(
-            init.bulgelets, center, observation.bbox[1:], init.bulge_grow)
+            init.bulgelets, center, observation.bbox[1:], init.bulge_grow
+        )
         disk_box, disk_morph = init_monotonic_morph(
-            init.disklets, center, observation.bbox[1:], init.disk_grow)
+            init.disklets, center, observation.bbox[1:], init.disk_grow
+        )
 
         if bulge_morph is None or disk_morph is None:
             if bulge_morph is None:
@@ -638,17 +721,24 @@ def init_wavelet_source(center, nbr_components, init):
             return init_wavelet_source(center, 1, init)
         else:
             bulge_sed, disk_sed = multifit_seds(
-                observation, [bulge_morph, disk_morph], [bulge_box, disk_box])
+                observation, [bulge_morph, disk_morph], [bulge_box, disk_box]
+            )
 
             components = []
             if np.sum(bulge_sed != 0):
                 components.append(
-                    LiteComponent(center, observation.bbox[0] @ bulge_box, bulge_sed, bulge_morph))
+                    LiteComponent(
+                        center, observation.bbox[0] @ bulge_box, bulge_sed, bulge_morph
+                    )
+                )
             else:
                 logger.debug("cut bulge")
             if np.sum(disk_sed) != 0:
                 components.append(
-                    LiteComponent(center, observation.bbox[0] @ disk_box, disk_sed, disk_morph))
+                    LiteComponent(
+                        center, observation.bbox[0] @ disk_box, disk_sed, disk_morph
+                    )
+                )
             else:
                 logger.debug("cut disk")
 
@@ -656,8 +746,18 @@ def init_wavelet_source(center, nbr_components, init):
     return source
 
 
-def init_all_sources_wavelets(observation, centers, min_snr=50, bulge_grow=5, disk_grow=5,
-        use_psf=True, bulge_slice=slice(None,2), disk_slice=slice(2, -1), scales=5, wavelets=None):
+def init_all_sources_wavelets(
+    observation,
+    centers,
+    min_snr=50,
+    bulge_grow=5,
+    disk_grow=5,
+    use_psf=True,
+    bulge_slice=slice(None, 2),
+    disk_slice=slice(2, -1),
+    scales=5,
+    wavelets=None,
+):
     """Initialize all sources using wavelet detection images.
 
     This does not initialize the SED and morpholgy parameters, so
@@ -692,10 +792,22 @@ def init_all_sources_wavelets(observation, centers, min_snr=50, bulge_grow=5, di
         The sources that have been initialized.
     """
     init = WaveletInitParameters(
-        observation, bulge_slice, disk_slice, bulge_grow, disk_grow, use_psf, scales, wavelets)
+        observation,
+        bulge_slice,
+        disk_slice,
+        bulge_grow,
+        disk_grow,
+        use_psf,
+        scales,
+        wavelets,
+    )
     sources = []
     for center in centers:
-        snr = np.floor(calculate_snr(observation.images, observation.variance, observation.psfs, center))
+        snr = np.floor(
+            calculate_snr(
+                observation.images, observation.variance, observation.psfs, center
+            )
+        )
         component_snr = snr / min_snr
         source = init_wavelet_source(center, component_snr, init)
         sources.append(source)
@@ -735,7 +847,7 @@ def parameterize_sources(sources, observation, parameterization):
                 sed=c.sed.copy(),
                 morph=c.morph.copy(),
                 bbox=c.bbox.copy(),
-                observation=observation
+                observation=observation,
             )
             components.append(component)
         new_sources.append(LiteSource(components, src.dtype))
