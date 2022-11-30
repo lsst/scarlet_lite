@@ -1,2 +1,0 @@
-[build-system]
-requires = ["pybind11~=2.6.1"]

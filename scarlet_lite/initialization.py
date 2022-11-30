@@ -1,33 +1,74 @@
-from functools import partial
+# This file is part of scarlet_lite.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import logging
 import numpy as np
+from typing import Sequence
 
+from .bbox import Box, get_minimal_boxsize
+from .component import FactorizedComponent
+from .detect import bounds_to_bbox, get_detect_wavelets
+from .measure import calculate_snr
+from .observation import Observation
 from .operators import (
     prox_monotonic_mask,
     prox_uncentered_symmetry,
     prox_weighted_monotonic,
 )
-from .detect import bounds_to_bbox, get_detect_wavelets
-from .bbox import Box, overlapped_slices
-from .parameters import relative_step
-from .measure import calculate_snr
-from .blend import LiteSource
-from .component import LiteFactorizedComponent, LiteComponent
-from .parameters import AdaproxParameter, FistaParameter
+
+from .source import Source
 from .utils import project_morph_to_center, insert_image
 
 
 logger = logging.getLogger("scarlet.lite.initialization")
 
 
-def get_minimal_boxsize(size, min_size=21, increment=10):
-    boxsize = min_size
-    while boxsize < size:
-        boxsize += increment  # keep box sizes quite small
-    return boxsize
+def trim_morphology(
+    center_index: tuple[int, int],
+    morph: np.ndarray,
+    bg_thresh: float = 0,
+    boxsize: int = None,
+) -> tuple[np.ndarray, Box]:
+    """Trim the morphology up to pixels above a threshold
 
+    Parameters
+    ----------
+    center_index: Sequence[int, int]
+        The location of the center of the morphology.
+    morph: np.ndarray
+        The morphology to be trimmed.
+    bg_thresh: float
+        The morphology is trimed to pixels above the threshold.
+    boxsize: int
+        The size of the box that will contain the morphology.
+        If `boxsize` is `None` then the smallest box that will fit the
+        trimmed morphology is used.
 
-def trim_morphology(center_index, morph, bg_thresh=0, boxsize=None):
+    Returns
+    -------
+    morph: np.ndarray
+        The trimmed morphology
+    box: Box
+        The box that contains the morphology.
+    """
     # trim morph to pixels above threshold
     mask = morph > bg_thresh
     morph[~mask] = 0
@@ -60,7 +101,7 @@ def trim_morphology(center_index, morph, bg_thresh=0, boxsize=None):
     return morph, bbox
 
 
-def get_min_psf(psfs, thresh=0.01):
+def get_min_psf(psfs: np.ndarray, thresh: float = 0.01) -> np.ndarray:
     """Extract the significant portion of the PSF
 
     This function compares the PSF in each band and
@@ -71,19 +112,15 @@ def get_min_psf(psfs, thresh=0.01):
 
     Parameters
     ----------
-    psfs: `numpy.ndarray`
+    psfs: np.ndarray
         The full 3D (bands, height, width) PSF model.
-    thresh: `float`
+    thresh: float
         The minimal difference between two PSFs to be
         considered significant.
-    make_circle: `bool`
-        Whether or not to make the output PSFs
-        circular. If `make_circle` is `False` then
-        the square PSFs are returned.
 
     Returns
     -------
-    psfs: `numpy.ndarray`
+    psfs: np.ndarray
         The extracted PSFs.
     """
     # The radius of the PSF in the X and Y directions
@@ -91,10 +128,10 @@ def get_min_psf(psfs, thresh=0.01):
     px = psfs.shape[2] // 2
 
     # Get the radial coordinates of each pixel
-    X = np.arange(psfs.shape[-1])
-    Y = np.arange(psfs.shape[-2])
-    X, Y = np.meshgrid(X, Y)
-    R = np.sqrt((X - px) ** 2 + (Y - py) ** 2)
+    x = np.arange(psfs.shape[-1])
+    y = np.arange(psfs.shape[-2])
+    x, y = np.meshgrid(x, y)
+    r = np.sqrt((x - px) ** 2 + (y - py) ** 2)
 
     max_radius = 0
     for p1 in range(len(psfs) - 1):
@@ -106,7 +143,7 @@ def get_min_psf(psfs, thresh=0.01):
             # keep all pixels greater than the threshold
             significant = np.abs(diff) > thresh
             # extract the radius for all of the significant pixels
-            radius = int(np.max(R * significant))
+            radius = int(np.max(r * significant))
             # Update the maximum radius (if necessary)
             if radius > max_radius:
                 max_radius = radius
@@ -125,36 +162,47 @@ def get_min_psf(psfs, thresh=0.01):
 
 
 def init_monotonic_morph(
-    detect, center, full_box, grow=0, normalize=True, use_mask=True, thresh=0
-):
+    detect: np.ndarray,
+    center: tuple[int, int],
+    full_box: Box,
+    grow: int = 0,
+    normalize: bool = True,
+    use_mask: bool = True,
+    thresh: float = 0,
+) -> tuple[Box, np.ndarray | None]:
     """Initialize a morphology for a monotonic source
 
     Parameters
     ----------
-    detect: `numpy.ndarray`
+    detect: np.ndarray
         The 2D detection image contained in `full_box`.
-    center: `tuple` of `int`
+    center: Sequence[int, int]
         The center of the monotonic source.
-    full_box: `scarlet.bbox.Box`
+    full_box: Box
         The bounding box of `detect`.
-    grow: `int`
+    grow: int
         The number of pixels to grow the morphology in each direction.
         This can be useful if initializing a source with a kernel that
         is known to be narrower than the expected value of the source.
-    normalize: `bool`
+    normalize: bool
         Whether or not to normalize the morphology.
-    tresh: `float`
-        Background threshold value to use for truncating the morphology.
+    use_mask: bool
+        When `True` the component is initialized with only the
+        monotonic pixels, otherwise the monotonicity operator is used to
+        project the morphology to a monotonic solution.
+    thresh: float
+        The threshold (fraction above the background) to use for trimming the
+        morphology.
 
     Returns
     -------
-    bbox: `scarlet.bbox.Box`
+    bbox: Box
         The bounding box of the morphology.
-    morph: `numpy.ndarray`
+    morph: np.ndarray
         The initialized morphology.
     """
     if use_mask:
-        _, morph, bounds = prox_monotonic_mask(detect, 0, center, max_iter=0)
+        _, morph, bounds = prox_monotonic_mask(detect, center, max_iter=0)
         bbox = bounds_to_bbox(bounds)
         if bbox.shape == (1, 1) and morph[bbox.slices][0, 0] == 0:
             return bbox, None
@@ -182,21 +230,31 @@ def init_monotonic_morph(
     return bbox, morph
 
 
-def multifit_seds(observation, morphs, boxes):
-    """Fit the seds f multiple components simultaneously
+def multifit_seds(
+    observation: Observation,
+    morphs: Sequence[np.ndarray],
+    boxes: Sequence[Box],
+    model: np.ndarray = None,
+) -> np.ndarray:
+    """Fit the seds of multiple components simultaneously
 
     Parameters
     ----------
-    observation: `scarlet.let.LiteObservation`
+    observation: Observation
         The class containing the observation data.
-    morphs: `list` of `numpy.ndarray`
+    morphs: Sequence[np.ndarray]
         The morphology of each component.
-    boxes: `list` of `scarlet.bbox.Box`
+    boxes: Sequence[Box]
         The bounding box for each morph.
+    model: np.ndarray
+        An optional model for sources that are not factorized,
+        and thus will not have their SEDs fit.
+        This model is subtracted from the data before fittig the other
+        SEDs.
 
     Returns
     -------
-    seds: `list` of `numpy.ndarray`
+    seds: np.ndarray
         The SED for each component, in the same order as `morphs` and `boxes`.
     """
     if len(morphs) != len(boxes):
@@ -216,7 +274,11 @@ def multifit_seds(observation, morphs, boxes):
     for box in boxes[1:]:
         full_box |= box
     full_box = spec_box @ full_box
-    img = insert_image(full_box, observation.bbox, observation.images)
+    if model is not None:
+        data = observation.images - model
+    else:
+        data = observation.images
+    img = insert_image(full_box, observation.bbox, data)
 
     morph_images = np.zeros((bands, len(morphs), img[0].size), dtype=dtype)
     for idx, (morph, bbox) in enumerate(zip(morphs, boxes)):
@@ -226,15 +288,20 @@ def multifit_seds(observation, morphs, boxes):
     seds = np.zeros((len(morphs), bands), dtype=dtype)
 
     for b in range(bands):
-        A = np.vstack(morph_images[b]).T
-        seds[:, b] = np.linalg.lstsq(A, img[b].flatten(), rcond=None)[0]
+        a = np.vstack(morph_images[b]).T
+        seds[:, b] = np.linalg.lstsq(a, img[b].flatten(), rcond=None)[0]
     seds[seds < 0] = 0
     return seds
 
 
-def init_main_parameters(
-    detect, center, observation, convolved=None, use_mask=False, thresh=0.5
-):
+def init_chi2_parameters(
+    detect: np.ndarray,
+    center: tuple[int, int],
+    observation: Observation,
+    convolved: np.ndarray = None,
+    use_mask: bool = False,
+    thresh: float = 0.5,
+) -> tuple[Box, np.ndarray | None, np.ndarray | None]:
     """Initialize parameters using the same general algorithm as scarlet main
 
     This is currently up to date as of commit `6619736`, but might get out of
@@ -243,27 +310,36 @@ def init_main_parameters(
 
     Parameters
     ----------
-    detect: `numpy.ndarray`
+    detect:
         The monochromatic detection image (usually a chi^2 coadd,
         possibly weighted by the SED of the source being detected).
-    center: `tuple` of `int`
+    center:
         The location of the center of the source to detect in the full image.
-    observation: `scarlet.lite.LiteObservation`
+    observation:
         The observation that is being modeled.
-    convolved: `numpy.ndarray`
+    convolved:
         The convolved image in each band. Since the morphology of each source
         is close to the input images, this is a good approximation of the
         convolved morphologies and gives an SED within 1% without having
         to convolve the morphology of each source separately.
         If `convolved` is `None` then the result is accurate to
         machine precision.
-    use_mask: `bool`
+    use_mask:
         Whether to use the monotonic mask constraint for initialization or
         the weighted monotonicity constraint.
-    thresh: `float`
+    thresh:
         The fraction of the `noise_rms` used to trim the morphology.
+
+    Returns
+    -------
+    bbox: Box
+        The bounding box that contains the component.
+    morph: np.ndarray
+        The morphology of the component.
+    sed: np.ndarray
+        The SED of the component.
     """
-    _detect = prox_uncentered_symmetry(detect.copy(), 0, center, "sdss")
+    _detect = prox_uncentered_symmetry(detect.copy(), center, "sdss")
     thresh = np.mean(observation.noise_rms) * thresh
 
     bbox, morph = init_monotonic_morph(
@@ -297,92 +373,6 @@ def init_main_parameters(
     return bbox, morph, sed
 
 
-def init_adaprox_component(
-    center, bbox, sed, morph, observation, factor=10, bg_thresh=None, max_prox_iter=1
-):
-    """Initialize sed and morph as parameters optimized using adaprox
-
-    Parameters
-    ----------
-    center: `tuple` of `int`
-        The center of the component.
-    sed: `numpy.ndarray`
-        The SED of the component.
-    morph: `numpy.ndarray`
-        The morphology of the component.
-    bbox: `scarlet.bbox.Box`
-        The bounding box of the component.
-    observation: `scarlet.lite.LiteObservation`
-        The observation that is being modeled.
-    factor: `float`
-        The factor of the noise RMS to use as a threshold, where the minimum
-        SED allowed is `obsevation.noise_rms/factor`.
-
-    Returns
-    -------
-    component: `scarlet.lite.LiteFactorizedComponent`
-        The component created using the input parameters.
-    """
-    sed = AdaproxParameter(
-        sed,
-        step=partial(
-            relative_step, factor=1e-2, minimum=observation.noise_rms / factor
-        ),
-        max_prox_iter=max_prox_iter,
-    )
-    morph = AdaproxParameter(morph, step=1e-2, max_prox_iter=max_prox_iter)
-    component = LiteFactorizedComponent(
-        sed,
-        morph,
-        center,
-        bbox,
-        observation.bbox,
-        observation.noise_rms,
-        bg_thresh=bg_thresh,
-    )
-    return component
-
-
-def init_fista_component(center, bbox, sed, morph, observation, bg_thresh=None):
-    """Initialize sed and morph as parameters optimized using FISTA PGM
-
-    Parameters
-    ----------
-    center: `tuple` of `int`
-        The center of the component.
-    sed: `numpy.ndarray`
-        The SED of the component.
-    morph: `numpy.ndarray`
-        The morphology of the component.
-    bbox: `scarlet.bbox.Box`
-        The bounding box of the component.
-    observation: `scarlet.lite.LiteObservation`
-        The observation that is being modeled.
-    bg_thresh: `float`
-        The factor of the noise RMS to use for clipping sources
-
-    Returns
-    -------
-    component: `scarlet.lite.LiteFactorizedComponent`
-        The component created using the input parameters.
-    """
-    slices = overlapped_slices(bbox, observation.bbox)
-    _weights = observation.weights[slices[1]]
-    step = 2 * np.mean(_weights[_weights > 0])
-    _sed = FistaParameter(sed, step=1 / step)
-    _morph = FistaParameter(morph, step=1 / step)
-    component = LiteFactorizedComponent(
-        _sed,
-        _morph,
-        center,
-        bbox,
-        observation.bbox,
-        observation.noise_rms,
-        bg_thresh=bg_thresh,
-    )
-    return component
-
-
 class Chi2InitParameters:
     """Parameters used to initialize all sources with chi^2 detections
 
@@ -396,33 +386,31 @@ class Chi2InitParameters:
 
     def __init__(
         self,
-        observation,
-        detect=None,
-        min_snr=50,
-        use_mask=False,
-        disk_percentile=25,
-        thresh=0.5,
+        observation: Observation,
+        detect: np.ndarray = None,
+        min_snr: float = 50,
+        use_mask: bool = False,
+        disk_percentile: float = 25,
+        thresh: float = 0.5,
     ):
         """Initialize the class
 
         Parameters
         ----------
-        observation: `scarlet.lite.LiteObservation`
+        observation:
             The observation containing the blend
-        detect: `numpy.ndarray`
+        detect:
             The array that contains a 2D image used for detection.
-        centers: `list` of `tuple`
-            The coordinates of all the peak locations to use for initializing sources.
-        min_snr: `float`
+        min_snr:
             The minimum SNR required per component.
             So a 2-component source requires at least `2*min_snr` while sources
             with SNR < `min_snr` will be initialized with the PSF.
-        use_mask: `bool`
+        use_mask:
             Whether to use the monotonic mask or weighted monotonicity for
             initialization.
-        disk_percentile: `float`
+        disk_percentile:
             The percentage of the overall flux to attribute to the disk.
-        thresh: `float`
+        thresh:
             The threshold used to trim the morphology,
             so all pixels below `thresh * bg_rms` are set to zero.
         """
@@ -458,8 +446,18 @@ class Chi2InitParameters:
         self.thresh = thresh
 
 
-def init_main_source(center, init):
-    """ """
+def init_chi2_source(
+    center: tuple[int, int], init: Chi2InitParameters
+) -> Source | None:
+    """Initialize a source from a chi^2 detection.
+
+    Parameter
+    ---------
+    center:
+        The center of the source.
+    init:
+        The initialization parameters common to all of the sources.
+    """
     # Calculate the signal to noise at the center of this source
     snr = np.floor(
         calculate_snr(
@@ -472,7 +470,7 @@ def init_main_source(center, init):
     component_snr = snr / init.min_snr
 
     # Initialize the bbox, morph, sed for a single component source
-    bbox, morph, sed = bbox, morph, sed = init_main_parameters(
+    bbox, morph, sed = init_chi2_parameters(
         init.detect,
         center,
         init.observation,
@@ -493,7 +491,9 @@ def init_main_source(center, init):
             init.model_psf.shape, origin=(center[0] - init.py, center[1] - init.px)
         )
         components = [
-            LiteComponent(center, init.observation.bbox[0] @ bbox, sed, morph)
+            FactorizedComponent(
+                sed, morph, init.observation.bbox[0] @ bbox, bbox, center
+            )
         ]
     elif component_snr >= 2:
         # There was enough flux for a 2-component source,
@@ -517,7 +517,9 @@ def init_main_source(center, init):
             # One of the components was null,
             # so initialize as a single component
             components = [
-                LiteComponent(center, init.observation.bbox @ bbox, sed, morph)
+                FactorizedComponent(
+                    sed, morph, init.observation.bbox[0] @ bbox, bbox, center
+                )
             ]
         else:
             bulge_morph /= np.max(bulge_morph)
@@ -528,30 +530,36 @@ def init_main_source(center, init):
             )
 
             components = [
-                LiteComponent(
-                    center, init.observation.bbox[0] @ bbox, bulge_sed, bulge_morph
+                FactorizedComponent(
+                    bulge_sed,
+                    bulge_morph,
+                    init.observation.bbox[0] @ bbox,
+                    bbox,
+                    center,
                 ),
-                LiteComponent(
-                    center, init.observation.bbox[0] @ bbox, disk_sed, disk_morph
+                FactorizedComponent(
+                    disk_sed, disk_morph, init.observation.bbox[0] @ bbox, bbox, center
                 ),
             ]
     else:
         components = [
-            LiteComponent(center, init.observation.bbox[0] @ bbox, sed, morph)
+            FactorizedComponent(
+                sed, morph, init.observation.bbox[0] @ bbox, bbox, center
+            )
         ]
 
-    return LiteSource(components, init.observation.dtype)
+    return Source(components, init.observation.dtype)
 
 
-def init_all_sources_main(
-    observation,
-    centers,
-    detect=None,
-    min_snr=50,
-    use_mask=False,
-    disk_percentile=25,
-    thresh=0.5,
-):
+def init_all_sources_chi2(
+    observation: Observation,
+    centers: Sequence[tuple[int, int]],
+    detect: np.ndarray = None,
+    min_snr: float = 50,
+    use_mask: bool = False,
+    disk_percentile: float = 25,
+    thresh: float = 0.5,
+) -> list[Source]:
     """Initialize all of the sources in a blend into factorized components
 
     This function uses a set of algorithms to give similar results to the
@@ -564,7 +572,7 @@ def init_all_sources_main(
 
     Returns
     -------
-    sources: `list` of `scarlet.lite.LiteSource`
+    sources: list[Source]
         The list of sources in the blend.
         This includes null sources that have no components.
     """
@@ -578,7 +586,7 @@ def init_all_sources_main(
     )
     sources = []
     for center in centers:
-        source = init_main_source(center, init)
+        source = init_chi2_source(center, init)
         sources.append(source)
     return sources
 
@@ -594,18 +602,34 @@ class WaveletInitParameters:
 
     def __init__(
         self,
-        observation,
-        bulge_slice=slice(None, 2),
-        disk_slice=slice(2, -1),
-        bulge_grow=5,
-        disk_grow=5,
-        use_psf=True,
-        scales=5,
-        wavelets=None,
+        observation: Observation,
+        bulge_slice: slice = slice(None, 2),
+        disk_slice: slice = slice(2, -1),
+        bulge_grow: int = 5,
+        disk_grow: int = 5,
+        use_psf: bool = True,
+        scales: int = 5,
+        wavelets: np.ndarray = None,
     ):
         """Initialize the parameters.
 
-        See `init_all_sources_wavelets` for a description of the parameters.
+        Parameters
+        ----------
+        observation:
+            The multiband observation of the blend.
+        bulge_slice, disk_slice:
+            The slice used to select the wavelet scales used for the bulge/disk.
+        bulge_grow, disk_grow:
+            The number of pixels to grow the bounding box of the bulge/disk
+            to leave extra room for growth in the first few iterations.
+        use_psf:
+            Whether or not to use the PSF for single component sources.
+            If `use_psf` is `False` then only sources with low signal at all scales
+            are initialized with the PSF morphology.
+        scales:
+            Number of wavelet scales to use.
+        wavelets: `numpy.ndarray`
+            The array of wavelet coefficients `(scale, y, x)` used for detection.
         """
         if wavelets is None:
             wavelets = get_detect_wavelets(
@@ -649,25 +673,28 @@ class WaveletInitParameters:
         self.use_psf = use_psf
 
 
-def init_wavelet_source(center, nbr_components, init):
+def init_wavelet_source(
+    center: tuple[int, int], nbr_components: int, init: WaveletInitParameters
+):
     """Initialize a single source with wavelet coefficients
 
     Parameters
     ----------
-    center: `tupel` of `int`
+    center:
         The location of the source in the full image.
-    nbr_components: `int`
+    nbr_components:
         The number of components of the source.
         If `nbr_components >= 2` then initialization with 2 components
         is attempted. If this fails, or if ` 2 > nbr_components >= 1`
         then initialization with 1 component is attempted.
         Otherwise the source is initialized with the PSF.
-    init: `WaveletInitParameters`
+    init:
         Parameters used to initialize all sources.
 
     Returns
     -------
-    source: `scarlet.lite.LiteSource`
+    source: Source
+        The initialized source.
     """
     observation = init.observation
     model_psf = observation.model_psf[0]
@@ -684,21 +711,25 @@ def init_wavelet_source(center, nbr_components, init):
         morph = morph / np.max(morph)
         bbox = Box(model_psf.shape, origin=(center[0] - init.py, center[1] - init.px))
 
-        component = LiteComponent(center, observation.bbox[0] @ bbox, sed, morph)
-        source = LiteSource([component], observation.dtype)
+        component = FactorizedComponent(
+            sed, morph, observation.bbox[0] @ bbox, bbox, center
+        )
+        source = Source([component], observation.dtype)
     elif nbr_components < 2:
         bbox, morph = init_monotonic_morph(
             init.detectlets, center, observation.bbox[1:], init.disk_grow
         )
         if morph is None or np.max(morph) <= 0:
-            return LiteSource([], observation.dtype)
+            return Source([], observation.dtype)
 
         sed = init.images[sed_center] / init.convolved[sed_center]
         sed[sed < 0] = 0
         morph = morph / np.max(morph)
 
-        component = LiteComponent(center, observation.bbox[0] @ bbox, sed, morph)
-        source = LiteSource([component], observation.dtype)
+        component = FactorizedComponent(
+            sed, morph, observation.bbox[0] @ bbox, bbox, center
+        )
+        source = Source([component], observation.dtype)
     else:
         bulge_box, bulge_morph = init_monotonic_morph(
             init.bulgelets, center, observation.bbox[1:], init.bulge_grow
@@ -711,11 +742,6 @@ def init_wavelet_source(center, nbr_components, init):
             if bulge_morph is None:
                 if disk_morph is None:
                     return None
-                morph = disk_morph
-                bbox = disk_box
-            else:
-                morph = bulge_morph
-                bbox = bulge_box
             # One of the components was null,
             # so initialize as a single component
             return init_wavelet_source(center, 1, init)
@@ -727,36 +753,44 @@ def init_wavelet_source(center, nbr_components, init):
             components = []
             if np.sum(bulge_sed != 0):
                 components.append(
-                    LiteComponent(
-                        center, observation.bbox[0] @ bulge_box, bulge_sed, bulge_morph
+                    FactorizedComponent(
+                        bulge_sed,
+                        bulge_morph,
+                        observation.bbox[0] @ bulge_box,
+                        observation.bbox,
+                        center,
                     )
                 )
             else:
                 logger.debug("cut bulge")
             if np.sum(disk_sed) != 0:
                 components.append(
-                    LiteComponent(
-                        center, observation.bbox[0] @ disk_box, disk_sed, disk_morph
+                    FactorizedComponent(
+                        disk_sed,
+                        disk_morph,
+                        observation.bbox[0] @ disk_box,
+                        observation.bbox,
+                        center,
                     )
                 )
             else:
                 logger.debug("cut disk")
 
-            source = LiteSource(components, observation.dtype)
+            source = Source(components, observation.dtype)
     return source
 
 
 def init_all_sources_wavelets(
-    observation,
-    centers,
-    min_snr=50,
-    bulge_grow=5,
-    disk_grow=5,
-    use_psf=True,
-    bulge_slice=slice(None, 2),
-    disk_slice=slice(2, -1),
-    scales=5,
-    wavelets=None,
+    observation: Observation,
+    centers: Sequence[tuple[int, int]],
+    min_snr: float = 50,
+    bulge_grow: int = 5,
+    disk_grow: int = 5,
+    use_psf: bool = True,
+    bulge_slice: slice = slice(None, 2),
+    disk_slice: slice = slice(2, -1),
+    scales: int = 5,
+    wavelets: np.ndarray = None,
 ):
     """Initialize all sources using wavelet detection images.
 
@@ -764,24 +798,12 @@ def init_all_sources_wavelets(
     `parameterize_source` must still be run to select a parameterization
     (optimizer) that `LiteBlend` requires for fitting.
 
+    See the parameters of `~WaveletInitParameters.__init__` for a description of
+    the parameters.
+
     Parameters
     ----------
-    observation: `scarlet.lite.LiteObservation`
-        The multiband observation of the blend.
-    centers: `list` of `tuple`
-        Peak locations for all of the sources to attempt to initialize.
-    wavelets: `numpy.ndarray`
-        The array of wavelet coefficients `(scale, y, x)` used for detection.
-    bulge_slice, disk_slice: `slice`
-        The slice used to select the wavelet scales used for the bulge/disk.
-    bulge_grow, disk_grow: `int`
-        The number of pixels to grow the bounding box of the bulge/disk
-        to leave extra room for growth in the first few iterations.
-    use_psf: `bool`
-        Whether or not to use the PSF for single component sources.
-        If `use_psf` is `False` then only sources with low signal at all scales
-        are initialized with the PSF morphology.
-    min_snr: `float`
+    min_snr:
         Minimum signal to noise for each component. So if `min_snr=50`,
         a source must have SNR > 50 to be initialized with one component
         and SNR > 100 for 2 components.
@@ -812,43 +834,3 @@ def init_all_sources_wavelets(
         source = init_wavelet_source(center, component_snr, init)
         sources.append(source)
     return sources
-
-
-def parameterize_sources(sources, observation, parameterization):
-    """Convert the parameters in a list of sources in scarlet lite parameters
-
-    Parameters
-    ----------
-    sources: `list` of `scarlet.lite.LiteSource`
-        The sources to parameterize.
-    observation: `scarlet.lite.LiteObservation`
-        The observation that is being fit.
-    parameterization: `Callable`
-        The function that is used to convert the SED and morphology into
-        parameters that update by a given optimization algorithm.
-        The function must take `center`, `sed`, `morph`, `bbox`, and
-        `observation` as parameters.
-        For an example of a valid `parameterization` function see
-        `init_adaprox_component`.
-
-    Returns
-    -------
-    sources: `list` of `scarlet.lite.LiteSource`
-        The input list of sources with their components updated.
-    """
-    new_sources = []
-    for src in sources:
-        components = []
-        for c in src.components:
-            # Copy all of the parameters in case the same initialization
-            # variables are wrapped by different parameterizations
-            component = parameterization(
-                center=tuple([coord for coord in c.center]),
-                sed=c.sed.copy(),
-                morph=c.morph.copy(),
-                bbox=c.bbox.copy(),
-                observation=observation,
-            )
-            components.append(component)
-        new_sources.append(LiteSource(components, src.dtype))
-    return new_sources

@@ -19,28 +19,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from typing import Sequence
+
 import numpy as np
-from numpy.testing import assert_almost_equal, assert_equal
 
-from scarlet_lite.wavelet import starlet_transform, starlet_reconstruction
+from scarlet_lite.utils import integrated_circular_gaussian
 
 
-class TestWavelet(object):
-    def get_image(self) -> np.ndarray:
-        x = np.linspace(-10, 10, 129)
-        y = np.linspace(-10, 10, 129)
-        x, y = np.meshgrid(x, y)
-        return np.exp(-(x**2+y**2))
-
-    """Test the wavelet object"""
-
-    def test_transform_inverse(self):
-        image = self.get_image()
-        starlets = starlet_transform(image, scales=3)
-
-        # Test number of levels
-        assert_equal(starlets.shape[0], 4)
-
-        # Test inverse
-        inverse = starlet_reconstruction(starlets)
-        assert_almost_equal(inverse, image)
+def get_psfs(sigmas: float | Sequence[float]) -> np.ndarray:
+    try:
+        iter(sigmas)
+    except TypeError:
+        sigmas = (sigmas,)
+    psf = [integrated_circular_gaussian(sigma=sigma) for sigma in sigmas]
+    return np.array(psf)

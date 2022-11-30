@@ -21,7 +21,7 @@
 
 __all__ = [
     "starlet_transform",
-    "starlet_transform",
+    "starlet_reconstruction",
     "multiband_starlet_transform",
     "multiband_starlet_reconstruction",
     "get_multiresolution_support",

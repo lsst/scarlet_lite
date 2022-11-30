@@ -11,7 +11,7 @@ from .wavelet import starlet_transform, get_multiresolution_support
 logger = logging.getLogger("scarlet.detect")
 
 
-def bounds_to_bbox(bounds: Sequence[int, int, int, int]):
+def bounds_to_bbox(bounds: tuple[int, int, int, int]) -> Box:
     """Convert the bounds of a Footprint into a Box
 
     Parameters
@@ -50,15 +50,15 @@ def footprint_intersect(
 
 
 def scarlet_footprints_to_image(
-    footprints: Sequence[Footprint], shape: Sequence[int]
+    footprints: Sequence[Footprint], shape: tuple[int, int]
 ) -> np.ndarray:
     """Convert a set of scarlet footprints to a pixelized image.
 
     Parameters
     ----------
-    footprints: Footprint
+    footprints:
         The footprints to convert into an iamge.
-    shape: Sequence[int]
+    shape:
         The shape of the image that is created from the footprints.
 
     Returns

@@ -1,9 +1,30 @@
-from functools import partial
+# This file is part of scarlet_lite.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import numpy as np
-import scarlet
-import scarlet.fft as fft
 from numpy.testing import assert_array_equal, assert_almost_equal
+
+import scarlet_lite.fft as fft
+from scarlet_lite import Fourier
+from utils import get_psfs
 
 
 class TestCentering(object):
@@ -78,20 +99,13 @@ class TestCentering(object):
 
 
 class TestFourier(object):
-    def get_psfs(self, sigmas):
-        boxsize = 41
-        psf = scarlet.GaussianPSF(sigmas, boxsize=boxsize)
-        return psf.get_model()
-
-    """Test the Fourier object"""
-
-    def test_2D_psf_matching(self):
+    def test_2d_psf_matching(self):
         """Test matching two 2D psfs
         """
         # Narrow PSF
-        psf1 = scarlet.fft.Fourier(self.get_psfs(1))
+        psf1 = Fourier(get_psfs(1))
         # Wide PSF
-        psf2 = scarlet.fft.Fourier(self.get_psfs(2))
+        psf2 = Fourier(get_psfs(2))
 
         # Test narrow to wide
         kernel_1to2 = fft.match_psf(psf2, psf1)
@@ -107,9 +121,9 @@ class TestFourier(object):
         """Test matching two PSFs with a spectral dimension
         """
         # Narrow PSF
-        psf1 = scarlet.fft.Fourier(self.get_psfs(1))
+        psf1 = Fourier(get_psfs(1))
         # Wide PSF
-        psf2 = scarlet.fft.Fourier(self.get_psfs((1, 2, 3)))
+        psf2 = Fourier(get_psfs((1, 2, 3)))
 
         # Nawrrow to wide
         kernel_1to2 = fft.match_psf(psf2, psf1)

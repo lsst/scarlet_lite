@@ -1,12 +1,37 @@
-__all__ = ["LiteObservation", "convolve", "FitPsfObservation"]
+# This file is part of scarlet_lite.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+__all__ = ["Observation", "convolve", "FitPsfObservation"]
 
 import numpy as np
+import numpy.typing as npt
+from typing import Sequence, TypeVar
 
 from .bbox import Box
 from .fft import Fourier, match_psf, convolve as fft_convolve
-import interpolation
-from .parameters import FistaParameter
+from . import interpolation
+from .parameters import FistaParameter, Parameter
+
+
+TObservation = TypeVar("TObservation", bound="Observation")
 
 
 def convolve(image, psf, bounds):
@@ -15,11 +40,8 @@ def convolve(image, psf, bounds):
 
     result = np.empty(image.shape, dtype=image.dtype)
     for band in range(len(image)):
-        if hasattr(image[band], "_value"):
-            # This is an ArrayBox
-            img = image[band]._value
-        else:
-            img = image[band]
+        img = image[band]
+
         apply_filter(
             img,
             psf[band].reshape(-1),
@@ -37,7 +59,7 @@ def _grad_convolve(convolved, image, psf, slices):
     return lambda input_grad: convolve(input_grad, psf[:, ::-1, ::-1], slices)
 
 
-class LiteObservation:
+class Observation:
     """A single observation
 
     This is effectively a combination of the `Observation` and
@@ -49,16 +71,46 @@ class LiteObservation:
 
     def __init__(
         self,
-        images,
-        variance,
-        weights,
-        psfs,
-        model_psf=None,
-        noise_rms=None,
-        bbox=None,
-        padding=3,
-        convolution_mode="fft",
+        images: np.ndarray,
+        variance: np.ndarray,
+        weights: np.ndarray,
+        psfs: np.ndarray,
+        model_psf: np.ndarray | None = None,
+        noise_rms: np.ndarray | None = None,
+        bbox: Box = None,
+        padding: int = 3,
+        convolution_mode: str = "fft",
     ):
+        """Initialize an Observation.
+
+         Parameters
+         ----------
+         images: np.ndarray
+            (bands, y, x) array of observed images.
+        variance: np.ndarray
+            (bands, y, x) array of variance for each image pixel.
+        weights: np.ndarray
+            (bands, y, x) array of weights to use when calculatint the
+            likelihood of each pixel.
+        psfs: np.ndarray
+            (bands, y, x) array of the PSF image in each band.
+        model_psf: np.ndarray
+            (bands, y, x) array of the model PSF image in each band.
+            If `model_psf` is `None` then convolution has no
+            affect on the model, as it is generated in the same seeing as
+            the observation(s).
+        noise_rms: np.ndarray
+            Per-band average noise RMS. If `noise_rms` is `None` then the mean
+            of the sqrt of the variance is used.
+        bbox: Box
+            The bounding box containing the model. If `bbox` is `None` then
+            a `Box` is created that is the shape of `images` with an origin
+            at `(0, 0, 0)`.
+        padding: int
+            Padding to use when performing an FFT convolution.
+        convolution_model: str
+            The method of convolution. This should be either "fft" or "real".
+        """
         self.images = images
         self.variance = variance
         self.weights = weights
@@ -94,21 +146,28 @@ class LiteObservation:
         else:
             self.bbox = bbox
 
-    def convolve(self, image, mode=None, grad=False):
+    def convolve(
+        self, image: np.ndarray, mode: str = None, grad: bool = False
+    ) -> np.ndarray:
         """Convolve the model into the observed seeing in each band.
 
         Parameters
         ----------
-        image: `~numpy.array`
-            The image to convolve
-        mode: `str`
+        image: np.ndarray
+            The 2D image to convolve.
+        mode: str
             The convolution mode to use.
             This should be "real" or "fft" or `None`,
             where `None` will use the default `convolution_mode`
             specified during init.
-        grad: `bool`
+        grad: bool
             Whether this is a backward gradient convolution
             (`grad==True`) or a pure convolution with the PSF.
+
+        Returns
+        -------
+        result: npndarray
+            The convolved image.
         """
         if grad:
             kernel = self.grad_kernel
@@ -132,32 +191,23 @@ class LiteObservation:
             raise ValueError(f"mode must be either 'fft' or 'real', got {mode}")
         return result
 
-    def render(self, model):
-        """Mirror of `Observation.render to make APIs match"""
-        return self.convolve(model)
-
     @property
-    def data(self):
-        """Mirror of `Observation.data` to make APIs match"""
-        return self.images
-
-    @property
-    def shape(self):
-        """The shape of the iamges, variance, etc."""
+    def shape(self) -> tuple[int, int, int]:
+        """The shape of the images, variance, etc."""
         return self.images.shape
 
     @property
-    def n_bands(self):
+    def n_bands(self) -> int:
         """The number of bands in the observation"""
         return self.images.shape[0]
 
     @property
-    def dtype(self):
+    def dtype(self) -> npt.DTypeLike:
         """The dtype of the observation is the dtype of the images"""
         return self.images.dtype
 
     @property
-    def convolution_bounds(self):
+    def convolution_bounds(self) -> tuple[int, int, int, int]:
         """Build the slices needed for convolution in real space"""
         if not hasattr(self, "_convolution_bounds"):
             coords = interpolation.get_filter_coords(self.diff_kernel[0])
@@ -166,7 +216,7 @@ class LiteObservation:
             )
         return self._convolution_bounds
 
-    def __getitem__(self, i):
+    def __getitem__(self, i: int | Sequence[int] | slice) -> TObservation:
         """Allow the user to slice the observations with python indexing"""
         images = self.images[i]
         variance = self.variance[i]
@@ -181,7 +231,7 @@ class LiteObservation:
             psfs = psfs[None]
             noise_rms = np.array([noise_rms])
 
-        return LiteObservation(
+        return Observation(
             images,
             variance,
             weights,
@@ -194,23 +244,27 @@ class LiteObservation:
         )
 
 
-class FitPsfObservation(LiteObservation):
+class FitPsfObservation(Observation):
     """An observation that fits the PSF used to convolve the model."""
 
     def __init__(
         self,
-        diff_kernel,
-        fft_shape,
-        images,
-        variance,
-        weights,
-        psfs,
-        model_psf=None,
-        noise_rms=None,
-        bbox=None,
-        padding=3,
-        convolution_mode="fft",
+        diff_kernel: np.ndarray | Parameter,
+        fft_shape: tuple[int, int],
+        images: np.ndarray,
+        variance: np.ndarray,
+        weights: np.ndarray,
+        psfs: np.ndarray,
+        model_psf: np.ndarray = None,
+        noise_rms: np.ndarray = None,
+        bbox: Box = None,
+        padding: int = 3,
+        convolution_mode: str = "fft",
     ):
+        """Initialize a `FitPsfObservation`
+
+        See `Observation` for a description of the parameters.
+        """
         super().__init__(
             images,
             variance,
@@ -232,23 +286,25 @@ class FitPsfObservation(LiteObservation):
         self._fitKernel.grad = self.grad_fit_kernel
         self._fitKernel.prox = self.prox_kernel
 
-    def grad_fit_kernel(self, input_grad, kernel, model_fft):
+    def grad_fit_kernel(
+        self, input_grad: np.ndarray, kernel: np.ndarray, model_fft: np.ndarray
+    ) -> np.ndarray:
         # Transform the upstream gradient into k-space
         grad_fft = Fourier(input_grad)
         grad_fft = grad_fft.fft(self.fft_shape, self.axes)
         return grad_fft * model_fft
 
-    def prox_kernel(self, kernel, prox_step=0):
+    def prox_kernel(self, kernel: np.ndarray) -> np.ndarray:
         # No prox for now
         return kernel
 
     @property
-    def fitKernel(self):
-        return self._fitKernel.x
+    def fit_kernel(self) -> np.ndarray:
+        return self._fitKernel
 
     @property
-    def gradFitKernel(self):
-        return self.fitKernel.real - self.fitKernel.imag * 1j
+    def chached_kernel(self):
+        return self.fit_kernel.real - self.fit_kernel.imag * 1j
 
     def convolve(self, image, mode=None, grad=False):
         """Convolve the model into the observed seeing in each band.
@@ -267,9 +323,9 @@ class FitPsfObservation(LiteObservation):
             (`grad==True`) or a pure convolution with the PSF.
         """
         if grad:
-            kernel = self.gradFitKernel
+            kernel = self.chached_kernel
         else:
-            kernel = self.fitKernel
+            kernel = self.fit_kernel
 
         if kernel is None:
             return image
@@ -279,9 +335,7 @@ class FitPsfObservation(LiteObservation):
         image = Fourier(image)
         fft = image.fft(self.fft_shape, self.axes)
 
-        result = fft.Fourier.from_fft(
-            fft * kernel, self.fft_shape, image.shape, self.axes
-        )
+        result = Fourier.from_fft(fft * kernel, self.fft_shape, image.shape, self.axes)
         return result.image
 
     def update(self, it, input_grad, model):

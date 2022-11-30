@@ -21,13 +21,16 @@
 
 __all__ = ["Fourier"]
 
-from typing import Callable, Self, Sequence
+from typing import Callable, Sequence, TypeVar
 
 import numpy as np
 from scipy import fftpack
 import operator
 
 from .interpolation import mk_shifter
+
+
+TFourier = TypeVar("TFourier", bound="Fourier")
 
 
 def _centered(arr: np.ndarray, newshape: Sequence[int]) -> np.ndarray:
@@ -238,7 +241,7 @@ class Fourier(object):
         fft_shape: Sequence[int],
         image_shape: Sequence[int],
         axes: int | Sequence[int] = None,
-    ) -> Self:
+    ) -> TFourier:
         """Generate a new Fourier object from an FFT dictionary
 
         If the fft of an image has been generated but not its
@@ -314,7 +317,7 @@ class Fourier(object):
     def __len__(self) -> int:
         return len(self.image)
 
-    def __getitem__(self, index: int | Sequence[int] | slice) -> Self:
+    def __getitem__(self, index: int | Sequence[int] | slice) -> TFourier:
         # Make the index a tuple
         if not hasattr(index, "__getitem__"):
             index = tuple([index])

@@ -25,8 +25,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.special import erfc
 
-from .bbox import overlapped_slices, Box
-from .initialization import get_minimal_boxsize
+from .bbox import overlapped_slices, get_minimal_boxsize, Box
 
 
 def insert_image(

@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .bbox import Box
-from .blend import LiteBlend, LiteSource
+from .blend import Blend, Source
 
 
 # Size of a single panel, used for generating figures with multiple sub-plots
@@ -220,13 +220,13 @@ def img_to_rgb(
 
 
 def show_likelihood(
-    blend: LiteBlend, figsize: tuple[float, float] = None, **kwargs
+    blend: Blend, figsize: tuple[float, float] = None, **kwargs
 ) -> matplotlib.Figure:
     """Display a plot of the likelihood in each iteration for a blend
 
     Parameters
     ----------
-    blend: LiteBlend
+    blend: Blend
         The blend to generate the likelihood plot for.
     figsize: tuple[float, float]
         The size of the figure.
@@ -247,7 +247,7 @@ def show_likelihood(
 
 
 def _add_markers(
-    src: LiteSource,
+    src: Source,
     extent: Sequence[float, float, float, float],
     ax: matplotlib.Axes,
     add_markers: bool,
@@ -271,7 +271,7 @@ def _add_markers(
 
 
 def show_scene(
-    blend: LiteBlend,
+    blend: Blend,
     norm: Mapping = None,
     channel_map: np.ndarray = None,
     show_model: bool = True,
@@ -293,7 +293,7 @@ def show_scene(
 
     Parameters
     ----------
-    blend: LiteBlend
+    blend: Blend
     norm: Mapping
         Norm to compress image intensity to the range [0,255].
     channel_map: np.ndarray
@@ -371,7 +371,7 @@ def show_scene(
         panel += 1
 
     if (show_rendered or show_residual) and not use_flux:
-        model = observation.render(model)
+        model = observation.convolve(model)
     extent = get_extent(observation.bbox)
 
     if show_rendered:
@@ -385,7 +385,9 @@ def show_scene(
 
     if show_observed:
         ax[panel].imshow(
-            img_to_rgb(observation.data, norm=norm, channel_map=channel_map, mask=mask),
+            img_to_rgb(
+                observation.images, norm=norm, channel_map=channel_map, mask=mask
+            ),
             extent=extent,
             origin="lower",
         )
@@ -393,7 +395,7 @@ def show_scene(
         panel += 1
 
     if show_residual:
-        residual = observation.data - model
+        residual = observation.images - model
         norm_ = LinearPercentileNorm(residual)
         ax[panel].imshow(
             img_to_rgb(residual, norm=norm_, channel_map=channel_map, mask=mask),
@@ -454,8 +456,8 @@ def get_extent(bbox: Box) -> list[int, int, int, int]:
 
 
 def show_sources(
-    blend: LiteBlend,
-    sources: list[LiteSource] = None,
+    blend: Blend,
+    sources: list[Source] = None,
     norm: Mapping = None,
     channel_map: np.ndarray = None,
     show_model: bool = True,
@@ -475,9 +477,9 @@ def show_sources(
 
     Parameters
     ----------
-    blend: LiteBlend
+    blend: Blend
         The blend that contains the sources.
-    sources: list[LiteSource]
+    sources: list[Source]
         The list of sources to plot.
         If `sources` is `None` then all of the sources in `blend` are
         displayed.
@@ -569,7 +571,7 @@ def show_sources(
             # Center and show the rendered model
             model_ = src.get_model(use_flux=use_flux, bbox=bbox)
             if not use_flux:
-                model_ = observation.render(model_)
+                model_ = observation.convolve(model_)
             ax[k - skipped][panel].imshow(
                 img_to_rgb(model_, norm=norm, channel_map=channel_map),
                 extent=get_extent(observation.bbox),
@@ -589,7 +591,7 @@ def show_sources(
 
         if show_observed:
             # Center the observation on the source and display it
-            _images = observation.data
+            _images = observation.images
             ax[k - skipped][panel].imshow(
                 img_to_rgb(_images, norm=norm, channel_map=channel_map),
                 extent=get_extent(observation.bbox),
@@ -622,7 +624,7 @@ def show_sources(
 
 
 def compare_spectra(
-    use_flux: bool = True, use_template: bool = True, **all_sources: list[LiteSource]
+    use_flux: bool = True, use_template: bool = True, **all_sources: list[Source]
 ) -> matplotlib.Figure:
     """Compare spectra from multiple different deblending results of the
     same sources.
@@ -633,7 +635,7 @@ def compare_spectra(
         Whether or not to show the re-distributed flux version of the model.
     use_template: bool
         Whether or not to show the scarlet model templates.
-    all_sources: dict[str, list[LiteSource]]
+    all_sources: dict[str, list[Source]]
         The list of sources for each different deblending model.
     """
     first_key = next(iter(all_sources.keys()))

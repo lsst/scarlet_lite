@@ -4,7 +4,12 @@ from .bbox import Box, overlapped_slices
 from .utils import insert_image
 
 
-def calculate_snr(images, variance, psfs, center):
+def calculate_snr(
+    images: np.ndarray,
+    variance: np.ndarray,
+    psfs: np.ndarray,
+    center: tuple[int, int],
+):
     """Calculate the signal to noise for a source
 
     This is done by weighting the image with the PSF in each band
@@ -12,13 +17,13 @@ def calculate_snr(images, variance, psfs, center):
 
     Parameters
     ----------
-    images: `numpy.ndarray`
+    images:
         The 3D (channels, y, x) image containing the data.
-    variance: `numpy.array`
+    variance:
         The variance of `images`.
-    psfs: `numpy.ndarray`
+    psfs:
         The PSF in each channel.
-    center: `list` of `int`
+    center:
         The center of the signal.
 
     Returns

@@ -20,25 +20,27 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 __all__ = [
-    "LiteComponent",
-    "LiteFactorizedComponent",
+    "Component",
+    "FactorizedComponent",
     "SedComponent",
     "ParametricComponent",
     "EllipticalParametricComponent",
 ]
 
-from functools import partial
+from abc import ABC, abstractmethod
+from typing import Callable, Sequence
 
 import numpy as np
 from scipy.special import erf
 from scipy.stats import gamma
 
-from .bbox import overlapped_slices
+from .bbox import Box, get_minimal_boxsize, overlapped_slices
 from .frame import CartesianFrame, EllipseFrame
-import initialization
 from .operators import MonotonicityConstraint
-from .parameters import FixedParameter, AdaproxParameter, DEFAULT_FACTOR
-from .parameters import relative_step
+from .parameters import (
+    parameter,
+    Parameter,
+)
 from .detect import scarlet_footprints_to_image
 
 
@@ -53,74 +55,232 @@ SQRT_PI_2 = np.sqrt(np.pi / 2)
 SERSIC_B1 = gamma.ppf(0.5, 2)
 
 
-class LiteComponent:
-    """A base component in scarlet lite
-
-    If `sed` and `morph` are arrays and not `LiteParameter`s then the
-    component is not `initialized` and must still be initialized by
-    another function.
-
-    Parameters
-    ----------
-    center: `tuple` of `int`
-        Location of the center pixel of the component in the full blend.
-    bbox: `scarlet.bbox.Box`
-        The bounding box for this component
-    sed: `numpy.darray`
-        The array of values for the SED `(bands,)`
-    morph: `numpy.darray`
-        The `(height, wdidth)` array of values for the morphology.
-    initialized: `bool`
-        Whether or not the component has been initialized.
-    bg_thresh: `float`
-        Level of the background thresh, required by some parameterizations.
-    bg_rms: `float`
-        The RMS of the background, required by some parameterizations.
-    """
+class Component(ABC):
+    """A base component in scarlet lite"""
 
     def __init__(
         self,
-        center,
-        bbox,
-        sed=None,
-        morph=None,
-        initialized=False,
-        bg_thresh=0.25,
-        bg_rms=0,
+        bbox: Box,
+        model_bbox: Box,
     ):
-        self._center = center
-        self._bbox = bbox
-        self._sed = sed
-        self._morph = morph
-        self.initialized = initialized
-        self.bg_thresh = bg_thresh
-        self.bg_rms = bg_rms
+        """Initialize a LiteComponent instance
 
-    @property
-    def center(self):
-        """The central locaation of the peak"""
-        return self._center
+        Parameters
+        ----------
+        bbox: Box
+            The bounding box for this component.
+        model_bbox: Box
+            The bounding box for the full blend model.
+        """
+        self._bbox = bbox
+        self.slices = overlapped_slices(model_bbox, bbox)
 
     @property
     def bbox(self):
         """The bounding box that contains the component in the full image"""
         return self._bbox
 
+    @abstractmethod
+    def resize(self) -> bool:
+        """Test whether or not the component needs to be resized
+
+        This should be overriden in inherited classes and return `True`
+        if the component needs to be resized.
+        """
+        pass
+
+    @abstractmethod
+    def update(self, it: int, input_grad: np.ndarray):
+        """Update the component parameters from an input gradient
+
+        Parameters
+        ----------
+        it: int
+            The current iteration of the optimizer.
+        input_grad: np.ndarray
+            Gradient of the likelihood wrt the component model
+        """
+        pass
+
+    @abstractmethod
+    def get_model(self, bbox: Box = None):
+        """Generate a model for the component
+
+        This must be implemented in inherited classes.
+
+        Parameters
+        ----------
+        bbox: Box
+            A box to project the model into. If `bbox` is `None` then the
+            model is generated in the components bounding box.
+        """
+        pass
+
+    @abstractmethod
+    def parametrize(self, parameterization: Callable) -> None:
+        """Convert the component parameter arrays into Parameter instances
+
+        Parameters
+        ----------
+        parameterization: Callable
+            A function to use to convert parameters of a given type into
+            a `Parameter` in place. It should take a single argument that
+            is the `Component` or `Source` that is to be parameterized.
+        """
+        pass
+
+    @abstractmethod
+    def clear_parameters(self):
+        """Convert all of the parameters back into numpy arrays"""
+        pass
+
+    def __str__(self):
+        return "Component"
+
+    def __repr__(self):
+        return "Component"
+
+
+class FactorizedComponent(Component):
+    """A component that can be factorized into SED and morphology parameters"""
+
+    def __init__(
+        self,
+        sed: Parameter | np.ndarray,
+        morph: Parameter | np.ndarray,
+        bbox: Box,
+        model_bbox: Box,
+        center: tuple[int, int] | None = None,
+        bg_rms: np.ndarray | None = None,
+        bg_thresh: float | None = 0.25,
+        floor: float = 1e-20,
+        fit_center_radius: int = 1,
+    ):
+        """Initialize the component.
+
+        Parameters
+        ----------
+        sed: Parameter | np.ndarray
+            The parameter to store and update the SED.
+        morph: Parameter | np.ndarray
+            The parameter to store and update the morphology.
+        center: Sequence[int, int]
+            Center of the source.
+        bbox: Box
+            The `Box` in the `model_bbox` that contains the source.
+        model_bbox: Box
+            The `Box` that contains the model.
+            This is simplified from the main scarlet, where the model exists
+            in a `frame`, which primarily exists because not all
+            observations in main scarlet will use the same set of bands.
+        bg_rms: np.ndarray
+            The RMS of the background used to threshold, grow,
+            and shrink the component.
+        floor: float
+            Minimum value of the SED or center morphology pixel.
+        fit_center_radius: int
+            The number of pixels around the `center` to search
+            for a higher flux value when applying monotonicity.
+        """
+        # Initialize all of the base attributes
+        super().__init__(
+            bbox=bbox,
+            model_bbox=model_bbox,
+        )
+        self._sed = parameter(sed)
+        self._morph = parameter(morph)
+        self._center = center
+        self.bg_rms = bg_rms
+        self.bg_thresh = bg_thresh
+
+        # Initialize the monotonicity constraint
+        self.monotonicity = MonotonicityConstraint(
+            neighbor_weight="angle", min_gradient=0, fit_center_radius=fit_center_radius
+        )
+        self.floor = floor
+        self.model_bbox = model_bbox
+
     @property
-    def sed(self):
+    def center(self) -> tuple[int, int] | None:
+        """The center of the component
+
+        Returns
+        -------
+        center: Sequence[int, int]
+            The center of the component
+        """
+        return self._center
+
+    @property
+    def sed(self) -> np.ndarray:
         """The array of SED values"""
-        return self._sed
+        return self._sed.view(np.ndarray)
 
     @property
-    def morph(self):
+    def morph(self) -> np.ndarray:
         """The array of morphology values"""
-        return self._morph
+        return self._morph.view(np.ndarray)
 
-    def resize(self):
+    def get_model(self, bbox: Box = None) -> np.ndarray:
+        """Build the model from the SED and morphology"""
+        # The sed and morph might be Parameters,
+        # so cast them as arrays in the model.
+        sed = self.sed.view(np.ndarray)
+        morph = self.morph.view(np.ndarray)
+        model = sed[:, None, None] * morph[None, :, :]
+
+        if bbox is not None and bbox != self.bbox:
+            slices = overlapped_slices(bbox, self.bbox)
+            _model = np.zeros(bbox.shape, self.morph.dtype)
+            _model[slices[0]] = model[slices[1]]
+            model = _model
+        return model
+
+    def grad_sed(self, input_grad, sed, morph):
+        """Gradient of the SED wrt. the component model"""
+        _grad = np.zeros(self.bbox.shape, dtype=self.morph.dtype)
+        _grad[self.slices[1]] = input_grad[self.slices[0]]
+        return np.einsum("...jk,jk", _grad, morph)
+
+    def grad_morph(self, input_grad, morph, sed):
+        """Gradient of the morph wrt. the component model"""
+        _grad = np.zeros(self.bbox.shape, dtype=self.morph.dtype)
+        _grad[self.slices[1]] = input_grad[self.slices[0]]
+        return np.einsum("i,i...", sed, _grad)
+
+    def prox_sed(self, sed: np.ndarray) -> np.ndarray:
+        """Apply a prox-like update to the SED"""
+        # prevent divergent SED
+        sed[sed < self.floor] = self.floor
+        return sed
+
+    def prox_morph(self, morph: np.ndarray) -> np.ndarray:
+        """Apply a prox-like update to the morphology"""
+        # monotonicity
+        morph = self.monotonicity(morph)
+
+        if self.bg_thresh is not None and self.bg_rms is not None:
+            bg_thresh = self.bg_rms * self.bg_thresh
+            # Enforce background thresholding
+            model = self.sed[:, None, None] * morph[None, :, :]
+            morph[np.all(model < bg_thresh[:, None, None], axis=0)] = 0
+        else:
+            # enforce positivity
+            morph[morph < 0] = 0
+
+        # prevent divergent morphology
+        shape = morph.shape
+        center = (shape[0] // 2, shape[1] // 2)
+        morph[center] = np.max([morph[center], self.floor])
+        # Normalize the morphology
+        morph[:] = morph / morph.max()
+        return morph
+
+    def resize(self) -> bool:
         """Test whether or not the component needs to be resized"""
         # No need to resize if there is no size threshold.
         # To allow box sizing but no thresholding use `bg_thresh=0`.
-        if self.bg_thresh is None:
+        if self.bg_thresh is None or self.bg_rms is None:
             return False
 
         morph = self.morph
@@ -136,7 +296,7 @@ class LiteComponent:
         ):
             dist += 1
 
-        new_size = initialization.get_minimal_boxsize(size - 2 * dist)
+        new_size = get_minimal_boxsize(size - 2 * dist)
         if new_size < size:
             dist = (size - new_size) // 2
             self.bbox.origin = (
@@ -170,7 +330,7 @@ class LiteComponent:
         )
 
         if np.any(edge_flux / edge_mask > self.bg_thresh * self.bg_rms[:, None, None]):
-            new_size = initialization.get_minimal_boxsize(size + 1)
+            new_size = get_minimal_boxsize(size + 1)
             dist = (new_size - size) // 2
             self.bbox.origin = (
                 self.bbox.origin[0],
@@ -183,137 +343,7 @@ class LiteComponent:
             return True
         return False
 
-    def __str__(self):
-        return "LiteComponent"
-
-    def __repr__(self):
-        return "LiteComponent"
-
-
-class LiteFactorizedComponent(LiteComponent):
-    """Implementation of a `FactorizedComponent` for simplified observations."""
-
-    def __init__(
-        self,
-        sed,
-        morph,
-        center,
-        bbox,
-        model_bbox,
-        bg_rms,
-        bg_thresh=0.25,
-        floor=1e-20,
-        fit_center_radius=1,
-    ):
-        """Initialize the component.
-
-        Parameters
-        ----------
-        sed: `LiteParameter`
-            The parameter to store and update the SED.
-        morph: `LiteParameter`
-            The parameter to store and update the morphology.
-        center: `array-like`
-            The center `(y,x)` of the source in the full model.
-        bbox: `~scarlet.bbox.Box`
-            The `Box` in the `model_bbox` that contains the source.
-        model_bbox: `~scarlet.bbox.Box`
-            The `Box` that contains the model.
-            This is simplified from the main scarlet, where the model exists
-            in a `frame`, which primarily exists because not all
-            observations in main scarlet will use the same set of bands.
-        bg_rms: `numpy.array`
-            The RMS of the background used to threshold, grow,
-            and shrink the component.
-        floor: `float`
-            Minimum value of the SED or center morphology pixel.
-        """
-        # Initialize all of the base attributes
-        super().__init__(
-            center,
-            bbox,
-            sed,
-            morph,
-            initialized=True,
-            bg_thresh=bg_thresh,
-            bg_rms=bg_rms,
-        )
-        # Initialize the monotonicity constraint
-        self.monotonicity = MonotonicityConstraint(
-            neighbor_weight="angle", min_gradient=0, fit_center_radius=fit_center_radius
-        )
-        self.floor = floor
-        self.model_bbox = model_bbox
-
-        # update the parameters
-        self._sed.grad = self.grad_sed
-        self._sed.prox = self.prox_sed
-        self._morph.grad = self.grad_morph
-        self._morph.prox = self.prox_morph
-        self.slices = overlapped_slices(model_bbox, bbox)
-
-    @property
-    def sed(self):
-        """The array of SED values"""
-        return self._sed.x
-
-    @property
-    def morph(self):
-        """The array of morphology values"""
-        return self._morph.x
-
-    def get_model(self, bbox=None):
-        """Build the model from the SED and morphology"""
-        model = self.sed[:, None, None] * self.morph[None, :, :]
-
-        if bbox is not None:
-            slices = overlapped_slices(bbox, self.bbox)
-            _model = np.zeros(bbox.shape, self.morph.dtype)
-            _model[slices[0]] = model[slices[1]]
-            model = _model
-        return model
-
-    def grad_sed(self, input_grad, sed, morph):
-        """Gradient of the SED wrt. the component model"""
-        _grad = np.zeros(self.bbox.shape, dtype=self.morph.dtype)
-        _grad[self.slices[1]] = input_grad[self.slices[0]]
-        return np.einsum("...jk,jk", _grad, morph)
-
-    def grad_morph(self, input_grad, morph, sed):
-        """Gradient of the morph wrt. the component model"""
-        _grad = np.zeros(self.bbox.shape, dtype=self.morph.dtype)
-        _grad[self.slices[1]] = input_grad[self.slices[0]]
-        return np.einsum("i,i...", sed, _grad)
-
-    def prox_sed(self, sed, prox_step=0):
-        """Apply a prox-like update to the SED"""
-        # prevent divergent SED
-        sed[sed < self.floor] = self.floor
-        return sed
-
-    def prox_morph(self, morph, prox_step=0):
-        """Apply a prox-like update to the morphology"""
-        # monotonicity
-        morph = self.monotonicity(morph, 0)
-
-        if self.bg_thresh is not None:
-            bg_thresh = self.bg_rms * self.bg_thresh
-            # Enforce background thresholding
-            model = self.sed[:, None, None] * morph[None, :, :]
-            morph[np.all(model < bg_thresh[:, None, None], axis=0)] = 0
-        else:
-            # enforce positivity
-            morph[morph < 0] = 0
-
-        # prevent divergent morphology
-        shape = morph.shape
-        center = (shape[0] // 2, shape[1] // 2)
-        morph[center] = np.max([morph[center], self.floor])
-        # Normalize the morphology
-        morph[:] = morph / morph.max()
-        return morph
-
-    def update(self, it, input_grad):
+    def update(self, it: int, input_grad: np.ndarray):
         """Update the SED and morphology parameters"""
         # Store the input SED so that the morphology can
         # have a consistent update
@@ -321,15 +351,30 @@ class LiteFactorizedComponent(LiteComponent):
         self._sed.update(it, input_grad, self.morph)
         self._morph.update(it, input_grad, sed)
 
+    def parametrize(self, parameterization: Callable) -> None:
+        """Convert the component parameter arrays into Parameter instances"""
+        # Update the SED and morph in place
+        parameterization(self)
+        # update the parameters
+        self._sed.grad = self.grad_sed
+        self._sed.prox = self.prox_sed
+        self._morph.grad = self.grad_morph
+        self._morph.prox = self.prox_morph
+
+    def clear_parameters(self):
+        """Convert all of the parameters back into numpy arrays"""
+        self._sed = self.sed
+        self._morph = self.morph
+
     def __str__(self):
-        return "LiteFactorizedComponent"
+        return "FactorizedComponent"
 
     def __repr__(self):
-        return "LiteFactorizedComponent"
+        return "FactorizedComponent"
 
 
-class SedComponent(LiteComponent):
-    """Implements a free-form component component
+class SedComponent(FactorizedComponent):
+    """Implements a free-form component
 
     With no constraints this component is typically either a garbage collector,
     or part of a set of components to deconvolve an image by separating out
@@ -338,101 +383,64 @@ class SedComponent(LiteComponent):
 
     def __init__(
         self,
-        sed,
-        morph,
-        model_bbox,
-        bg_thresh=None,
-        bg_rms=None,
-        floor=1e-20,
-        peaks=None,
-        min_area=0,
+        sed: np.ndarray | Parameter,
+        morph: np.ndarray | Parameter,
+        model_bbox: Box,
+        bg_thresh: float = None,
+        bg_rms: np.ndarray = None,
+        floor: float = 1e-20,
+        peaks: list[tuple[int, int]] = None,
+        min_area: float = 0,
     ):
         """Initialize the component.
 
-        See `~LiteComponent` for the rest of the parameters.
+        See `FactorizedComponent` for a list of parameters not shown here.
 
         Parameters
         ----------
-        model_bbox: `~scarlet.bbox.Box`
-            The `Box` that contains the model.
-            This is simplified from the main scarlet, where the model exists
-            in a `frame`, which primarily exists because not all
-            observations in main scarlet will use the same set of bands.
         peaks: `list` of `tuple`
             A set of ``(cy, cx)`` peaks for detected sources.
             If peak is not ``None`` then only pixels in the same "footprint"
             as one of the peaks are included in the morphology.
             If `peaks` is ``None`` then there is no constraint applied.
-        floor: `float`
-            Minimum value of the SED or center morphology pixel.
+        min_area: float
+            The minimum area for a peak.
+            If `min_area` is not `None` then all regions of the morphology
+            with fewer than `min_area` connected pixels are removed.
         """
-        cy = (model_bbox.shape[0] - 1) // 2
-        cx = (model_bbox.shape[1] - 1) // 2
-        self.floor = floor
-        self.model_bbox = model_bbox
-        self.peaks = peaks
-        self.min_area = min_area
-
         super().__init__(
-            (cy, cx),
-            model_bbox,
-            sed,
-            morph,
-            initialized=True,
-            bg_thresh=bg_thresh,
+            sed=sed,
+            morph=morph,
+            bbox=model_bbox,
+            model_bbox=model_bbox,
+            center=None,
             bg_rms=bg_rms,
+            bg_thresh=bg_thresh,
+            floor=floor,
         )
 
-        # update the parameters
-        self._sed.grad = self.grad_sed
-        self._sed.prox = self.prox_sed
-        self._morph.grad = self.grad_morph
-        self._morph.prox = self.prox_morph
+        self.peaks = peaks
+        self.min_area = min_area
         self.slices = [slice(None), slice(None)]
 
-    @property
-    def sed(self):
-        """The array of SED values"""
-        return self._sed.x
+    def prox_sed(self, sed: np.ndarray) -> np.ndarray:
+        """Apply a prox-like update to the SED
 
-    @property
-    def morph(self):
-        """The array of morphology values"""
-        return self._morph.x
-
-    def get_model(self, bbox=None):
-        """Build the model from the SED and morphology"""
-        model = self.sed[:, None, None] * self.morph[None, :, :]
-
-        if bbox is not None:
-            slices = overlapped_slices(bbox, self.bbox)
-            _model = np.zeros(bbox.shape, self.morph.dtype)
-            _model[slices[0]] = model[slices[1]]
-            model = _model
-        return model
-
-    def grad_sed(self, input_grad, sed, morph):
-        """Gradient of the SED wrt. the component model"""
-        _grad = np.zeros(self.bbox.shape, dtype=self.morph.dtype)
-        _grad[self.slices[1]] = input_grad[self.slices[0]]
-        return np.einsum("...jk,jk", _grad, morph)
-
-    def grad_morph(self, input_grad, morph, sed):
-        """Gradient of the morph wrt. the component model"""
-        _grad = np.zeros(self.bbox.shape, dtype=self.morph.dtype)
-        _grad[self.slices[1]] = input_grad[self.slices[0]]
-        return np.einsum("i,i...", sed, _grad)
-
-    def prox_sed(self, sed, prox_step=0):
-        """Apply a prox-like update to the SED"""
+        This differs from `FactorizedComponent` because an
+        `SedComponent` has the SED normalized to unity.
+        """
         # prevent divergent SED
         sed[sed < self.floor] = self.floor
         # Normalize the SED
         sed = sed / np.sum(sed)
         return sed
 
-    def prox_morph(self, morph, prox_step=0):
-        """Apply a prox-like update to the morphology"""
+    def prox_morph(self, morph: np.ndarray) -> np.ndarray:
+        """Apply a prox-like update to the morphology
+
+        This is the main difference between an `SedComponent` and a
+        `FactorizedComponent`, since this component has fewer constraints.
+        """
         from .detect_pybind11 import get_connected_multipeak, get_footprints
 
         if self.bg_thresh is not None:
@@ -456,16 +464,8 @@ class SedComponent(LiteComponent):
 
         return morph
 
-    def resize(self):
+    def resize(self) -> bool:
         return False
-
-    def update(self, it, input_grad):
-        """Update the SED and morphology parameters"""
-        # Store the input SED so that the morphology can
-        # have a consistent update
-        sed = self.sed.copy()
-        self._sed.update(it, input_grad, self.morph)
-        self._morph.update(it, input_grad, sed)
 
     def __str__(self):
         return "SedComponent"
@@ -474,41 +474,49 @@ class SedComponent(LiteComponent):
         return "SedComponent"
 
 
-def gaussian2d(params, ellipse):
+def gaussian2d(params: np.ndarray, ellipse: EllipseFrame) -> np.ndarray:
     """Model of a 2D elliptical gaussian
 
     Parameters
     ----------
-    params: `numpy.ndarray`
+    params: np.ndarray
         The parameters of the function.
         In this case there are none outside of the ellipticity
-    ellipse: `EllipseFrame`
+    ellipse: EllipseFrame
         The ellipse parameters to scale the radius in all directions.
 
     Returns
     -------
-    result: `numpy.ndarray`
+    result: np.ndarray
         The 2D guassian for the given ellipse parameters
     """
     return np.exp(-ellipse.r2_grid)
 
 
-def grad_gaussian(input_grad, params, cls, morph, sed, ellipse):
-    """Gradient of the the component model wrt the Gaussian morphology parameters
+def grad_gaussian(
+    input_grad: np.ndarray,
+    params: np.ndarray,
+    cls: Component,
+    morph: np.ndarray,
+    sed: np.ndarray,
+    ellipse: EllipseFrame,
+) -> np.ndarray:
+    """Gradient of the the component model wrt the Gaussian
+    morphology parameters
 
     Parameters
     ----------
-    input_grad: `numpy.ndarray`
+    input_grad: np.ndarray
         Gradient of the likelihood wrt the component model
-    params: `numpy.ndarray`
+    params: np.ndarray
         The parameters of the morphology.
-    cls: `LiteComponent`
+    cls: Component
         The component of the model that contains the morphology.
-    morph: `numpy.ndarray`
+    morph: np.ndarray
         The model of the morphology.
-    sed: `numpy.ndarray`
+    sed: np.ndarray
         The model of the SED.
-    ellipse: `EllipseFrame`
+    ellipse: EllipseFrame
         The ellipse parameters to scale the radius in all directions.
     """
     # Calculate the gradient of the likelihod
@@ -516,29 +524,29 @@ def grad_gaussian(input_grad, params, cls, morph, sed, ellipse):
     _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
     _grad[cls.slices[1]] = input_grad[cls.slices[0]]
     _grad = -morph * np.einsum("i,i...", sed, _grad)
-    dY0 = ellipse.grad_y0(_grad, True)
-    dX0 = ellipse.grad_x0(_grad, True)
-    dSigmaY = ellipse.grad_major(_grad, True)
-    dSigmaX = ellipse.grad_minor(_grad, True)
-    dTheta = ellipse.grad_theta(_grad, True)
-    return np.array([dY0, dX0, dSigmaY, dSigmaX, dTheta], dtype=params.dtype)
+    d_y0 = ellipse.grad_y0(_grad, True)
+    d_x0 = ellipse.grad_x0(_grad, True)
+    d_sigma_y = ellipse.grad_major(_grad, True)
+    d_sigma_x = ellipse.grad_minor(_grad, True)
+    d_theta = ellipse.grad_theta(_grad, True)
+    return np.array([d_y0, d_x0, d_sigma_y, d_sigma_x, d_theta], dtype=params.dtype)
 
 
-def circular_gaussian(center, frame, sigma):
+def circular_gaussian(center: Sequence[int], frame: CartesianFrame, sigma: float):
     """Model of a circularly symmetric Gaussian
 
     Parameters
     ----------
-    center: `numpy.ndarray`
+    center: np.ndarray
         The center of the Gaussian.
-    frame: `CartesianFrame`
+    frame: CartesianFrame
         The frame in which to generate the image of the circular Gaussian
-    sigma: `float`
+    sigma: float
         The standard deviation.
 
     Returns
     -------
-    result: `numpy.ndarray`
+    result: np.ndarray
         The image of the circular Gaussian.
     """
     y0, x0 = center[:2]
@@ -547,23 +555,34 @@ def circular_gaussian(center, frame, sigma):
     return np.exp(-r2)
 
 
-def grad_circular_gaussian(input_grad, params, cls, morph, sed, frame, sigma):
-    """Gradient of the the component model wrt the Gaussian morphology parameters
+def grad_circular_gaussian(
+    input_grad: np.ndarray,
+    params: np.ndarray,
+    cls: Component,
+    morph: np.ndarray,
+    sed: np.ndarray,
+    frame: CartesianFrame,
+    sigma: float,
+) -> np.ndarray:
+    """Gradient of the the component model wrt the Gaussian
+    morphology parameters
 
     Parameters
     ----------
-    input_grad: `numpy.ndarray`
+    input_grad: np.ndarray
         Gradient of the likelihood wrt the component model
-    params: `numpy.ndarray`
+    params: np.ndarray
         The parameters of the morphology.
-    cls: `LiteComponent`
+    cls: Component
         The component of the model that contains the morphology.
-    morph: `numpy.ndarray`
+    morph: np.ndarray
         The model of the morphology.
-    sed: `numpy.ndarray`
+    sed: np.ndarray
         The model of the SED.
-    frame: `CartesianFrame`
+    frame: CartesianFrame
         The frame in which to generate the image of the circular Gaussian.
+    sigma: float
+        The standard deviation.
     """
     # Calculate the gradient of the likelihod
     # wrt the Gaussian e^-r**2
@@ -572,12 +591,12 @@ def grad_circular_gaussian(input_grad, params, cls, morph, sed, frame, sigma):
     _grad = -morph * np.einsum("i,i...", sed, _grad)
 
     y0, x0 = params[:2]
-    dY0 = -2 * np.sum((frame.y_grid - y0) * _grad)
-    dX0 = -2 * np.sum((frame.x_grid - x0) * _grad)
-    return np.array([dY0, dX0], dtype=params.dtype)
+    d_y0 = -2 * np.sum((frame.y_grid - y0) * _grad)
+    d_x0 = -2 * np.sum((frame.x_grid - x0) * _grad)
+    return np.array([d_y0, d_x0], dtype=params.dtype)
 
 
-def integrated_gaussian(params, frame):
+def integrated_gaussian(params: np.ndarray, frame: CartesianFrame):
     """Model of a circularly symmetric Gaussian integrated over pixels
 
     This differs from `circularGaussian` because the gaussian function
@@ -586,14 +605,14 @@ def integrated_gaussian(params, frame):
 
     Parameters
     ----------
-    params: `numpy.ndarray`
+    params: np.ndarray
         The center of the Gaussian.
-    frame: `CartesianFrame`
+    frame: CartesianFrame
         The frame in which to generate the image of the circular Gaussian
 
     Returns
     -------
-    result: `numpy.ndarray`
+    result: np.ndarray
         The image of the circular Gaussian.
     """
     # Unpack the parameters and define constants
@@ -607,22 +626,30 @@ def integrated_gaussian(params, frame):
     return z
 
 
-def grad_integrated_gaussian(input_grad, params, cls, morph, sed, frame):
-    """Gradient of the the component model wrt the Gaussian morphology parameters
+def grad_integrated_gaussian(
+    input_grad: np.ndarray,
+    params: np.ndarray,
+    cls: Component,
+    morph: np.ndarray,
+    sed: np.ndarray,
+    frame: CartesianFrame,
+) -> np.ndarray:
+    """Gradient of the the component model wrt the Gaussian
+    morphology parameters
 
     Parameters
     ----------
-    input_grad: `numpy.ndarray`
+    input_grad: np.ndarray
         Gradient of the likelihood wrt the component model
-    params: `numpy.ndarray`
+    params: np.ndarray
         The parameters of the morphology.
-    cls: `LiteComponent`
+    cls: Component
         The component of the model that contains the morphology.
-    morph: `numpy.ndarray`
+    morph: np.ndarray
         The model of the morphology.
-    sed: `numpy.ndarray`
+    sed: np.ndarray
         The model of the SED.
-    frame: `CartesianFrame`
+    frame: CartesianFrame
         The frame in which to generate the image of the circular Gaussian.
     """
     # Calculate the gradient of the likelihood
@@ -644,38 +671,37 @@ def grad_integrated_gaussian(input_grad, params, cls, morph, sed, frame):
     r1 = r - 0.5
     r2 = r + 0.5
     # Calculate the gradient of the ERF wrt. each shifted radius
-    dModel1 = np.exp(-c * r1**2)
-    dModel2 = np.exp(-c * r2**2)
+    d_model1 = np.exp(-c * r1**2)
+    d_model2 = np.exp(-c * r2**2)
     # Calculate the gradients of the parameters
-    dX0 = np.sum(-x / r * (dModel2 - dModel1) * _grad)
-    dY0 = np.sum(-y / r * (dModel2 - dModel1) * _grad)
-    dSigma1 = -(r1 * dModel1 / sigma - SQRT_PI_2 * erf(r1 * sqrt_c))
-    dSigma2 = -(r2 * dModel2 / sigma - SQRT_PI_2 * erf(r2 * sqrt_c))
-    dSigma = np.sum((dSigma2 - dSigma1) * _grad)
+    d_x0 = np.sum(-x / r * (d_model2 - d_model1) * _grad)
+    d_y0 = np.sum(-y / r * (d_model2 - d_model1) * _grad)
+    d_sigma1 = -(r1 * d_model1 / sigma - SQRT_PI_2 * erf(r1 * sqrt_c))
+    d_sigma2 = -(r2 * d_model2 / sigma - SQRT_PI_2 * erf(r2 * sqrt_c))
+    d_sigma = np.sum((d_sigma2 - d_sigma1) * _grad)
 
-    return np.array([dY0, dX0, dSigma])
+    return np.array([d_y0, d_x0, d_sigma])
 
 
-def bounded_prox(params, prox_step, proxmin, proxmax):
+def bounded_prox(
+    params: np.ndarray, proxmin: np.ndarray, proxmax: np.ndarray
+) -> np.ndarray:
     """A bounded proximal operator
 
     This function updates `params` in place.
 
     Parameters
     ----------
-    params: `numpy.ndarray`
+    params: np.ndarray
         The array of parameters to constrain.
-    prox_step: `float`
-        A scaling parameter used in some proximal operators
-        in proxmin, but ignored here.
-    proxmin: `numpy.ndarray`
+    proxmin: np.ndarray
         The array of minimum values for each parameter.
-    proxmax: `numpy.ndarray`
+    proxmax: np.ndarray
         The array of maximum values for each parameter.
 
     Returns
     -------
-    result: `numpy.ndarray`
+    result: np.ndarray
         The updated parameters.
     """
     cuts = params < proxmin
@@ -685,25 +711,20 @@ def bounded_prox(params, prox_step, proxmin, proxmax):
     return params
 
 
-def sersic(params, ellipse):
-    """Generate a Sersic Model
+def sersic(params: np.ndarray, ellipse: EllipseFrame):
+    """Generate a Sersic Model.
 
     Parameters
     ----------
-    params: `numpy.ndarray`
+    params: np.ndarray
         The parameters of the function.
         In this case the only parameter is the sersic index ``n``.
-    n: `float`
-        The seric index. To avoid having too many
-        degrees of freedom, we do not attempt to fit n,
-        and typically use either `n=0` (exponential/disk profile) or
-        `n=4` (de Vaucouleurs profile).
-    ellipse: `EllipseFrame`
+    ellipse: EllipseFrame
         The ellipse parameters to scale the radius in all directions.
 
     Returns
     -------
-    result: `numpy.ndarray`
+    result: np.ndarray
         The 2D guassian for the given ellipse parameters
     """
     (n,) = params
@@ -718,37 +739,44 @@ def sersic(params, ellipse):
     return result
 
 
-def grad_sersic(input_grad, params, cls, morph, sed, ellipse):
+def grad_sersic(
+    input_grad: np.ndarray,
+    params: np.ndarray,
+    cls: Component,
+    morph: np.ndarray,
+    sed: np.ndarray,
+    ellipse: EllipseFrame,
+):
     """Gradient of the component model wrt the Gaussian morphology parameters
 
     Parameters
     ----------
-    input_grad: `numpy.ndarray`
+    input_grad: np.ndarray
         Gradient of the likelihood wrt the component model
-    params: `numpy.ndarray`
+    params: np.ndarray
         The parameters of the morphology.
-    cls: `LiteComponent`
+    cls: Component
         The component of the model that contains the morphology.
-    morph: `numpy.ndarray`
+    morph: np.ndarray
         The model of the morphology.
-    sed: `numpy.ndarray`
+    sed: np.ndarray
         The model of the SED.
-    ellipse: `EllipseFrame`
+    ellipse: EllipseFrame
         The ellipse parameters to scale the radius in all directions.
     """
     n = params[5]
     bn = gamma.ppf(0.5, 2 * n)
     if n == 1:
         # Use a simplified model for faster calculation
-        dExp = -SERSIC_B1 * morph
+        d_exp = -SERSIC_B1 * morph
     else:
         r = ellipse.r_grid
-        dExp = -bn / n * morph * r ** (1 / n - 1)
+        d_exp = -bn / n * morph * r ** (1 / n - 1)
 
     _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
     _grad[cls.slices[1]] = input_grad[cls.slices[0]]
     _grad = np.einsum("i,i...", sed, _grad)
-    dN = np.sum(
+    d_n = np.sum(
         _grad
         * bn
         * morph
@@ -756,61 +784,69 @@ def grad_sersic(input_grad, params, cls, morph, sed, ellipse):
         * np.log10(ellipse.r_grid)
         / n**2
     )
-    _grad = _grad * dExp
-    dY0 = ellipse.grad_y0(_grad, False)
-    dX0 = ellipse.grad_x0(_grad, False)
-    dSigmaY = ellipse.grad_major(_grad, False)
-    dSigmaX = ellipse.grad_minor(_grad, False)
-    dTheta = ellipse.grad_theta(_grad, False)
-    return np.array([dY0, dX0, dSigmaY, dSigmaX, dTheta, dN], dtype=params.dtype)
+    _grad = _grad * d_exp
+    d_y0 = ellipse.grad_y0(_grad, False)
+    d_x0 = ellipse.grad_x0(_grad, False)
+    d_sigma_y = ellipse.grad_major(_grad, False)
+    d_sigma_x = ellipse.grad_minor(_grad, False)
+    d_theta = ellipse.grad_theta(_grad, False)
+    return np.array(
+        [d_y0, d_x0, d_sigma_y, d_sigma_x, d_theta, d_n], dtype=params.dtype
+    )
 
 
-class ParametricComponent:
+class ParametricComponent(Component):
     """A parametric model of an astrophysical source"""
 
     def __init__(
         self,
-        sed,
-        morph_params,
-        morph_func,
-        morph_grad,
-        morph_prox,
-        morph_step,
-        model_frame,
-        bbox,
-        prox_sed=None,
-        floor=1e-20,
+        bbox: Box,
+        model_bbox: Box,
+        sed: Parameter | np.ndarray,
+        morph_params: Parameter | np.ndarray,
+        morph_func: Callable,
+        morph_grad: Callable,
+        morph_prox: Callable,
+        morph_step: Callable,
+        model_frame: CartesianFrame,
+        prox_sed: Callable = None,
+        floor: float = 1e-20,
     ):
         """Initialize the component
 
         Parameters
         ----------
-        sed: `numpy.ndarray`
+        bbox: Box
+            The bounding box that holds the model.
+        model_bbox: Box
+            The bounding box for the full blend model.
+        sed: Parameter | np.ndarray
             The SED of the component.
-        morph_params: `numpy.ndarray`
+        morph_params: Parameter | np.ndarray
             The parameters of the morphology.
-        morph_func: `Callable`
+        morph_func: Callable
             The function to generate the 2D morphology image
             based on `morphParams`.
-        morph_grad: `Callable`
+        morph_grad: Callable
             The function to calculate the gradient of the
             likelihood wrt the morphological parameters.
-        morph_prox: `Callable`
+        morph_prox: Callable
             The proximal operator for the morphology parameters.
-        bbox: `scarlet.bbox.Box`
-            The bounding box that holds the model.
-        prox_sed: `Function`
+        morph_step: Callable
+            The function that calculates the gradient of the
+            morphological model.
+        prox_sed: Callable
             Proximal operator for the SED.
             If `prox_sed` is `None` then the default proximal
             operator `self.prox_sed` is used.
-        floor: `float`
+        floor: float
             The minimum value of the SED, used to prevent
             divergences in the gradients.
         """
-        params = FixedParameter(morph_params)
-        sed = FixedParameter(sed)
+        super().__init__(bbox=bbox, model_bbox=model_bbox)
 
-        self._params = params
+        self._sed = parameter(sed)
+        self._params = parameter(morph_params)
         self._func = morph_func
         self._morph_grad = morph_grad
         self._morph_prox = morph_prox
@@ -825,56 +861,55 @@ class ParametricComponent:
         self.floor = floor
 
     @property
-    def center(self):
+    def center(self) -> tuple[float, float]:
         """The center of the component"""
         return self.y0, self.x0
 
     @property
-    def y0(self):
+    def y0(self) -> float:
         """The y-center of the component"""
-        return self._params.x[0]
+        return self._params[0]
 
     @property
-    def x0(self):
+    def x0(self) -> float:
         """The x-center of the component"""
-        return self._params.x[1]
+        return self._params[1]
 
     @property
-    def sed(self):
-        """The SED of the component"""
-        return self._sed.x
+    def sed(self) -> np.ndarray:
+        """The array of SED values"""
+        return self._sed.view(np.ndarray)
 
     @property
-    def bbox(self):
+    def bbox(self) -> Box:
         """The bounding box that contains the component"""
         return self._bbox
 
     @property
-    def frame(self):
+    def frame(self) -> CartesianFrame:
         """The coordinate system that contains the model"""
         return CartesianFrame(self._bbox)
 
     @property
-    def radial_params(self):
+    def radial_params(self) -> np.ndarray:
         """The parameters used to model the radial function"""
-        return self._params.x
+        return self._params.view(np.ndarray)
 
-    def _morph(self, frame=None):
+    def _get_morph(self, frame: CartesianFrame = None) -> np.ndarray:
         """The 2D image of the morphology
 
         This callable generates an image of the morphology
         in the given frame.
 
-
         Parameters
         ----------
-        frame: `CartesianFrame`
+        frame: CartesianFrame
             The frame (bounding box, pixel grid) that the image is
             placed in.
 
         Returns
         -------
-        result: `numpy.ndarray`
+        result: np.ndarray
             The image of the morphology in the `frame`.
         """
         if frame is None:
@@ -882,80 +917,83 @@ class ParametricComponent:
         return self._func(self.radial_params, frame)
 
     @property
-    def morph(self, frame=None):
+    def morph(self, frame: CartesianFrame = None) -> np.ndarray:
         """The morphological model"""
-        return self._morph()
+        return self._get_morph(frame)
 
     @property
-    def morph_prox(self):
+    def prox_morph(self) -> Callable:
         """The function used to constrain the morphological model"""
         return self._morph_prox
 
     @property
-    def morph_grad(self):
-        """The function that calculates the gradient of the morphological model"""
+    def grad_morph(self) -> Callable:
+        """The function that calculates the gradient of the
+        morphological model
+        """
         return self._morph_grad
 
     @property
-    def morph_step(self):
-        """The function that calculates the gradient of the morphological model"""
+    def morph_step(self) -> Callable:
+        """The function that calculates the gradient of the
+        morphological model
+        """
         return self._morph_step
 
-    def get_model(self, bbox=None, frame=None):
+    def get_model(self, bbox: Box = None, frame: CartesianFrame = None) -> np.ndarray:
         """Generate the full model for this component"""
-        model = self.sed[:, None, None] * self._morph(frame)[None, :, :]
+        model = self.sed[:, None, None] * self._get_morph(frame)[None, :, :]
 
-        if bbox is not None:
+        if bbox is not None and bbox != self.bbox:
             slices = overlapped_slices(bbox, self.bbox)
             _model = np.zeros(bbox.shape, self.morph.dtype)
             _model[slices[0]] = model[slices[1]]
             model = _model
         return model
 
-    def prox_sed(self, sed, prox_step=0):
+    def prox_sed(self, sed: np.ndarray) -> np.ndarray:
         """Apply a prox-like update to the SED
 
         Parameters
         ----------
-        sed: `numpy.ndarray`
+        sed: np.ndarray
             The SED of the model.
-        prox_step: `float`
-            A scaling parameter used in some proximal operators,
-            but ignored here.
         """
         # prevent divergent SED
         sed[sed < self.floor] = self.floor
         return sed
 
-    def grad_sed(self, input_grad, sed, morph):
+    def grad_sed(
+        self, input_grad: np.ndarray, sed: np.ndarray, morph: np.ndarray
+    ) -> np.ndarray:
         """Gradient of the SED wrt. the component model
 
         Parameters
         ----------
-        input_grad: `numpy.ndarray`
+        input_grad: np.ndarray
             Gradient of the likelihood wrt the component model
-        sed: `numpy.ndarray`
+        sed: np.ndarray
             The model of the SED.
-        morph: `numpy.ndarray`
+        morph: np.ndarray
             The model of the morphology.
 
         Returns
         -------
-        result: `float`
+        result: np.ndarray
             The gradient of the likelihood wrt. the SED.
         """
         _grad = np.zeros(self.bbox.shape, dtype=self.sed.dtype)
         _grad[self.slices[1]] = input_grad[self.slices[0]]
         return np.einsum("...jk,jk", _grad, morph)
 
-    def update(self, it, input_grad):
+    def update(self, it: int, input_grad: np.ndarray):
         """Update the component parameters from an input gradient
 
         Parameters
         ----------
-        it: `int`
+        it: int
             The current iteration of the optimizer.
-        input_grad: `numpy.ndarray`
+        input_grad: np.ndarray
             Gradient of the likelihood wrt the component model
         """
         sed = self.sed.copy()
@@ -963,44 +1001,29 @@ class ParametricComponent:
         self._sed.update(it, input_grad, morph)
         self._params.update(it, input_grad, self, morph, sed, self.frame)
 
-    def resize(self):
+    def resize(self) -> bool:
         """Resize the box that contains the model
 
         Not yet implemented, so for now the model box
-        does not grow. In the long run this will be
-        based on a cutoff value for the model.
+        does not grow. If this is ever implemented in production,
+        in the long run this will be based on a cutoff value for the model.
         """
         return False
 
-    def init_adaprox(self, noise_rms, max_prox_iter=1, factor=10):
-        """Convert all of the parameters into adaprox parameters
+    def parametrize(self, parameterization: Callable) -> None:
+        """Convert the component parameter arrays into Parameter instances"""
+        # Update the SED and morph in place
+        parameterization(self)
+        # update the parameters
+        self._sed.grad = self.grad_sed
+        self._sed.prox = self.prox_sed
+        self._params.grad = self.grad_morph
+        self._params.prox = self.prox_morph
 
-        Parameters
-        ----------
-        noise_rms: `numpy.ndarray`
-            The RMS noise in each band.
-        max_prox_iter: `int`
-            Maximum number of proximal iterations.
-        factor: `int`
-            The factor to scale the noise to set the
-            SED step.
-        """
-        self._sed = AdaproxParameter(
-            self._sed.x,
-            step=partial(
-                relative_step, factor=DEFAULT_FACTOR, minimum=noise_rms / factor
-            ),
-            max_prox_iter=max_prox_iter,
-            prox=self._prox_sed,
-            grad=self.grad_sed,
-        )
-        self._params = AdaproxParameter(
-            self._params.x,
-            step=self.morph_step,
-            max_prox_iter=max_prox_iter,
-            prox=self.morph_prox,
-            grad=self.morph_grad,
-        )
+    def clear_parameters(self):
+        """Convert all of the parameters back into numpy arrays"""
+        self._sed = self.sed
+        self._params = self.radial_params
 
 
 class EllipticalParametricComponent(ParametricComponent):
@@ -1008,49 +1031,54 @@ class EllipticalParametricComponent(ParametricComponent):
 
     def __init__(
         self,
-        sed,
-        morph_params,
-        morph_func,
-        morph_grad,
-        morph_prox,
-        morph_step,
-        bbox,
-        model_frame,
-        prox_sed=None,
-        floor=1e-20,
+        bbox: Box,
+        model_bbox: Box,
+        sed: np.ndarray | Parameter,
+        morph_params: np.ndarray | Parameter,
+        morph_func: Callable,
+        morph_grad: Callable,
+        morph_prox: Callable,
+        morph_step: Callable,
+        model_frame: CartesianFrame,
+        prox_sed: Callable = None,
+        floor: float = 1e-20,
     ):
         """Initialize the component
 
         Parameters
         ----------
-        sed: `numpy.ndarray`
+        bbox: Box
+            The bounding box that holds this component model.
+        model_bbox: Box
+            The bounding box that holds the entire blend.
+        sed: np.ndarray
             The SED of the component.
-        morph_params: `numpy.ndarray`
+        morph_params: np.ndarray
             The parameters passed to `morph_func` to
             generate the morphology in image space.
-        morph_func: `Function`
+        morph_func: Callable
             The function to generate the morphology
             based on `morphParams`.
-        morph_grad: `Function`
+        morph_grad: Callable
             The function to calculate the gradient of the
             likelihood wrt the morphological parameters.
-        morph_prox: `Function`
+        morph_prox: Callable
             The proximal operator for the morphology parameters.
-        bbox: `scarlet.bbox.Box`
-            The bounding box that holds the model.
-        frame: `CartesianGrid`
+        model_frame: CartesianFrame
             The coordinates of the model frame,
             used to speed up the creation of the
             polar grid for each source.
-        prox_sed: `Function`
+        prox_sed: Callable
             Proximal operator for the SED.
             If `prox_sed` is `None` then the default proximal
             operator `self.prox_sed` is used.
-        floor: `float`
+        floor: float
             The minimum value of the SED, used to prevent
             divergences in the gradients.
         """
         super().__init__(
+            bbox=bbox,
+            model_bbox=model_bbox,
             sed=sed,
             morph_params=morph_params,
             morph_func=morph_func,
@@ -1058,59 +1086,58 @@ class EllipticalParametricComponent(ParametricComponent):
             morph_prox=morph_prox,
             morph_step=morph_step,
             model_frame=model_frame,
-            bbox=bbox,
             prox_sed=prox_sed,
             floor=floor,
         )
 
     @property
-    def semi_major(self):
+    def semi_major(self) -> float:
         """The length of the semi-major axis of the model"""
-        return self._params.x[2]
+        return self._params[2]
 
     @property
-    def semi_minor(self):
+    def semi_minor(self) -> float:
         """The length of the semi-minor axis of the model"""
-        return self._params.x[3]
+        return self._params[3]
 
     @property
-    def theta(self):
+    def theta(self) -> float:
         """The counter-clockwise rotation angle of the model from the x-axis."""
-        return self._params.x[4]
+        return self._params[4]
 
     @property
-    def ellipse_params(self):
+    def ellipse_params(self) -> np.ndarray:
         """The parameters used to generate the scaled radius"""
-        return self._params.x[:5]
+        return self._params[:5].view(np.ndarray)
 
     @property
-    def radial_params(self):
+    def radial_params(self) -> np.ndarray:
         """The parameters used to model the radial function"""
-        return self._params.x[5:]
+        return self._params[5:].view(np.ndarray)
 
     @property
-    def frame(self):
+    def frame(self) -> EllipseFrame:
         """The `EllipseFrame` that parameterizes the model"""
-        return EllipseFrame(*self.ellipse_params, self._bbox)
+        return EllipseFrame(*self.ellipse_params, self._bbox)  # type: ignore
 
     @property
-    def morph_prox(self):
+    def morph_prox(self) -> Callable:
         """The function used to constrain the morphological model"""
         return self._morph_prox
 
     @property
-    def morph_grad(self):
+    def morph_grad(self) -> Callable:
         """The function that calculates the gradient of the morphological model"""
         return self._morph_grad
 
-    def update(self, it, input_grad):
+    def update(self, it: int, input_grad: np.ndarray):
         """Update the component
 
         Parameters
         ----------
-        it: `int`
+        it: int
             The current iteration of the optimizer.
-        input_grad: `numpy.ndarray`
+        input_grad: np.ndarray
             Gradient of the likelihood wrt the component model
         """
         ellipse = self.frame
@@ -1118,12 +1145,3 @@ class EllipticalParametricComponent(ParametricComponent):
         morph = self._func(self.radial_params, ellipse)
         self._sed.update(it, input_grad, morph)
         self._params.update(it, input_grad, self, morph, sed, ellipse)
-
-    def resize(self):
-        """Resize the box that contains the model
-
-        Not yet implemented, so for now the model box
-        does not grow. In the long run this will be
-        based on a cutoff value for the model.
-        """
-        return False

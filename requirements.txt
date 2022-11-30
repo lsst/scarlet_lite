@@ -1,4 +1,5 @@
 numpy >= 1.17
+pybind11
 pydantic
 pytest
 scipy

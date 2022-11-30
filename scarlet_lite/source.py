@@ -1,0 +1,126 @@
+# This file is part of scarlet_lite.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+__all__ = ["Source"]
+
+import numpy as np
+import numpy.typing as npt
+
+from .bbox import overlapped_slices, Box
+from .component import Component
+from .utils import insert_image
+
+
+class Source:
+    """A container for components associated with the same astrophysical object
+
+    A source can have a single component, or multiple components,
+    and each can be contained in different bounding boxes.
+    """
+
+    def __init__(self, components: list[Component], dtype: npt.DTypeLike):
+        """Initialize an instance.
+
+        Parameters
+        ----------
+        components: list[Component]
+            The components contained in the source.
+        dtype: npt.DTypeLike
+            The dtype of the resulting source model.
+            This is needed in order to ensure that the model matches
+            the same dtype as the observation data.
+        """
+        self.components = components
+        self.dtype = dtype
+        self.flux = None
+        self.flux_box = None
+
+    @property
+    def n_components(self) -> int:
+        """The number of components in this source"""
+        return len(self.components)
+
+    @property
+    def center(self) -> tuple[int, int] | None:
+        if not self.is_null and hasattr(self.components[0], "center"):
+            return self.components[0].center  # type: ignore
+        return None
+
+    @property
+    def is_null(self) -> bool:
+        """True if the source does not have any components"""
+        return self.n_components == 0
+
+    @property
+    def bbox(self) -> Box:
+        """The minimal bounding box to contain all of this sources components
+
+        Null sources have a bounding box with shape `(0,0,0)`
+        """
+        if self.n_components == 0:
+            return Box((0, 0, 0))
+        bbox = self.components[0].bbox
+        for component in self.components[1:]:
+            bbox = bbox | component.bbox
+        return bbox
+
+    def get_model(self, bbox: Box = None, use_flux: bool = False) -> np.ndarray:
+        """Build the model for the source
+
+        This is never called during optimization and is only used
+        to generate a model of the source for investigative purposes.
+
+        Parameters
+        ----------
+        bbox: Box
+            An optional bounding box to project the source into.
+        use_flux: bool
+            Whether to use the re-distributed flux associated with the source
+            instead of the component models.
+
+        Returns
+        -------
+        model: np.ndarray
+            The full-color model.
+        """
+        if self.n_components == 0:
+            return 0  # type: ignore
+
+        if use_flux:
+            # Return the redistributed flux
+            # (calculated by scarlet.lite.measure.weight_sources)
+            if bbox is None:
+                return self.flux
+            return insert_image(bbox, self.flux_box, self.flux)
+
+        if bbox is None:
+            bbox = self.bbox
+        model = np.zeros(bbox.shape, dtype=self.dtype)
+        for component in self.components:
+            slices = overlapped_slices(bbox, component.bbox)
+            model[slices[0]] += component.get_model()[slices[1]]
+        return model
+
+    def __str__(self):
+        return f"Source<{','.join([str(c) for c in self.components])}>"
+
+    def __repr__(self):
+        return f"Source<{len(self.components)}>"

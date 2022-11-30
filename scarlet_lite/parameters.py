@@ -20,21 +20,27 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 __all__ = [
-    "LiteParameter",
+    "parameter",
+    "Parameter",
     "FistaParameter",
     "AdaproxParameter",
     "FixedParameter",
     "relative_step",
+    "DEFAULT_ADAPROX_FACTOR",
 ]
 
-from abc import ABC, abstractmethod
-from typing import Callable, Sequence
+from typing import Callable, Sequence, TypeVar
 
 import numpy as np
 
 
+TParameter = TypeVar("TParameter", bound="Parameter")
+TFistaParameter = TypeVar("TFistaParameter", bound="FistaParameter")
+TAdaproxParameter = TypeVar("TAdaproxParameter", bound="AdaproxParameter")
+
+
 # The default factor used for adaprox parameter steps
-DEFAULT_FACTOR = 1e-2
+DEFAULT_ADAPROX_FACTOR = 1e-2
 
 
 def grow_array(x: np.ndarray, new_shape: Sequence[int], dist: int) -> np.ndarray:
@@ -65,18 +71,16 @@ def grow_array(x: np.ndarray, new_shape: Sequence[int], dist: int) -> np.ndarray
     return result
 
 
-class LiteParameter(ABC):
-    """A parameter in a `LiteComponent`
+class Parameter(np.ndarray):
+    """A parameter in a `Component`"""
 
-    Unlike the main scarlet `Parameter` class,
-    a `LiteParameter` also contains methods to update the parameter,
-    using any given optimizer, provided the abstract methods
-    are all implemented. The main parameter should always be
-    stored as `LiteParameter.x`, but the names of the meta parameters
-    can be different.
-    """
+    is_parameter = True
 
-    @abstractmethod
+    def __new__(cls, array: np.ndarray, name: str | None = None) -> TParameter:
+        obj = np.asarray(array, dtype=array.dtype).view(cls)
+        obj.name = name
+        return obj
+
     def update(self, it: int, input_grad: np.ndarray, *args):
         """Update the parameter in one iteration.
 
@@ -93,7 +97,6 @@ class LiteParameter(ABC):
         """
         pass
 
-    @abstractmethod
     def grow(self, new_shape: Sequence[int], dist: int):
         """Grow the parameter and all of the meta parameters
 
@@ -106,7 +109,6 @@ class LiteParameter(ABC):
         """
         pass
 
-    @abstractmethod
     def shrink(self, dist: int):
         """Shrink the parameter and all of the meta parameters
 
@@ -117,8 +119,29 @@ class LiteParameter(ABC):
         """
         pass
 
+    def __array_finalize__(self, obj):
+        self.name = getattr(obj, "name", None)
 
-class FistaParameter(LiteParameter):
+
+def parameter(x: np.ndarray | Parameter) -> Parameter:
+    """Convert a `np.ndarray` into a `Parameter`.
+
+    Parameters
+    ----------
+    x: np.ndarray | Parameter
+        The array or parameter to convert into a `Parameter`.
+
+    Returns
+    -------
+    result: Parameter
+        `x`, converted into a `Parameter` if necessary.
+    """
+    if hasattr(x, "is_parameter") and x.is_parameter:
+        return x
+    return Parameter(x)
+
+
+class FistaParameter(Parameter):
     """A `LiteParameter` that updates itself using the Beck-Teboulle 2009
     FISTA proximal gradient method.
 
@@ -127,18 +150,37 @@ class FistaParameter(LiteParameter):
 
     def __init__(
         self,
-        x: np.ndarray,
+        array: np.ndarray,
         step: float,
         grad: Callable = None,
         prox: Callable = None,
         t0: float = 1,
         z0: np.ndarray = None,
     ):
+        super().__init__(array.shape)
+        if z0 is None:
+            z0 = array
+        self.step = step
+        self.grad = grad
+        self.prox = prox
+        self.z = z0
+        self.t = t0
+
+    def __new__(
+        cls,
+        array: np.ndarray,
+        step: float,
+        grad: Callable = None,
+        prox: Callable = None,
+        t0: float = 1,
+        z0: np.ndarray = None,
+        name: str | None = None,
+    ) -> TFistaParameter:
         """Initialize the parameter
 
         Parameters
         ----------
-        x: np.ndarray
+        array: np.ndarray
             The initial guess for the parameter.
         step: float
             The step size for the parameter.
@@ -159,38 +201,59 @@ class FistaParameter(LiteParameter):
             The initial value of the meta parameter `z`.
             If this is `None` then `z` is initialized to the
             initial `x`.
+        name: str | None
+            The name of this parameter.
         """
-        if z0 is None:
-            z0 = x
-        self.x = x
-        self.step = step
-        self.grad = grad
-        self.prox = prox
-        self.z = z0
-        self.t = t0
+
+        return super().__new__(
+            cls,
+            array,
+            name,
+        )
+
+    def __array_finalize__(self, obj):
+        """Required by sublclasses of ndarray to handle different ways
+        of creating ndarrays
+
+        See
+        https://numpy.org/doc/stable/user/basics.subclassing.html#the-role-of-array-finalize  # noqa: W505
+        for more on why this method is necessary
+        """
+        if obj is None:
+            return
+
+        self.name = getattr(obj, "name", None)
+        self.step = getattr(obj, "step", np.nan)
+        self.grad = getattr(obj, "grad", None)
+        self.prox = getattr(obj, "prox", None)
+        self.t = getattr(obj, "t", 1)
+        self.z = getattr(obj, "z", obj.view(np.ndarray))
 
     def update(self, it: int, input_grad: np.ndarray, *args):
         """Update the parameter and meta-parameters using the PGM
 
-        See `~LiteParameter` for more.
+        See `Parameter` for more.
         """
         step = self.step / np.sum(args[0] * args[0])
+        _x = self.view(np.ndarray)
 
-        y = self.z - step * self.grad(input_grad, self.x, *args)
+        y = self.z - step * self.grad(input_grad, _x, *args)
         x = self.prox(y, step)
         t = 0.5 * (1 + np.sqrt(1 + 4 * self.t**2))
         omega = 1 + (self.t - 1) / t
-        self.z = self.x + omega * (x - self.x)
-        self.x = x
+        self.z = _x + omega * (x - _x)
+        _x[:] = x
         self.t = t
 
     def grow(self, new_shape: Sequence[int], dist: int):
-        self.x = grow_array(self.x, new_shape, dist)
+        _x = self.view(np.ndarray)
+        _x[:] = grow_array(_x, new_shape, dist)
         self.z = grow_array(self.z, new_shape, dist)
         # self.t = 1
 
     def shrink(self, dist: int):
-        self.x = self.x[dist:-dist, dist:-dist]
+        _x = self.view(np.ndarray)
+        _x[:] = _x[dist:-dist, dist:-dist]
         self.z = self.z[dist:-dist, dist:-dist]
         # self.t = 1
 
@@ -322,7 +385,7 @@ class SingleItemArray:
         return self.value
 
 
-class AdaproxParameter(LiteParameter):
+class AdaproxParameter(Parameter):
     """Operator updated using te Proximal ADAM algorithm
 
     Uses multiple variants of adaptive quasi-Newton gradient descent
@@ -338,7 +401,7 @@ class AdaproxParameter(LiteParameter):
 
     def __init__(
         self,
-        x: np.ndarray,
+        array: np.ndarray,
         step: Callable,
         grad: Callable = None,
         prox: Callable = None,
@@ -353,55 +416,7 @@ class AdaproxParameter(LiteParameter):
         max_prox_iter: int = 1,
         prox_e_rel: float = 1e-6,
     ):
-        """Initialize the parameter
-
-         NOTE:
-        Setting `m`, `v`, `vhat` allows to continue a previous run,
-        e.g. for a warm start of a slightly changed problem.
-        If not set, they will be initialized with 0.
-
-        Parameter
-        ---------
-        x: np.ndarray
-            The initial guess for the parameter.
-        step: Callable
-            The step size for the parameter that takes the
-            parameter `x` and the iteration `it` as arguments.
-        grad: Callable
-            The function to use to calculate the gradient.
-            `grad` should accept the `input_grad` and a list
-            of arguments.
-        prox: Callable
-            The function that acts as a proximal operator.
-            This function should take `x` as an input, however
-            the input `x` might not be the same as the input
-            parameter, but a meta parameter instead.
-        b1: float
-            The strength parameter for the weighted gradient
-            (`m`) update.
-        b2: float
-            The strength for the weighted gradient squared
-            (`v`) update.
-        eps: float
-            Minimum value of the cumulative gradient squared
-            (`vhat`) meta paremeter.
-        p: float
-            Meta parameter used by some of the ADAM schemes
-        m0: np.ndarray
-            Initial value of the weighted gradient (`m`) parameter
-            for a warm start.
-        v0: np.ndarray
-            Initial value of the weighted gradient squared(`v`) parameter
-            for a warm start.
-        vhat0: np.ndarray
-            Initial value of the
-            cumulative weighted gradient squared (`vhat`) parameter
-            for a warm start.
-        scheme: str
-            Name of the ADAM scheme to use.
-            One of ["adam", "nadam", "adamx", "amsgrad", "padam", "radam"]
-        """
-        self.x = x
+        super().__init__(array.shape)
 
         if not hasattr(b1, "__getitem__"):
             b1 = SingleItemArray(b1)
@@ -413,7 +428,7 @@ class AdaproxParameter(LiteParameter):
 
         if not hasattr(step, "__call__"):
             # noinspection PyUnusedLocal
-            def _step(dummy_x, it):
+            def _step(x):
                 return step
 
             self.step = _step
@@ -422,68 +437,125 @@ class AdaproxParameter(LiteParameter):
         self.grad = grad
         self.prox = prox
         if m0 is None:
-            m0 = np.zeros(x.shape, dtype=x.dtype)
+            m0 = np.zeros(self.shape, dtype=self.dtype)
         self.m = m0
         if v0 is None:
-            v0 = np.zeros(x.shape, dtype=x.dtype)
+            v0 = np.zeros(self.shape, dtype=self.dtype)
         self.v = v0
         if vhat0 is None:
-            vhat0 = np.ones(x.shape, dtype=x.dtype) * -np.inf
+            vhat0 = np.ones(self.shape, dtype=self.dtype) * -np.inf
         self.vhat = vhat0
         self.phi_psi = phi_psi[scheme]
         self.max_prox_iter = max_prox_iter
         self.e_rel = prox_e_rel
+
+    def __array_finalize__(self, obj):
+        """Required by sublclasses of ndarray to handle different ways
+        of creating ndarrays
+
+        See
+        https://numpy.org/doc/stable/user/basics.subclassing.html#the-role-of-array-finalize  # noqa: W505
+        for more on why this method is necessary
+        """
+        if obj is None:
+            return
+
+        self.name = getattr(obj, "name", None)
+        self.step = getattr(obj.step, np.nan)
+        self.grad = getattr(obj, "grad", None)
+        self.prox = getattr(obj, "prox", None)
+        self.b1 = getattr(obj, "b1", 0.9)
+        self.b2 = getattr(obj, "b2", 0.999)
+        self.eps = getattr(obj, "eps", 1e-8)
+        self.p = getattr(obj, "p", 0.25)
+        self.m0 = getattr(obj, "m0", None)
+        self.v0 = getattr(obj, "v0", None)
+        self.vhat = getattr(obj, "vhat", None)
+        self.scheme = getattr(obj, "scheme", "amsgrad")
+        self.max_prox_iter = getattr(obj, "max_prox_iter", 1)
+        self.e_rel = getattr(obj, "e_rel", 1e-6)
+
+    def __new__(
+        cls,
+        array: np.ndarray,
+        step: Callable,
+        grad: Callable = None,
+        prox: Callable = None,
+        b1: float = 0.9,
+        b2: float = 0.999,
+        eps: float = 1e-8,
+        p: float = 0.25,
+        m0: np.ndarray = None,
+        v0: np.ndarray = None,
+        vhat0: np.ndarray = None,
+        scheme: str = "amsgrad",
+        max_prox_iter: int = 1,
+        prox_e_rel: float = 1e-6,
+        name: str | None = None,
+    ) -> TAdaproxParameter:
+        """Create a new instance of a FistaParameter
+
+        See `__init__` for a description of the parameters.
+        """
+        return super().__new__(
+            cls,
+            array,
+            name,
+        )
 
     def update(self, it: int, input_grad: np.ndarray, *args):
         """Update the parameter and meta-parameters using the PGM
 
         See `~LiteParameter` for more.
         """
+        _x = self.view(np.ndarray)
         # Calculate the gradient
-        grad = self.grad(input_grad, self.x, *args)
+        grad = self.grad(input_grad, _x, *args)
         # Get the update for the parameter
         phi, psi = self.phi_psi(
             it, grad, self.m, self.v, self.vhat, self.b1, self.b2, self.eps, self.p
         )
         # Calculate the step size
-        step = self.step(self.x, it)
+        step = self.step(_x, it)
         if it > 0:
-            self.x -= step * phi / psi
+            _x[:] = _x - step * phi / psi
         else:
-            self.x -= step * phi / psi / 10
+            _x[:] = _x - step * phi / psi / 10
 
         # Iterate over the proximal operators until convergence
         if self.prox is not None:
-            z = self.x.copy()
+            z = _x.copy()
             gamma = step / np.max(psi)
             for tau in range(1, self.max_prox_iter + 1):
-                _z = self.prox(z - gamma / step * psi * (z - self.x), gamma)
+                _z = self.prox(z - gamma / step * psi * (z - _x), gamma)
                 converged = ((_z - z) ** 2).sum() <= self.e_rel**2 * (z**2).sum()
                 z = _z
 
                 if converged:
                     break
 
-            self.x = z
+            _x[:] = z
 
     def grow(self, new_shape: Sequence[int], dist: int):
-        self.x = grow_array(self.x, new_shape, dist)
+        _x = self.view(np.ndarray)
+        _x[:] = grow_array(_x, new_shape, dist)
         self.m = grow_array(self.m, new_shape, dist)
         self.v = grow_array(self.v, new_shape, dist)
         self.vhat = grow_array(self.vhat, new_shape, dist)
 
     def shrink(self, dist: int):
-        self.x = self.x[dist:-dist, dist:-dist]
+        _x = self.view(np.ndarray)
+        _x[:] = _x[dist:-dist, dist:-dist]
         self.m = self.m[dist:-dist, dist:-dist]
         self.v = self.v[dist:-dist, dist:-dist]
         self.vhat = self.vhat[dist:-dist, dist:-dist]
 
 
-class FixedParameter(LiteParameter):
+class FixedParameter(Parameter):
     """A parameter that is not updated"""
 
-    def __init__(self, x):
-        self.x = x
+    def __init__(self, array: np.ndarray):
+        super().__init__(array.shape)
 
     def update(self, it: int, input_grad: np.ndarray, *args):
         pass
@@ -495,13 +567,11 @@ class FixedParameter(LiteParameter):
         pass
 
 
-# noinspection PyUnusedLocal
 def relative_step(
     x: np.ndarray,
-    it: int,
     factor: float = 0.1,
     minimum: float = 0,
-    axis=None | int | Sequence[int],
+    axis: int | Sequence[int] = None,
 ):
     """Step size set at `factor` times the mean of `X` in direction `axis`"""
     return np.maximum(minimum, factor * x.mean(axis=axis))

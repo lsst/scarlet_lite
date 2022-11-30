@@ -1,8 +1,8 @@
 from .bbox import *
 from .blend import *
-import cache
+from . import cache
 from .component import *
-import detect
+from . import detect
 
 try:
     import matplotlib
@@ -10,12 +10,12 @@ try:
 except ImportError:
     pass
 from .frame import *
-import initialization
-import interpolation
-import measure
+from .fft import *
+from . import initialization
+from . import interpolation
+from . import measure
 from .observation import *
-import operators
+from . import operators
 from .parameters import *
-import utils
-from .measure import *
-from . import display
+from .source import *
+from . import utils

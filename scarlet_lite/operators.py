@@ -5,8 +5,8 @@ import numpy as np
 import numpy.typing as npt
 
 from .cache import Cache
-import fft
-import interpolation
+from . import fft
+from . import interpolation
 
 
 def prox_unity_plus(x: np.ndarray, axis=0):
@@ -18,7 +18,7 @@ def prox_unity_plus(x: np.ndarray, axis=0):
 
 
 def sort_by_radius(
-    shape: Sequence[int, int], center: Sequence[float, float] = None
+    shape: tuple[int, int], center: tuple[float, float] = None
 ) -> np.ndarray:
     """Sort indices distance from the center
 
@@ -69,10 +69,10 @@ def _prox_weighted_monotonic(x: np.ndarray, weights, didx, offsets, min_gradient
 
 
 def prox_weighted_monotonic(
-    shape: Sequence[int, int],
+    shape: tuple[int, int],
     neighbor_weight: str = "flat",
     min_gradient: float = 0.1,
-    center: Sequence[int, int] = None,
+    center: tuple[int, int] = None,
 ) -> Callable:
     """Build the prox_monotonic operator
 
@@ -114,7 +114,7 @@ def prox_weighted_monotonic(
 
 
 def get_center(
-    image: np.ndarray, center: Sequence[int, int], radius: int = 1
+    image: np.ndarray, center: tuple[int, int], radius: int = 1
 ) -> tuple[int, int]:
     """Search around a location for the maximum flux
 
@@ -150,11 +150,11 @@ def get_center(
 
 def prox_monotonic_mask(
     x: np.ndarray,
-    center: Sequence[int, int],
+    center: tuple[int, int],
     center_radius: int = 1,
     variance: float = 0.0,
     max_iter: int = 3,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray[int, int, int, int]]:
+) -> tuple[np.ndarray, np.ndarray, tuple[int, int, int, int]]:
     """Apply monotonicity from any path from the center
 
     Parameters
@@ -213,13 +213,13 @@ def prox_monotonic_mask(
     valid = ~unchecked & ~orphans
     # Clear all of the invalid pixels from the input image
     model = model * valid
-    return valid, model, bounds
+    return valid, model, tuple(bounds)
 
 
 def uncentered_operator(
     x: np.ndarray,
     func: Callable,
-    center: Sequence[float, float] = None,
+    center: tuple[float, float] = None,
     fill: float = None,
     **kwargs
 ) -> np.ndarray:
@@ -340,7 +340,7 @@ def prox_soft_symmetry(x: np.ndarray, strength: float = 1):
 
 
 def prox_kspace_symmetry(
-    x: np.ndarray, shift: Sequence[float, float] = None, padding: int = 10
+    x: np.ndarray, shift: Sequence[float] = None, padding: int = 10
 ) -> np.ndarray:
     """Symmetry in Fourier Space
 
@@ -353,11 +353,11 @@ def prox_kspace_symmetry(
 
     Parameters
     ----------
-    x: np.ndarray
+    x:
         The array to make symmetric.
-    shift: Sequence[float, float]
+    shift:
         The amount ``(dy, dx)`` to shift `x` before making it symmetric.
-    padding: int
+    padding:
         The amount of padding to use to limit FFT artifacts.
 
     Returns
@@ -396,10 +396,10 @@ def prox_kspace_symmetry(
 
 def prox_uncentered_symmetry(
     x: np.ndarray,
-    center: Sequence[int, int] = None,
+    center: tuple[int, int] = None,
     algorithm: str = "kspace",
     fill: float = None,
-    shift: Sequence[float, float] = None,
+    shift: Sequence[float] = None,
     strength: float = 0.5,
 ) -> np.ndarray:
     """Symmetry with off-center peak
@@ -468,7 +468,7 @@ def prox_uncentered_symmetry(
 
 
 def _get_offsets(
-    width: int, coords: Sequence[Sequence[int, int]] = None
+    width: int, coords: Sequence[Sequence[int]] = None
 ) -> tuple[list[int], list[slice], list[slice]]:
     """Get the offset and slices for a sparse band diagonal array
     For an operator that interacts with its neighbors we want a band diagonal matrix,
@@ -488,7 +488,7 @@ def _get_offsets(
 
 
 def _diagonalize_array(
-    arr: np.ndarray, shape: Sequence[int, int] = None, dtype: npt.DTypeLike = np.float64
+    arr: np.ndarray, shape: tuple[int, int] = None, dtype: npt.DTypeLike = np.float64
 ) -> tuple[np.ndarray, np.ndarray[bool]]:
     """Convert an array to a matrix that compares each pixel to its neighbors
     Given an array with length N, create an 8xN array, where each row will be a
@@ -535,7 +535,7 @@ def _diagonalize_array(
 
 
 def _diagonals_to_sparse(
-    diagonals: np.ndarray, shape: Sequence[int, int], dtype: npt.DTypeLike = np.float64
+    diagonals: np.ndarray, shape: tuple[int, int], dtype: npt.DTypeLike = np.float64
 ):
     """Convert a diagonalized array into a sparse diagonal matrix
     ``diagonalizeArray`` creates an 8xN array representing the bands that describe the
@@ -553,9 +553,9 @@ def _diagonals_to_sparse(
 
 
 def _get_radial_monotonic_weights(
-    shape: Sequence[int, int],
+    shape: tuple[int, int],
     neighbor_weight: str = "flat",
-    center: Sequence[int, int] = None,
+    center: tuple[int, int] = None,
 ) -> np.ndarray:
     """Create the weights used for the Radial Monotonicity Operator
     This version of the radial monotonicity operator selects all of the pixels closer to the peak
@@ -635,7 +635,9 @@ def _get_radial_monotonic_weights(
     return cos_norm
 
 
-def prox_connected(morph: np.ndarray, centers: Sequence[Sequence[int, int]]) -> np.ndarray:
+def prox_connected(
+    morph: np.ndarray, centers: Sequence[Sequence[int]]
+) -> np.ndarray:
     """Remove all pixels not connected to the center of a source.
 
     Parameters
