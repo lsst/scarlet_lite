@@ -321,8 +321,10 @@ def quintic_spline(
     return result, window
 
 
-def mk_shifter(shape: tuple[int, int], real: bool = False) -> tuple[np.ndarray, np.ndarray]:
-    """ Performs shifts in the Fourier domain on Fourier objects
+def mk_shifter(
+    shape: tuple[int, int], real: bool = False
+) -> tuple[np.ndarray, np.ndarray]:
+    """Performs shifts in the Fourier domain on Fourier objects
 
     Parameters:
     -----------

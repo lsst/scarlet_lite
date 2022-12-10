@@ -218,7 +218,7 @@ def init_monotonic_morph(
             min_gradient=0,
         )
 
-        morph = prox_monotonic(detect, 0).reshape(detect.shape)
+        morph = prox_monotonic(detect).reshape(detect.shape)
 
         # truncate morph at thresh * bg_rms
         morph, bbox = trim_morphology(center, morph, bg_thresh=thresh)
@@ -492,7 +492,11 @@ def init_chi2_source(
         )
         components = [
             FactorizedComponent(
-                sed, morph, init.observation.bbox[0] @ bbox, bbox, center
+                sed,
+                morph,
+                init.observation.bbox[0] @ bbox,
+                init.observation.bbox,
+                center,
             )
         ]
     elif component_snr >= 2:
@@ -518,7 +522,11 @@ def init_chi2_source(
             # so initialize as a single component
             components = [
                 FactorizedComponent(
-                    sed, morph, init.observation.bbox[0] @ bbox, bbox, center
+                    sed,
+                    morph,
+                    init.observation.bbox[0] @ bbox,
+                    init.observation.bbox,
+                    center,
                 )
             ]
         else:
@@ -538,13 +546,21 @@ def init_chi2_source(
                     center,
                 ),
                 FactorizedComponent(
-                    disk_sed, disk_morph, init.observation.bbox[0] @ bbox, bbox, center
+                    disk_sed,
+                    disk_morph,
+                    init.observation.bbox[0] @ bbox,
+                    init.observation.bbox,
+                    center,
                 ),
             ]
     else:
         components = [
             FactorizedComponent(
-                sed, morph, init.observation.bbox[0] @ bbox, bbox, center
+                sed,
+                morph,
+                init.observation.bbox[0] @ bbox,
+                init.observation.bbox,
+                center,
             )
         ]
 

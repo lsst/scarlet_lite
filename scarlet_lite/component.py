@@ -22,12 +22,15 @@
 __all__ = [
     "Component",
     "FactorizedComponent",
+    "default_fista_parameterization",
+    "default_adaprox_parameterization",
     "SedComponent",
     "ParametricComponent",
     "EllipticalParametricComponent",
 ]
 
 from abc import ABC, abstractmethod
+from functools import partial
 from typing import Callable, Sequence
 
 import numpy as np
@@ -40,6 +43,9 @@ from .operators import MonotonicityConstraint
 from .parameters import (
     parameter,
     Parameter,
+    FistaParameter,
+    AdaproxParameter,
+    relative_step,
 )
 from .detect import scarlet_footprints_to_image
 
@@ -117,7 +123,7 @@ class Component(ABC):
         pass
 
     @abstractmethod
-    def parametrize(self, parameterization: Callable) -> None:
+    def parameterize(self, parameterization: Callable) -> None:
         """Convert the component parameter arrays into Parameter instances
 
         Parameters
@@ -160,25 +166,25 @@ class FactorizedComponent(Component):
 
         Parameters
         ----------
-        sed: Parameter | np.ndarray
+        sed:
             The parameter to store and update the SED.
-        morph: Parameter | np.ndarray
+        morph:
             The parameter to store and update the morphology.
-        center: Sequence[int, int]
+        center:
             Center of the source.
-        bbox: Box
+        bbox:
             The `Box` in the `model_bbox` that contains the source.
-        model_bbox: Box
+        model_bbox:
             The `Box` that contains the model.
             This is simplified from the main scarlet, where the model exists
             in a `frame`, which primarily exists because not all
             observations in main scarlet will use the same set of bands.
-        bg_rms: np.ndarray
+        bg_rms:
             The RMS of the background used to threshold, grow,
             and shrink the component.
-        floor: float
+        floor:
             Minimum value of the SED or center morphology pixel.
-        fit_center_radius: int
+        fit_center_radius:
             The number of pixels around the `center` to search
             for a higher flux value when applying monotonicity.
         """
@@ -270,7 +276,13 @@ class FactorizedComponent(Component):
 
         # prevent divergent morphology
         shape = morph.shape
-        center = (shape[0] // 2, shape[1] // 2)
+        if self.center is None:
+            center = (shape[0] // 2, shape[1] // 2)
+        else:
+            center = (
+                self.center[0] - self.bbox.origin[-2],
+                self.center[1] - self.bbox.origin[-1],
+            )
         morph[center] = np.max([morph[center], self.floor])
         # Normalize the morphology
         morph[:] = morph / morph.max()
@@ -351,7 +363,7 @@ class FactorizedComponent(Component):
         self._sed.update(it, input_grad, self.morph)
         self._morph.update(it, input_grad, sed)
 
-    def parametrize(self, parameterization: Callable) -> None:
+    def parameterize(self, parameterization: Callable) -> None:
         """Convert the component parameter arrays into Parameter instances"""
         # Update the SED and morph in place
         parameterization(self)
@@ -371,6 +383,36 @@ class FactorizedComponent(Component):
 
     def __repr__(self):
         return "FactorizedComponent"
+
+
+def default_fista_parameterization(component: Component):
+    """Initialize a factorized component to use FISTA PGM for optimization"""
+    if isinstance(component, FactorizedComponent):
+        component._sed = FistaParameter(component.sed, step=0.5)
+        component._morph = FistaParameter(component.morph, step=0.5)
+    else:
+        raise NotImplementedError(f"Unrecognized component type {component}")
+
+
+def default_adaprox_parameterization(
+    component: Component, noise_rms: float = None, max_prox_iter: int = 1
+):
+    """Initialize a factorized component to use Proximal ADAM for optimization"""
+    if noise_rms is None:
+        noise_rms = 1e-16
+    if isinstance(component, FactorizedComponent):
+        component._sed = AdaproxParameter(
+            component.sed,
+            step=partial(relative_step, factor=1e-2, minimum=noise_rms),
+            max_prox_iter=max_prox_iter,
+        )
+        component._morph = AdaproxParameter(
+            component.morph,
+            step=1e-2,
+            max_prox_iter=max_prox_iter,
+        )
+    else:
+        raise NotImplementedError(f"Unrecognized component type {component}")
 
 
 class SedComponent(FactorizedComponent):
@@ -1010,7 +1052,7 @@ class ParametricComponent(Component):
         """
         return False
 
-    def parametrize(self, parameterization: Callable) -> None:
+    def parameterize(self, parameterization: Callable) -> None:
         """Convert the component parameter arrays into Parameter instances"""
         # Update the SED and morph in place
         parameterization(self)

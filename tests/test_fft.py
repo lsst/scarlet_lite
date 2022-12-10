@@ -100,8 +100,7 @@ class TestCentering(object):
 
 class TestFourier(object):
     def test_2d_psf_matching(self):
-        """Test matching two 2D psfs
-        """
+        """Test matching two 2D psfs"""
         # Narrow PSF
         psf1 = Fourier(get_psfs(1))
         # Wide PSF
@@ -118,8 +117,7 @@ class TestFourier(object):
         assert_almost_equal(img1.image, psf1.image)
 
     def test_multiband_psf_matching(self):
-        """Test matching two PSFs with a spectral dimension
-        """
+        """Test matching two PSFs with a spectral dimension"""
         # Narrow PSF
         psf1 = Fourier(get_psfs(1))
         # Wide PSF

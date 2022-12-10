@@ -87,7 +87,9 @@ def weight_sources(blend, mask_footprint=True):
         slices = overlapped_slices(observation.bbox, bbox)
         numerator = _model[slices[1]]
         denominator = model[slices[0]]
-        ratio = numerator / denominator
+        cuts = denominator != 0
+        ratio = np.zeros(numerator.shape, dtype=numerator.dtype)
+        ratio[cuts] = numerator[cuts] / denominator[cuts]
         ratio[denominator == 0] = 0
         # sometimes numerical errors can cause a hot pixel to have a slightly
         # higher ratio than 1

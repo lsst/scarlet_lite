@@ -42,37 +42,30 @@ class Box:
 
     - 2D shapes denote (Height, Width)
     - 3D shapes denote (Channels, Height, Width)
-
-    Parameters
-    ----------
-    shape: tuple[int]
-        Size of the box
-    origin: tuple[int]
-        Minimum corner coordinate of the box
     """
 
-    def __init__(self, shape: Sequence[int], origin: Sequence[int] = None):
+    def __init__(self, shape: tuple[int, ...], origin: tuple[int, ...] = None):
         """
         Parameters
         ----------
-        shape: Sequence[int]
+        shape:
             Size of the box
-        origin: Sequence[int]
+        origin:
             Minimum corner coordinate of the box
         """
-        self.shape = tuple(shape)
+        self.shape = shape
         if origin is None:
             origin = (0,) * len(shape)
         assert len(origin) == len(shape)
         self.origin = tuple(origin)
 
     @staticmethod
-    def from_bounds(*bounds: Sequence[int]) -> TBox:
+    def from_bounds(*bounds: tuple[int, int]) -> TBox:
         """Initialize a box from its bounds
 
         Parameters
         ----------
-        bounds: Sequence[Sequence[int, int]]
+        bounds:
             Min/Max coordinate for every dimension
 
         Returns
@@ -90,9 +83,9 @@ class Box:
 
         Parameters
         ----------
-        x: np.ndarray
+        x:
             Data to threshold
-        min_value: float
+        min_value:
             Minimum value of the result.
 
         Returns
@@ -125,9 +118,9 @@ class Box:
 
         Parameters
         ----------
-        image: np.ndarray
+        image:
             Full image
-        sub: np.ndarray
+        sub:
             Extracted image
 
         Returns
@@ -150,14 +143,14 @@ class Box:
 
         Parameters
         ----------
-        image: np.ndarray
+        image:
             Full image
-        sub: np.ndarray
+        sub:
             Extracted sub-image
 
         Returns
         -------
-        image: `~numpy.array`
+        image: np.ndarray
         """
         imbox = Box(image.shape)
 
@@ -171,27 +164,27 @@ class Box:
         return len(self.shape)
 
     @property
-    def start(self) -> Sequence[int]:
+    def start(self) -> tuple[int, ...]:
         """Tuple of start coordinates"""
         return self.origin
 
     @property
-    def stop(self) -> tuple[int]:
+    def stop(self) -> tuple[int, ...]:
         """Tuple of stop coordinates"""
         return tuple(o + s for o, s in zip(self.origin, self.shape))
 
     @property
-    def center(self) -> tuple[float]:
+    def center(self) -> tuple[float, ...]:
         """Tuple of center coordinates"""
         return tuple(o + s / 2 for o, s in zip(self.origin, self.shape))
 
     @property
-    def bounds(self) -> tuple[tuple[int, int]]:
+    def bounds(self) -> tuple[tuple[int, int], ...]:
         """Bounds of the box"""
         return tuple((o, o + s) for o, s in zip(self.origin, self.shape))
 
     @property
-    def slices(self) -> tuple[slice]:
+    def slices(self) -> tuple[slice, ...]:
         """Bounds of the box as slices"""
         return tuple([slice(o, o + s) for o, s in zip(self.origin, self.shape)])
 
@@ -203,18 +196,7 @@ class Box:
         shape = tuple([self.shape[d] + 2 * radius[d] for d in range(self.dimensions)])
         return Box(shape, origin=origin)
 
-    def shift(self, shift: tuple[int]):
-        """Shift this box in-place
-
-        Parameters
-        ----------
-        shift: tuple[int]
-            A tuple the same shape as `origin` to shift this box
-            along each axis.
-        """
-        self.origin = tuple(o + shift[i] for i, o in enumerate(self.origin))
-
-    def shifted_by(self, shift: tuple[int]) -> TBox:
+    def shifted_by(self, shift: Sequence[int]) -> TBox:
         """Generate a shifted copy of this box
 
         Parameters
@@ -246,7 +228,9 @@ class Box:
         overlap = self & other
         return np.all(np.array(overlap.shape) != 0)
 
-    def overlapped_slices(self, other: TBox) -> tuple[tuple[slice], tuple[slice]]:
+    def overlapped_slices(
+        self, other: TBox
+    ) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
         """`slice` for the box that contains the overlap of this and
         another `Box`
 
@@ -312,45 +296,93 @@ class Box:
             )
         return Box.from_bounds(*bounds)
 
-    def __getitem__(self, i: int | slice) -> TBox:
-        s_ = self.shape[i]
-        o_ = self.origin[i]
-        if not hasattr(s_, "__iter__"):
-            s_ = (s_,)
-            o_ = (o_,)
+    def __getitem__(self, index: int | slice | tuple[int, ...]) -> TBox:
+        try:
+            iter(index)
+            # If I is a Sequence then select the indices in `index`, in order
+            s_ = tuple(self.shape[i] for i in index)
+            o_ = tuple(self.origin[i] for i in index)
+        except TypeError:
+            # The index is an integer or slice
+            s_ = self.shape[index]
+            o_ = self.origin[index]
+            if not hasattr(s_, "__iter__"):
+                s_ = (s_,)
+                o_ = (o_,)
         return Box(s_, origin=o_)
 
     def __repr__(self) -> str:
         result = "<Box shape={0}, origin={1}>"
         return result.format(self.shape, self.origin)
 
-    def __iadd__(self, offset: int | Sequence[int]) -> TBox:
+    def _offset_to_tuple(self, offset: int | Sequence[int]) -> tuple[int, ...]:
+        """Expand an integer offset into a tuple
+
+        Parameters
+        ----------
+        offset:
+            The offset to (potentially) convert into a tuple.
+
+        Returns
+        -------
+        offset: Sequence[int]
+            The offset as a tuple.
+        """
         if not hasattr(offset, "__iter__"):
             offset = (offset,) * self.dimensions
-        self.origin = tuple([a + o for a, o in zip(self.origin, offset)])
-        return self
+        return offset
 
     def __add__(self, offset: int | Sequence[int]) -> TBox:
-        return self.copy().__iadd__(offset)
+        """Generate a new Box with a shifted offset
 
-    def __isub__(self, offset: int | Sequence[int]) -> TBox:
-        if not hasattr(offset, "__iter__"):
-            offset = (offset,) * self.dimensions
-        self.origin = tuple([a - o for a, o in zip(self.origin, offset)])
-        return self
+        Parameters
+        ----------
+        offset:
+            The amount to shift the current offset
+
+        Returns
+        -------
+        result: Box
+            The shifted box.
+        """
+        return self.shifted_by(self._offset_to_tuple(offset))
 
     def __sub__(self, offset: int | Sequence[int]) -> TBox:
-        return self.copy().__isub__(offset)
+        """Generate a new Box with a shifted offset in the negative direction
 
-    def __imatmul__(self, bbox: TBox) -> TBox:
+        Parameters
+        ----------
+        offset:
+            The amount to shift the current offset
+
+        Returns
+        -------
+        result: Box
+            The shifted box.
+        """
+        offset = self._offset_to_tuple(offset)
+        offset = tuple(-o for o in offset)
+        return self.shifted_by(offset)
+
+    def __matmul__(self, bbox: TBox) -> TBox:
+        """Combine two Boxes into a higher dimensional box
+
+        Parameters
+        ----------
+        bbox:
+            The box to append to this box.
+
+        Returns
+        -------
+        result: Box
+            The combined Box.
+        """
         bounds = self.bounds + bbox.bounds
         result = Box.from_bounds(*bounds)
         return result
 
-    def __matmul__(self, bbox: TBox) -> TBox:
-        return self.copy().__imatmul__(bbox)
-
     def __copy__(self) -> TBox:
+        """Copy of the box"""
         return Box(self.shape, origin=self.origin)
 
     def copy(self) -> TBox:
@@ -382,22 +414,29 @@ def get_minimal_boxsize(size: int, min_size: int = 21, increment: int = 10) -> i
     return boxsize
 
 
-def overlapped_slices(bbox1: Box, bbox2: Box) -> tuple[tuple[slice], tuple[slice]]:
+def overlapped_slices(
+    bbox1: Box, bbox2: Box
+) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
     """Slices of bbox1 and bbox2 that overlap
 
     Parameters
     ----------
-    bbox1: Box
-    bbox2: Box
+    bbox1:
+        The first box.
+    bbox2:
+        The second box.
 
     Returns
     -------
-    slices: tuple[tuple[slice], tuple[slice]]
+    slices: tuple[Sequence[slice], Sequence[slice]]
         The slice of an array bounded by `bbox1` and
         the slice of an array bounded by `bbox` in the
         overlapping region.
     """
     overlap = bbox1 & bbox2
+    if np.all(np.array(overlap.shape) == 0):
+        # There was no overlap, so return empty slices
+        return (slice(0, 0),) * len(overlap.shape), (slice(0, 0),) * len(overlap.shape)
     _bbox1 = overlap - bbox1.origin
     _bbox2 = overlap - bbox2.origin
     slices = (

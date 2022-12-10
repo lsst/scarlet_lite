@@ -60,7 +60,13 @@ def sort_by_radius(
     return didx
 
 
-def _prox_weighted_monotonic(x: np.ndarray, weights, didx, offsets, min_gradient=0.1):
+def _prox_weighted_monotonic(
+    x: np.ndarray,
+    weights: np.ndarray,
+    didx: Sequence[int],
+    offsets: Sequence[int],
+    min_gradient: float = 0.1,
+):
     """Force an intensity profile to be monotonic based on weighting neighbors"""
     from scarlet_lite.operators_pybind11 import prox_weighted_monotonic
 
@@ -635,9 +641,7 @@ def _get_radial_monotonic_weights(
     return cos_norm
 
 
-def prox_connected(
-    morph: np.ndarray, centers: Sequence[Sequence[int]]
-) -> np.ndarray:
+def prox_connected(morph: np.ndarray, centers: Sequence[Sequence[int]]) -> np.ndarray:
     """Remove all pixels not connected to the center of a source.
 
     Parameters

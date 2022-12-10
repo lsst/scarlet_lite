@@ -1,3 +1,24 @@
+# This file is part of scarlet_lite.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import pytest
 import numpy as np
 from numpy.testing import assert_array_equal, assert_almost_equal
@@ -248,8 +269,7 @@ def interpolate_comparison(func, zero_truth, positive_truth, **kwargs):
 
 
 class TestConvolutions:
-    """Test FFT convolutions and interpolation algorithms
-    """
+    """Test FFT convolutions and interpolation algorithms"""
 
     def test_bilinear(self):
         zero_truth = (np.array([1, 0]), np.array([0, 1]))
@@ -281,7 +301,9 @@ class TestConvolutions:
         # Mitchel Netravali should be the same as the cubic spline
         # with a=1/3 and b=1/3
         zero_truth = scarlet_lite.interpolation.cubic_spline(0, a=1 / 3, b=1 / 3)
-        positive_truth = scarlet_lite.interpolation.cubic_spline(0.103, a=1 / 3, b=1 / 3)
+        positive_truth = scarlet_lite.interpolation.cubic_spline(
+            0.103, a=1 / 3, b=1 / 3
+        )
         interpolate_comparison(
             scarlet_lite.interpolation.mitchel_netravali, zero_truth, positive_truth
         )

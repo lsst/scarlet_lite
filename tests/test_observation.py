@@ -1,9 +1,176 @@
+# This file is part of scarlet_lite.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import unittest
+
 import numpy as np
-from numpy.testing import assert_almost_equal
+from numpy.testing import assert_almost_equal, assert_array_equal
+from scipy.signal import convolve as scipy_convolve
 
-import scarlet_lite
-from utils import get_psfs
+from scarlet_lite import Observation, Box
+from scarlet_lite.interpolation import get_filter_coords, get_filter_bounds
+from scarlet_lite.observation import convolve as scarlet_convolve
+from scarlet_lite.utils import integrated_circular_gaussian
+from utils import ObservationData
 
 
-class TestObservation(object):
-    pass
+class TestObservation(unittest.TestCase):
+    def setUp(self):
+        bands = ("g", "r", "i")
+        variance = np.ones((3, 35, 35), dtype=float)
+        weights = 1 / variance
+        psfs = np.array(
+            [integrated_circular_gaussian(sigma=sigma) for sigma in [1.05, 0.9, 1.2]]
+        )
+        model_psf = integrated_circular_gaussian(sigma=0.8)
+
+        # The spectrum of each source
+        spectra = np.array(
+            [
+                [31, 10, 0],
+                [0, 5, 20],
+                [15, 8, 3],
+                [20, 3, 4],
+                [0, 30, 60],
+            ]
+        )
+
+        # Use a point source for all of the sources
+        morphs = [
+            integrated_circular_gaussian(sigma=sigma)
+            for sigma in [0.8, 3.1, 1.1, 2.1, 1.5]
+        ]
+        # Make the second component a disk component
+        morphs[1] = scipy_convolve(morphs[1], model_psf, mode="same")
+
+        # Give the first two components the same center, and unique centers
+        # for the remaining sources
+        centers = [
+            (10, 12),
+            (10, 12),
+            (20, 23),
+            (20, 10),
+            (25, 20),
+        ]
+
+        # Create the Observation
+        test_data = ObservationData(psfs, spectra, morphs, centers, model_psf)
+        self.observation = Observation(
+            bands, test_data.convolved, variance, weights, psfs, model_psf[None]
+        )
+        self.data = test_data
+        self.spectra = spectra
+        self.centers = centers
+        self.morphs = morphs
+        self.psfs = psfs
+        self.bands = bands
+
+    def test_real_convolution_function(self):
+        """Test that real space convolution works"""
+        images = self.data.images
+        true_convolved = np.array(
+            [
+                scipy_convolve(images[b], self.observation.psfs[b], mode="same")
+                for b in range(len(images))
+            ]
+        )
+        coords = get_filter_coords(self.observation.psfs[0])
+        bounds = get_filter_bounds(coords.reshape(-1, 2))
+        convolved = scarlet_convolve(images, self.observation.psfs, bounds)
+        assert_almost_equal(convolved, true_convolved)
+
+    def test_constructors(self):
+        np.random.seed(1)
+        variance = np.random.normal(size=self.data.convolved.shape)**2
+        observation = Observation(self.bands, self.data.convolved, variance, 1 / variance, self.psfs)
+        assert_array_equal(observation.images, self.data.convolved)
+        assert_array_equal(observation.variance, variance)
+        assert_array_equal(observation.weights, 1/variance)
+        assert_array_equal(observation.psfs, self.psfs)
+        assert observation.model_psf is None
+        assert observation.diff_kernel is None
+        assert observation.grad_kernel is None
+        assert_array_equal(observation.noise_rms, np.mean(np.sqrt(variance), axis=(1, 2)))
+        assert observation.bbox == Box(variance.shape)
+        assert observation.mode in ["fft", "real"]
+
+        # Set all of the pixels in the model to 1 more than the images,
+        # so that images - model = np.ones, meaning the log_likelihood
+        # is just half the sum of the weights.
+        model = self.observation.images - 1
+        assert observation.log_likelihood(model) == -0.5 * np.sum(observation.weights)
+        assert observation.shape == (3, 35, 35)
+        assert observation.n_bands == 3
+        assert observation.dtype == float
+
+    def test_convolve(self):
+        # Test the default initialization with no model psf,
+        # menaing observation.convolve is a pass-through operation.
+        np.random.seed(1)
+        variance = np.random.normal(size=self.data.convolved.shape)**2
+        observation = Observation(self.bands, self.data.convolved, variance, 1 / variance, self.psfs)
+        assert_array_equal(observation.convolve(observation.images), observation.images)
+
+        # Use an observation with a model_psf and difference kernel and check
+        # convolution.
+        observation = self.observation
+        assert_array_equal(observation.diff_kernel.image, self.data.diff_kernel.image)
+        assert_almost_equal(observation.convolve(self.data.images), observation.images)
+
+        # Test real conversions
+        deconvolved = self.data.images
+        observation.mode = "real"
+        assert_almost_equal(observation.convolve(deconvolved), observation.images)
+
+        # Test convolution with the gradient
+        grad_convolved = np.array([
+            scipy_convolve(deconvolved[band], observation.grad_kernel.image[band], mode="same")
+            for band in range(len(deconvolved))
+        ])
+        assert_almost_equal(observation.convolve(deconvolved, grad=True), grad_convolved)
+
+        # Test that overriding the mode works
+        real = observation.convolve(deconvolved, mode="real")
+        assert_almost_equal(real, observation.images)
+
+    def test_index_extraction(self):
+        alpha_bands = ("g", "i", "r", "y", "z")
+        images = np.arange(60).reshape(5, 3, 4)
+        image_g = images[0]
+        image_i = images[1]
+        image_r = images[2]
+        variance = np.arange(5)[:, None, None] * np.ones((5, 3, 4)) + 1
+        weights = 1 / variance
+        psfs = np.arange(5)[:, None, None] * np.ones((5, 2, 2))
+        model_psf = np.zeros(9).reshape(3, 3)
+        model_psf[1] = 1
+        model_psf[:, 1] = 1
+        model_psf[1, 1] = 2
+        observation = Observation(alpha_bands, images, variance, weights, psfs, model_psf[None])
+
+        bands = "i"
+        indices = observation.bands_to_indices(bands)
+        assert_array_equal(observation.images[indices], np.arange(12, 24).reshape(3, 4))
+
+        bands = ("g", "r", "i")
+        indices = observation.bands_to_indices(bands)
+        assert_array_equal(indices, (0, 2, 1))
+        assert_array_equal(observation.images[indices, :, :], np.array([image_g, image_r, image_i]))

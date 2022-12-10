@@ -157,7 +157,7 @@ class FistaParameter(Parameter):
         t0: float = 1,
         z0: np.ndarray = None,
     ):
-        super().__init__(array.shape)
+        super().__init__()
         if z0 is None:
             z0 = array
         self.step = step
@@ -238,7 +238,7 @@ class FistaParameter(Parameter):
         _x = self.view(np.ndarray)
 
         y = self.z - step * self.grad(input_grad, _x, *args)
-        x = self.prox(y, step)
+        x = self.prox(y)
         t = 0.5 * (1 + np.sqrt(1 + 4 * self.t**2))
         omega = 1 + (self.t - 1) / t
         self.z = _x + omega * (x - _x)
@@ -402,7 +402,7 @@ class AdaproxParameter(Parameter):
     def __init__(
         self,
         array: np.ndarray,
-        step: Callable,
+        step: Callable | float,
         grad: Callable = None,
         prox: Callable = None,
         b1: float = 0.9,
@@ -416,7 +416,7 @@ class AdaproxParameter(Parameter):
         max_prox_iter: int = 1,
         prox_e_rel: float = 1e-6,
     ):
-        super().__init__(array.shape)
+        super().__init__()  # type: ignore
 
         if not hasattr(b1, "__getitem__"):
             b1 = SingleItemArray(b1)
@@ -461,7 +461,7 @@ class AdaproxParameter(Parameter):
             return
 
         self.name = getattr(obj, "name", None)
-        self.step = getattr(obj.step, np.nan)
+        self.step = getattr(obj, "step", np.nan)
         self.grad = getattr(obj, "grad", None)
         self.prox = getattr(obj, "prox", None)
         self.b1 = getattr(obj, "b1", 0.9)
@@ -516,7 +516,7 @@ class AdaproxParameter(Parameter):
             it, grad, self.m, self.v, self.vhat, self.b1, self.b2, self.eps, self.p
         )
         # Calculate the step size
-        step = self.step(_x, it)
+        step = self.step(_x)
         if it > 0:
             _x[:] = _x - step * phi / psi
         else:
@@ -527,7 +527,7 @@ class AdaproxParameter(Parameter):
             z = _x.copy()
             gamma = step / np.max(psi)
             for tau in range(1, self.max_prox_iter + 1):
-                _z = self.prox(z - gamma / step * psi * (z - _x), gamma)
+                _z = self.prox(z - gamma / step * psi * (z - _x))
                 converged = ((_z - z) ** 2).sum() <= self.e_rel**2 * (z**2).sum()
                 z = _z
 

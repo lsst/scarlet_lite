@@ -1,5 +1,3 @@
-from typing import Sequence
-
 from astropy.visualization.lupton_rgb import Mapping, LinearMapping, AsinhMapping
 import matplotlib
 import matplotlib.pyplot as plt
@@ -95,38 +93,38 @@ def channels_to_rgb(channels: int) -> np.ndarray:
 
 
 class LinearPercentileNorm(LinearMapping):
-    def __init__(self, img: npt.ArrayLike, percentiles: Sequence[int, int] = None):
+    def __init__(self, img: npt.ArrayLike, percentiles: tuple[int, int] = None):
         """Create norm that is linear between lower and upper percentile of img
         Parameters
         ----------
-        img: npt.ArrayLike
+        img:
             Image to normalize
-        percentiles: Sequence[int, int]
-            Lower and upper percentile to consider (default = ``[1,99]``).
+        percentiles:
+            Lower and upper percentile to consider (default = ``(1,99)``).
             Pixel values below will be
             set to zero, above to saturated.
         """
         if percentiles is None:
-            percentiles = [1, 99]
+            percentiles = (1, 99)
         assert len(percentiles) == 2
         vmin, vmax = np.percentile(img, percentiles)
         super().__init__(minimum=vmin, maximum=vmax)
 
 
 class AsinhPercentileNorm(AsinhMapping):
-    def __init__(self, img: npt.ArrayLike, percentiles: Sequence[int, int] = None):
+    def __init__(self, img: npt.ArrayLike, percentiles: tuple[int, int] = None):
         """Create norm that is linear between lower and upper percentile of img
         Parameters
         ----------
-        img: npt.ArrayLike
+        img:
             Image to normalize.
-        percentiles: Sequence[int, int]
-            Lower and upper percentile to consider (default = ``[1,99]``).
+        percentiles:
+            Lower and upper percentile to consider (default = ``(1,99)``).
             Pixel values below will be
             set to zero, above to saturated.
         """
         if percentiles is None:
-            percentiles = [1, 99]
+            percentiles = (1, 99)
         assert len(percentiles) == 2
         vmin, vmax = np.percentile(img, percentiles)
         # solution for beta assumes flat spectrum at vmax
@@ -221,7 +219,7 @@ def img_to_rgb(
 
 def show_likelihood(
     blend: Blend, figsize: tuple[float, float] = None, **kwargs
-) -> matplotlib.Figure:
+) -> matplotlib.pyplot.Figure:
     """Display a plot of the likelihood in each iteration for a blend
 
     Parameters
@@ -248,8 +246,8 @@ def show_likelihood(
 
 def _add_markers(
     src: Source,
-    extent: Sequence[float, float, float, float],
-    ax: matplotlib.Axes,
+    extent: tuple[float, float, float, float],
+    ax: matplotlib.pyplot.Axes,
     add_markers: bool,
     add_boxes: bool,
     marker_kwargs: dict,
@@ -284,7 +282,7 @@ def show_scene(
     linear: bool = True,
     use_flux: bool = False,
     box_kwargs: dict = None,
-) -> matplotlib.Figure:
+) -> matplotlib.pyplot.Figure:
     """Plot all sources to recreate the scence.
 
     The functions provides a fast way of evaluating the quality
@@ -444,7 +442,7 @@ def show_scene(
     return fig
 
 
-def get_extent(bbox: Box) -> list[int, int, int, int]:
+def get_extent(bbox: Box) -> tuple[int, int, int, int]:
     """Convert a `Box` into a list of bounds used in matplotlib
 
     Paramters
@@ -452,7 +450,7 @@ def get_extent(bbox: Box) -> list[int, int, int, int]:
     bbox: Box
        The box to convert into an extent list.
     """
-    return [bbox.start[-1], bbox.stop[-1], bbox.start[-2], bbox.stop[-2]]
+    return bbox.start[-1], bbox.stop[-1], bbox.start[-2], bbox.stop[-2]
 
 
 def show_sources(
@@ -464,12 +462,12 @@ def show_sources(
     show_observed: bool = False,
     show_rendered: bool = False,
     show_spectrum: bool = True,
-    figsize: Sequence[float, float] = None,
+    figsize: tuple[float, float] = None,
     model_mask: bool = True,
     add_markers: bool = True,
     add_boxes: bool = False,
     use_flux: bool = False,
-) -> matplotlib.Figure:
+) -> matplotlib.pyplot.Figure:
     """Plot individual source models
 
     The functions provides a fast way of evaluating the quality of
@@ -625,7 +623,7 @@ def show_sources(
 
 def compare_spectra(
     use_flux: bool = True, use_template: bool = True, **all_sources: list[Source]
-) -> matplotlib.Figure:
+) -> matplotlib.pyplot.Figure:
     """Compare spectra from multiple different deblending results of the
     same sources.
 

@@ -126,7 +126,6 @@ bool sortBrightness(Peak a, Peak b){
 // created by `get_connected_pixels`.
 template <typename M>
 std::vector<Peak> get_peaks(
-    //Eigen::Ref<const M> image,
     M& image,
     const double min_separation,
     const int y0,

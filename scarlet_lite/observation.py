@@ -71,6 +71,7 @@ class Observation:
 
     def __init__(
         self,
+        bands: Sequence[object],
         images: np.ndarray,
         variance: np.ndarray,
         weights: np.ndarray,
@@ -83,34 +84,38 @@ class Observation:
     ):
         """Initialize an Observation.
 
-         Parameters
-         ----------
-         images: np.ndarray
+        Parameters
+        ----------
+        bands:
+            The filters (in order) used for all of the observation's
+            properties.
+        images:
             (bands, y, x) array of observed images.
-        variance: np.ndarray
+        variance:
             (bands, y, x) array of variance for each image pixel.
-        weights: np.ndarray
+        weights:
             (bands, y, x) array of weights to use when calculatint the
             likelihood of each pixel.
-        psfs: np.ndarray
+        psfs:
             (bands, y, x) array of the PSF image in each band.
-        model_psf: np.ndarray
+        model_psf:
             (bands, y, x) array of the model PSF image in each band.
             If `model_psf` is `None` then convolution has no
             affect on the model, as it is generated in the same seeing as
             the observation(s).
-        noise_rms: np.ndarray
+        noise_rms:
             Per-band average noise RMS. If `noise_rms` is `None` then the mean
             of the sqrt of the variance is used.
-        bbox: Box
+        bbox:
             The bounding box containing the model. If `bbox` is `None` then
             a `Box` is created that is the shape of `images` with an origin
             at `(0, 0, 0)`.
-        padding: int
+        padding:
             Padding to use when performing an FFT convolution.
-        convolution_model: str
+        convolution_mode:
             The method of convolution. This should be either "fft" or "real".
         """
+        self.bands = bands
         self.images = images
         self.variance = variance
         self.weights = weights
@@ -145,6 +150,7 @@ class Observation:
             self.bbox = Box(images.shape)
         else:
             self.bbox = bbox
+        self._convolution_bounds = None
 
     def convolve(
         self, image: np.ndarray, mode: str = None, grad: bool = False
@@ -191,6 +197,21 @@ class Observation:
             raise ValueError(f"mode must be either 'fft' or 'real', got {mode}")
         return result
 
+    def log_likelihood(self, model: np.ndarray) -> float:
+        """Calculate the log likelihood of the given model
+
+        Parameters
+        ----------
+        model:
+            Model to compare with the observed images.
+
+        Returns
+        -------
+        result: float
+            The log-likelihood of the given model.
+        """
+        return 0.5 * -np.sum(self.weights * (self.images - model) ** 2)
+
     @property
     def shape(self) -> tuple[int, int, int]:
         """The shape of the images, variance, etc."""
@@ -209,39 +230,41 @@ class Observation:
     @property
     def convolution_bounds(self) -> tuple[int, int, int, int]:
         """Build the slices needed for convolution in real space"""
-        if not hasattr(self, "_convolution_bounds"):
+        if self._convolution_bounds is None:
             coords = interpolation.get_filter_coords(self.diff_kernel[0])
             self._convolution_bounds = interpolation.get_filter_bounds(
                 coords.reshape(-1, 2)
             )
         return self._convolution_bounds
 
-    def __getitem__(self, i: int | Sequence[int] | slice) -> TObservation:
-        """Allow the user to slice the observations with python indexing"""
-        images = self.images[i]
-        variance = self.variance[i]
-        weights = self.weights[i]
-        psfs = self.psfs[i]
-        noise_rms = self.noise_rms[i]
+    def bands_to_indices(self, bands: str | Sequence[str]) -> Sequence[int]:
+        """Convert a list of band names to indices
 
-        if len(images.shape) == 2:
-            images = images[None]
-            variance = variance[None]
-            weights = weights[None]
-            psfs = psfs[None]
-            noise_rms = np.array([noise_rms])
+        It may desired to extract parts of a model or image,
+        or display them using an alternate order
+        (for example the bands may be in alphabetical order but should
+        be displayed in wavelength order), so this method extracts the
+        appropriate index for each band in `bands` in order to
+        extract the desired rows from a multiband image.
 
-        return Observation(
-            images,
-            variance,
-            weights,
-            psfs,
-            model_psf=self.model_psf,
-            noise_rms=noise_rms,
-            bbox=self.bbox,
-            padding=self.padding,
-            convolution_mode=self.mode,
-        )
+        Parameters
+        ----------
+        bands:
+            The names of all the bands to extract from the image.
+
+        Returns
+        -------
+        result: Sequence[int]
+            A tuple of integers corresponding to numerical index needed
+            to extract each band in `bands`.
+        """
+        try:
+            bands = tuple(bands)
+        except TypeError:
+            bands = (bands,)
+
+        band_indices = tuple(self.bands.index(band) for band in bands)
+        return band_indices
 
 
 class FitPsfObservation(Observation):
@@ -251,6 +274,7 @@ class FitPsfObservation(Observation):
         self,
         diff_kernel: np.ndarray | Parameter,
         fft_shape: tuple[int, int],
+        bands: Sequence[object],
         images: np.ndarray,
         variance: np.ndarray,
         weights: np.ndarray,
@@ -266,6 +290,7 @@ class FitPsfObservation(Observation):
         See `Observation` for a description of the parameters.
         """
         super().__init__(
+            bands,
             images,
             variance,
             weights,

@@ -30,7 +30,7 @@ class TestWavelet(object):
         x = np.linspace(-10, 10, 129)
         y = np.linspace(-10, 10, 129)
         x, y = np.meshgrid(x, y)
-        return np.exp(-(x**2+y**2))
+        return np.exp(-(x**2 + y**2))
 
     """Test the wavelet object"""
 

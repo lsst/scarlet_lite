@@ -21,6 +21,8 @@
 
 __all__ = ["Source"]
 
+from typing import Callable
+
 import numpy as np
 import numpy.typing as npt
 
@@ -118,6 +120,19 @@ class Source:
             slices = overlapped_slices(bbox, component.bbox)
             model[slices[0]] += component.get_model()[slices[1]]
         return model
+
+    def parameterize(self, parameterization: Callable):
+        """Convert the component parameter arrays into Parameter instances
+
+        Parameters
+        ----------
+        parameterization: Callable
+            A function to use to convert parameters of a given type into
+            a `Parameter` in place. It should take a single argument that
+            is the `Component` or `Source` that is to be parameterized.
+        """
+        for component in self.components:
+            component.parameterize(parameterization)
 
     def __str__(self):
         return f"Source<{','.join([str(c) for c in self.components])}>"

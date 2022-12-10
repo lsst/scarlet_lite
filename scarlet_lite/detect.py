@@ -1,28 +1,76 @@
 import logging
-from typing import Sequence
+from typing import Sequence, TypeVar
 
 import numpy as np
 
 from .bbox import Box, overlapped_slices
 from .detect_pybind11 import Footprint
+from .utils import continue_class
 from .wavelet import starlet_transform, get_multiresolution_support
 
 
 logger = logging.getLogger("scarlet.detect")
+TFootprint = TypeVar("TFootprint", bound="Footprint")
 
 
 def bounds_to_bbox(bounds: tuple[int, int, int, int]) -> Box:
     """Convert the bounds of a Footprint into a Box
-
     Parameters
     ----------
-    bounds: Sequence[int, int, int, int]
-        The bounds of the `Footprint`
+    bounds:
+        The bounds of the `Footprint` as a `tuple` of
+        ``(bottom, top, left, right)``.
+    Returns
+    -------
+    result: Box
+        The `Box` created fro the bounds
     """
     return Box(
         (bounds[1] + 1 - bounds[0], bounds[3] + 1 - bounds[2]),
         origin=(bounds[0], bounds[2]),
     )
+
+
+@continue_class
+class Footprint:  # noqa: F811
+    @property
+    def bbox(self) -> Box:
+        """Bounding box for the Footprint
+
+        Returns
+        -------
+        bbox: Box
+            The minimal `Box` that contains the entire `Footprint`.
+        """
+        return bounds_to_bbox(self.bounds)
+
+    def intersection(self, other: TFootprint) -> np.ndarray[bool] | None:
+        """The intersection of two footprints
+
+        Parameters
+        ----------
+        other:
+            The other footprint to compare.
+
+        Returns
+        -------
+        overlap: np.ndarray[bool]
+            The overlapping region between two footprints.
+        """
+        box1 = self.bbox
+        box2 = other.bbox
+        if not box1.intersects(box2):
+            return None
+        slices1, slices2 = overlapped_slices(box1, box2)
+        overlap = self.footprint[slices1] * other.footprint[slices2]
+        return overlap
+
+    def does_overlap(self, other: TFootprint) -> bool:
+        """
+
+        :param other:
+        :return:
+        """
 
 
 def footprint_intersect(

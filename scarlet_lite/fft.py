@@ -188,17 +188,17 @@ def get_fft_shape(
 
     shape += padding
     # Use the next fastest shape in each dimension
-    shape = [fftpack.helper.next_fast_len(s) for s in shape]
+    shape = [fftpack.next_fast_len(s) for s in shape]
 
     # autograd.numpy.fft does not currently work
     # if the last dimension is odd
     while shape[-1] % 2 != 0:
         shape[-1] += 1
-        shape[-1] = fftpack.helper.next_fast_len(shape[-1])
+        shape[-1] = fftpack.next_fast_len(shape[-1])
     if shape2[-2] % 2 == 0:
         while shape[-2] % 2 != 0:
             shape[-2] += 1
-            shape[-2] = fftpack.helper.next_fast_len(shape[-2])
+            shape[-2] = fftpack.next_fast_len(shape[-2])
 
     return shape
 
@@ -375,8 +375,27 @@ def _kspace_operation(
         raise Exception(msg.format(len(image1.shape), len(image2.shape)))
 
     fft_shape = get_fft_shape(image1.image, image2.image, padding, axes)
-    transformed_fft = op(image1.fft(fft_shape, axes), image2.fft(fft_shape, axes))
-    # why is shape not image1.shape? images are never padded
+    if (
+        op == operator.truediv
+        or op == operator.floordiv
+        or op == operator.itruediv
+        or op == operator.ifloordiv
+    ):
+        # prevent divide by zero
+        lhs = image1.fft(fft_shape, axes)
+        rhs = image2.fft(fft_shape, axes)
+
+        # Broadcast, if necessary
+        if rhs.shape[0] == 1 and lhs.shape[0] != rhs.shape[0]:
+            rhs = np.tile(rhs, (lhs.shape[0],) + (1,) * len(rhs.shape[1:]))
+        if lhs.shape[0] == 1 and lhs.shape[0] != rhs.shape[0]:
+            lhs = np.tile(lhs, (rhs.shape[0],) + (1,) * len(lhs.shape[1:]))
+        # only select non-zero elements for the denominator
+        cuts = rhs != 0
+        transformed_fft = np.zeros(lhs.shape, dtype=lhs.dtype)
+        transformed_fft[cuts] = op(lhs[cuts], rhs[cuts])
+    else:
+        transformed_fft = op(image1.fft(fft_shape, axes), image2.fft(fft_shape, axes))
     return Fourier.from_fft(transformed_fft, fft_shape, shape, axes)
 
 

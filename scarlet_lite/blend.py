@@ -64,7 +64,7 @@ class Blend:
             The observation that contains the images,
             PSF, etc. that are being fit.
         """
-        self.sources = sources
+        self.sources = list(sources)
         self._components = []
         for source in sources:
             self._components.extend(source.components)
@@ -112,14 +112,18 @@ class Blend:
         """Gradient of the likelihood wrt the unconvolved model"""
         model = self.get_model(convolve=True)
         # Update the loss
-        self.loss.append(
-            0.5
-            * -np.sum(self.observation.weights * (self.observation.images - model) ** 2)
-        )
+        self.loss.append(self.observation.log_likelihood(model))
         # Calculate the gradient wrt the model d(logL)/d(model)
         result = self.observation.weights * (model - self.observation.images)
         result = self.observation.convolve(result, grad=True)
         return result
+
+    @property
+    def log_likelihood(self) -> float:
+        """The current log-likelihood"""
+        if len(self.loss) == 0:
+            return self.observation.log_likelihood(self.get_model(convolve=True))
+        return self.loss[-1]
 
     def fit_spectra(self, clip: bool = False) -> TBlend:
         """Fit all of the spectra given their current morphologies
@@ -155,7 +159,7 @@ class Blend:
         fit_seds = multifit_seds(self.observation, morphs, boxes)
         for idx in range(len(morphs)):
             component = cast(
-                self.components[factorized_indices[idx]], FactorizedComponent
+                FactorizedComponent, self.components[factorized_indices[idx]]
             )
             component.sed[:] = fit_seds[idx]
             component.sed[component.sed < 0] = 0
@@ -182,14 +186,6 @@ class Blend:
                         component.prox_sed(component.sed)
 
         return self
-
-    @property
-    def log_likelihood(self, model: np.ndarray = None) -> np.ndarray:
-        if model is None:
-            return np.array(self.loss)
-        return 0.5 * -np.sum(
-            self.observation.weights * (self.observation.images - model) ** 2
-        )
 
     def fit(
         self,
