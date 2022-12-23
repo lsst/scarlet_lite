@@ -10,6 +10,40 @@ from . import fft
 from . import interpolation
 
 
+def prox_connected(morph: np.ndarray, centers: Sequence[Sequence[int]]) -> np.ndarray:
+    """Remove all pixels not connected to the center of a source.
+
+    Parameters
+    ----------
+    morph: np.ndarray
+        The morphology that is being constrained.
+    centers: Sequence[Sequence[int, int]]
+        The `(cy, cx)` center of any sources that all pixels must be
+        connected to.
+
+    Returns
+    -------
+    result: np.ndarray
+        The morphology with all pixels not connected to a center postion set
+        to zero.
+    """
+    # Import here to avoid circular dependency
+    from scarlet_lite.detect_pybind11 import get_connected_pixels
+
+    result = np.zeros(morph.shape, dtype=bool)
+
+    for center in centers:
+        unchecked = np.ones(morph.shape, dtype=bool)
+        cy, cx = center
+        cy = int(cy)
+        cx = int(cx)
+        bounds = np.array([cy, cy, cx, cx]).astype(np.int32)
+        # Update the result in place with the pixels connected to this center
+        get_connected_pixels(cy, cx, morph, unchecked, result, bounds, 0)
+
+    return result * morph
+
+
 class Monotonicity:
     """Class to implement Monotonicity
 
@@ -328,7 +362,6 @@ def prox_weighted_monotonic(
         min_gradient=min_gradient,
     )
     return result
-
 
 
 def uncentered_operator(
@@ -730,40 +763,6 @@ def _get_radial_monotonic_weights(
         cos_norm[mask] = 0
 
     return cos_norm
-
-
-def prox_connected(morph: np.ndarray, centers: Sequence[Sequence[int]]) -> np.ndarray:
-    """Remove all pixels not connected to the center of a source.
-
-    Parameters
-    ----------
-    morph: np.ndarray
-        The morphology that is being constrained.
-    centers: Sequence[Sequence[int, int]]
-        The `(cy, cx)` center of any sources that all pixels must be
-        connected to.
-
-    Returns
-    -------
-    result: np.ndarray
-        The morphology with all pixels not connected to a center postion set
-        to zero.
-    """
-    # Import here to avoid circular dependency
-    from scarlet_lite.detect_pybind11 import get_connected_pixels
-
-    result = np.zeros(morph.shape, dtype=bool)
-
-    for center in centers:
-        unchecked = np.ones(morph.shape, dtype=bool)
-        cy, cx = center
-        cy = int(cy)
-        cx = int(cx)
-        bounds = np.array([cy, cy, cx, cx]).astype(np.int32)
-        # Update the result in place with the pixels connected to this center
-        get_connected_pixels(cy, cx, morph, unchecked, result, bounds, 0)
-
-    return result * morph
 
 
 class MonotonicityConstraint:
