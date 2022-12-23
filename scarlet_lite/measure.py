@@ -1,7 +1,6 @@
 import numpy as np
 
 from .bbox import Box, overlapped_slices
-from .utils import insert_image
 
 
 def calculate_snr(

@@ -74,13 +74,13 @@ class TestBlend(unittest.TestCase):
         ]
 
         # Create the simulated image and associated data products
-        test_data = ObservationData(psfs, spectra, morphs, centers, model_psf)
+        test_data = ObservationData(bands, psfs, spectra, morphs, centers, model_psf)
 
         # Create the Observation
         variance = np.ones((3, 35, 35), dtype=float)
         weights = 1 / variance
         self.observation = Observation(
-            bands, test_data.convolved, variance, weights, psfs, model_psf[None]
+            test_data.convolved, variance, weights, psfs, model_psf[None], bands=bands,
         )
         self.data = test_data
         self.spectra = spectra
@@ -89,10 +89,11 @@ class TestBlend(unittest.TestCase):
 
         components = []
         for spectrum, center, morph, bbox in zip(
-                self.spectra, self.centers, self.morphs, self.data.boxes
+            self.spectra, self.centers, self.morphs, self.data.boxes
         ):
             components.append(
                 FactorizedComponent(
+                    bands=bands,
                     sed=spectrum,
                     morph=morph,
                     bbox=bbox,
@@ -160,9 +161,9 @@ class TestBlend(unittest.TestCase):
         # so fitting the spectra should give a nearly exact solution
         blend.fit_spectra()
 
-        assert len(blend.components) == 5
-        assert len(blend.sources) == 4
-        assert blend.bbox == Box(self.data.images.shape)
+        self.assertEqual(len(blend.components), 5)
+        self.assertEqual(len(blend.sources), 4)
+        self.assertEqual(blend.bbox, Box(self.observation.bbox.shape))
         assert_almost_equal(blend.get_model(), self.data.images)
         assert_almost_equal(blend.get_model(convolve=True), self.observation.images)
 
@@ -171,7 +172,7 @@ class TestBlend(unittest.TestCase):
         np.random.seed(0)
         images = observation.images.copy()
         noise = np.random.normal(size=observation.images.shape) * 1e-2
-        observation.images += noise
+        observation.images._data += noise
 
         sources = init_all_sources_chi2(
             observation,

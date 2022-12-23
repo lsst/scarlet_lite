@@ -23,7 +23,7 @@ import operator
 from typing import Callable, Sequence, TypeVar
 
 import numpy as np
-from numpy.typing import DTypeLike
+from numpy.typing import DTypeLike, ArrayLike
 
 from .bbox import Box
 from .utils import ScalarLike, ScalarTypes
@@ -34,10 +34,14 @@ TImage = TypeVar("TImage", bound="Image")
 
 
 class MismatchedBandsError(Exception):
+    """Attempt to compare images with different bands"""
+
     pass
 
 
 class MismatchedBoxError(Exception):
+    """Attempt to compare images in different bounding boxes"""
+
     pass
 
 
@@ -62,12 +66,12 @@ def get_combined_dtype(*arrays: np.ndarray) -> DTypeLike:
     return dtype
 
 
-class Image(np.ndarray):
+class Image:
     """A numpy array with an origin and (optional) bands"""
 
-    def __new__(
-        cls,
-        array: np.ndarray,
+    def __init__(
+        self,
+        data: np.ndarray,
         bands: Sequence | None = None,
         yx0: tuple[int, int] = None,
         indices: dict[tuple, tuple[tuple, tuple]] = None,
@@ -75,16 +79,35 @@ class Image(np.ndarray):
             tuple[tuple[int, ...], tuple[int, ...]],
             tuple[tuple[slice, ...], tuple[slice, ...]],
         ] = None,
-    ) -> TImage:
-        if bands is None:
+    ):
+        """Create a new image
+
+        Parameters
+        ----------
+        data:
+            The array data for the image.
+        bands:
+            The bands coving the image.
+        yx0:
+            The (y, x) offset for the lower left of the image.
+        indices:
+            Dictionary of cached indices with the bands to project this image
+            into as the key, and the slices for the projected image and this
+            image as the values.
+        slices:
+            Dictionary of cached slices to insert this image into another
+            image.
+        """
+        if bands is None or len(bands) == 0:
+            # Using an empty tuple for the bands will result in a 2D image
             bands = ()
-            assert len(array.shape) == 2
+            assert len(data.shape) == 2
         else:
             bands = tuple(bands)
-            assert len(array.shape) == 3
-            if array.shape[0] != len(bands):
+            assert len(data.shape) == 3
+            if data.shape[0] != len(bands):
                 raise ValueError(
-                    f"Array has spectral size {array.shape[0]}, but {bands} bands"
+                    f"Array has spectral size {data.shape[0]}, but {bands} bands"
                 )
         if yx0 is None:
             yx0 = (0, 0)
@@ -92,42 +115,132 @@ class Image(np.ndarray):
             indices = {}
         if slices is None:
             slices = {}
-        obj = np.asarray(array, dtype=array.dtype).view(cls)
-        obj.yx0 = yx0
-        obj.bands = bands
-        obj.indices = indices
-        obj.slices = slices
-        return obj
+        self._data = data
+        self._yx0 = yx0
+        self._bands = bands
+        self._indices = indices
+        self._slices = slices
+
+    @staticmethod
+    def from_box(bbox: Box, bands: tuple = None, dtype: DTypeLike = float):
+        if bands is not None and len(bands) > 0:
+            shape = (len(bands),) + bbox.shape
+        else:
+            shape = bbox.shape
+        data = np.zeros(shape, dtype=dtype)
+        return Image(data, bands=bands, yx0=bbox.origin)
+
+    @property
+    def shape(self):
+        return self._data.shape
+
+    @property
+    def dtype(self):
+        return self._data.dtype
+
+    @property
+    def bands(self):
+        return self._bands
 
     @property
     def n_bands(self) -> int:
-        return len(self.bands)
+        """Number of bands in the image
+
+        If `n_bands == 0` then the image is 2D and does not have a spectral
+        dimension.
+        """
+        return len(self._bands)
+
+    @property
+    def is_multiband(self):
+        return self.n_bands > 0
 
     @property
     def height(self) -> int:
+        """Height of the image"""
         return self.shape[-2]
 
     @property
     def width(self) -> int:
+        """Width of the image"""
         return self.shape[-1]
 
     @property
+    def yx0(self) -> tuple[int, int]:
+        return self._yx0
+
+    @property
     def y0(self) -> int:
-        return self.yx0[0]
+        """location of the y-offset"""
+        return self._yx0[0]
 
     @property
     def x0(self) -> int:
-        return self.yx0[1]
+        """Location of the x-offset"""
+        return self._yx0[1]
 
     @property
     def bbox(self) -> Box:
-        return Box(self.shape[-2:], self.yx0)
+        """Bounding box for the special dimensions in the image"""
+        return Box(self.shape[-2:], self._yx0)
 
     @property
-    def array(self):
-        return self.view(np.ndarray)
+    def data(self) -> np.ndarray:
+        """The image viewed as a numpy array"""
+        return self._data
 
-    def spectral_indices(self, bands: Sequence) -> tuple[int]:
+    @property
+    def indices(self) -> dict[tuple, tuple[tuple, tuple]]:
+        """Dictionary of cached indices
+
+        The bands to project this image into are the keys,
+        and the slices for the projected image and this image are the values.
+        """
+        return self._indices
+
+    @property
+    def slices(
+        self,
+    ) -> dict[
+        tuple[tuple[int, ...], tuple[int, ...]],
+        tuple[tuple[slice, ...], tuple[slice, ...]],
+    ]:
+        """Dictionary of cached slices to insert this image into another
+        image.
+        """
+        return self._slices
+
+    def spectral_indices(self, bands: Sequence | slice) -> tuple[int, ...] | slice:
+        """The indices to extract each band in `bands` in order from the image
+
+        Paramters
+        ---------
+        bands:
+            If `bands` is a list of band names, then the result will be an
+            index corresponding to each band, in order.
+            If `bands` is a slice, then the ``start`` and ``stop`` properties
+            should be band names, and the result will be a slice with the
+            appropriate indices to start at `bands.start` and end at
+            `bands.end`.
+
+        Returns
+        -------
+        band_indices: tuple[int, ...]
+            Tuple of indices for each band in this image.
+        """
+        if isinstance(bands, slice):
+            # Convert a slice of band names into a slice of array indices
+            # to select the appropriate slice.
+            if bands.start is None:
+                start = None
+            else:
+                start = self.bands.index(bands.start)
+            if bands.stop is None:
+                stop = None
+            else:
+                stop = self.bands.index(bands.stop)
+            return slice(start, stop, bands.step)
+
         band_indices = tuple(
             self.bands.index(band) for band in bands if band in self.bands
         )
@@ -136,6 +249,23 @@ class Image(np.ndarray):
     def matched_spectral_indices(
         self, other: TImage, save: bool = False
     ) -> tuple[tuple[int, ...] | slice, tuple[int, ...] | slice]:
+        """Match bands between two images
+
+        Parameters
+        ----------
+        other:
+            The other image to match spectral indices to.
+        save:
+            Whether or not to save the mapping between the two sets of bands
+            in this image. Saving will cached the result to slice this image
+            more quickly.
+
+        Returns
+        -------
+        result: tuple[tuple[int, ...] | slice, tuple[int, ...] | slice]
+            A tuple with a tuple of indices/slices for each dimension,
+            including the spectral dimension.
+        """
         if other.bands in self.indices:
             # The indices have already been calculated
             return self.indices[other.bands]
@@ -161,6 +291,21 @@ class Image(np.ndarray):
     def matched_slices(
         self, bbox: Box, save: bool = False
     ) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
+        """Get the slices to match this image to a given bounding box
+
+        Parameters
+        ----------
+        bbox:
+            The bounding box to match this image to.
+        save:
+            Whether or not to sae this spatial mapping to sae compute
+            time later.
+
+        Returns
+        -------
+        result: tuple[tuple[slice, ...], tuple[slice, ...]]
+            Tuple of indices/slices to match this image to the given bbox.
+        """
         key = (bbox.shape, bbox.origin)
         if key in self.slices:
             return self.slices[key]
@@ -175,14 +320,34 @@ class Image(np.ndarray):
         return slices
 
     def project(
-        self, bands: object | tuple[object] = None, yx0: tuple[int, int] = None
+        self,
+        bands: object | tuple[object] = None,
     ) -> TImage:
+        """Project this image into a differnt set of bands
+
+         Parameters
+         ----------
+         bands:
+            Spctral bands  to project this image into.
+            Not all bands have to be contained in the image, and not all
+            bands contained in the image have to be used in the projection.
+
+        Results
+        -------
+        image: Image
+            The resulting image.
+        """
         if bands is None:
             bands = self.bands
-        if yx0 is None:
-            yx0 = self.yx0
         indices = self.spectral_indices(bands)
-        return Image(self.view(np.ndarray)[indices], bands=bands, yx0=yx0)
+        return Image(self.data[indices], bands=bands, yx0=self.yx0)
+
+    def multiband_slices(self) -> tuple[tuple | slice, slice, slice]:
+        """Return the
+
+        :return:
+        """
+        return (self.spectral_indices(self.bands),) + self.bbox.slices
 
     def insert_into(
         self,
@@ -190,23 +355,83 @@ class Image(np.ndarray):
         op: Callable = operator.add,
         save: bool = False,
     ):
-        band_indices = self.matched_spectral_indices(image)
-        slices = self.matched_slices(image.bbox, save)
+        return insert_image(image, self, op, save)
 
-        image_slices = band_indices[0] + slices[0]
-        self_slices = band_indices[1] + slices[1]
+    def insert(self, image: TImage, op: Callable = operator.add, save: bool = False):
+        return insert_image(self, image, op, save)
 
-        image[image_slices] = op(image[image_slices, self[self_slices]])
-        return image
+    def repeat(self, bands: tuple) -> TImage:
+        """Project a 2D image into the spectral dimension
+
+        Parameters
+        ----------
+        bands:
+            The bands in the projected image.
+
+        Returns
+        -------
+        result: Image
+            The 2D image repeated in each band in the spectral dimension.
+        """
+        if self.is_multiband:
+            raise ValueError("Image.repeat only works with 2D images")
+        return self.copy_with(
+            np.repeat(self.data[None, :, :], len(bands), axis=0),
+            bands=bands,
+            yx0=self.yx0,
+        )
 
     def copy(self, order=None) -> TImage:
+        """Make a copy of this image
+
+        Parameters
+        ----------
+        order:
+            The ordering to use for storing the bytes.
+            This is unlikely to be needed, and just defaults to
+            the numpy behavior (C) ordering.
+
+        Returns
+        -------
+        iamge: Image
+            The copy of this image.
+        """
         return self.copy_with(order=order)
 
-    def copy_with(self, data=None, order=None, bands=None, yx0=None):
+    def copy_with(
+        self,
+        data: np.ndarray = None,
+        order: str = None,
+        bands: tuple[str, ...] = None,
+        yx0: tuple[int, int] = None,
+    ):
+        """Copy of this image with some parameters updated.
+
+        Any parameters not specified by the user will be copied from the
+        current image.
+
+        Parameters
+        ----------
+        data:
+            An update for the data in the image.
+        order:
+            The ordering for stored bytes, from numpy.copy.
+        bands:
+            The bands that the resulting image will have.
+            The number of bands must be the same as the first dimension
+            in the data array.
+        yx0:
+            The lower-left of the image bounding box.
+
+        Returns
+        -------
+        image: Image
+            The copied image.
+        """
         if order is None:
             order = "C"
         if data is None:
-            data = self.array.copy(order)
+            data = self.data.copy(order)
         if bands is None:
             bands = self.bands
         if yx0 is None:
@@ -214,27 +439,66 @@ class Image(np.ndarray):
         return Image(data, bands, yx0)
 
     def _i_update(self, op: Callable, other: TImage) -> TImage:
-        dtype = get_combined_dtype(self, other)
+        """Update the data array in place
+
+        This is typically implemented by `__i<op>__` methods,
+        like `__iadd__`, to apply an operator and update this image
+        with the data in place.
+
+        Parameters
+        ----------
+        op:
+            Operator used to combine this image with the `other` image.
+        other:
+            The other image that is combined with this one using the operator
+            `op`.
+
+        Returns
+        -------
+        image: Image
+            This image, after being updated by the operator
+        """
+        dtype = get_combined_dtype(self.data, other)
         if self.dtype != dtype:
             msg = f"Cannot update an array with type {self.dtype} with {other.dtype}"
             raise ValueError(msg)
         result = op(other)
-        self[:] = result
-        self.bands = result.bands
-        self.yx0 = result.yx0
+        self._data[:] = result.data
+        self._bands = result.bands
+        self._yx0 = result.yx0
         return self
 
     def _check_equality(self, other: TImage, op: Callable) -> TImage:
+        """Compare this array to another
+
+        This performs an element by element equality check and will raise
+        a `TypeError` if `other` is not an `Image`, a `MismatchedBandsError`,
+        if the other image has different bands, and a `MismatchedBoxError` if
+        the other image exists in a different bounding box.
+
+        Parameters
+        ----------
+        other:
+            The image to compare this image to.
+        op:
+            The operator used for the comparision (==, !=, >=, <=).
+
+        Returns
+        -------
+        image: Image
+            An image made by checking all of the elements in this array with
+            another.
+        """
         if (
             isinstance(other, Image)
             and other.bands == self.bands
             and other.bbox == self.bbox
         ):
-            return self.copy_with(data=op(self.array, other.array))
+            return self.copy_with(data=op(self.data, other.data))
 
         if not isinstance(other, Image):
             if type(other) in ScalarTypes:
-                return self.copy_with(data=op(self.array, other))
+                return self.copy_with(data=op(self.data, other))
             raise TypeError(f"Cannot compare images to {type(other)}")
 
         if other.bands != self.bands:
@@ -246,48 +510,85 @@ class Image(np.ndarray):
         )
 
     def __eq__(self, other: TImage | ScalarLike) -> TImage:
+        """Check if this image is equal to another"""
         return self._check_equality(other, operator.eq)
 
     def __ne__(self, other: TImage | ScalarLike) -> TImage:
+        """Check if this image is not equal to another"""
         return ~self.__eq__(other)
 
     def __ge__(self, other: TImage | ScalarLike) -> TImage:
+        """Check if this image is greater than or equal to another"""
         return self._check_equality(other, operator.ge)
 
     def __le__(self, other: TImage | ScalarLike) -> TImage:
+        """Check if this image is less than or equal to another"""
         return self._check_equality(other, operator.le)
 
+    def __neg__(self):
+        """Take the negative of the image"""
+        return self.copy_with(data=-self._data)
+
+    def __pos__(self):
+        """Make a copy using of the image"""
+        return self.copy()
+
+    def __invert__(self):
+        """Take the inverse (~) of the image"""
+        return self.copy_with(data=~self._data)
+
     def __add__(self, other: TImage | ScalarLike) -> TImage:
+        """Combine this image and another image using addition"""
         return _operate_on_images(self, other, operator.add)
 
     def __iadd__(self, other: TImage | ScalarLike) -> TImage:
+        """Combine this image and another image using addition and update
+        in place
+        """
         return self._i_update(self.__add__, other)
 
     def __radd__(self, other: TImage | ScalarLike) -> TImage:
+        """Combine this image and another image using addition,
+        with this image on the right
+        """
         if type(other) in ScalarTypes:
-            return self.copy_with(data=other+self.array)
+            return self.copy_with(data=other + self.data)
         return other.__add__(self)
 
     def __sub__(self, other: TImage | ScalarLike) -> TImage:
+        """Combine this image and another image using subtraction"""
         return _operate_on_images(self, other, operator.sub)
 
     def __isub__(self, other: TImage | ScalarLike) -> TImage:
+        """Combine this image and another image using subtraction,
+        with this image on the right
+        """
         return self._i_update(self.__sub__, other)
 
     def __rsub__(self, other: TImage | ScalarLike) -> TImage:
+        """Combine this image and another image using subtraction,
+        with this image on the right
+        """
         if type(other) in ScalarTypes:
-            return self.copy_with(data=other-self.array)
+            return self.copy_with(data=other - self.data)
         return other.__sub__(self)
 
     def __mul__(self, other: TImage | ScalarLike) -> TImage:
+        """Combine this image and another image using multiplication"""
         return _operate_on_images(self, other, operator.mul)
 
     def __imul__(self, other: TImage | ScalarLike) -> TImage:
+        """Combine this image and another image using multiplication,
+        with this image on the right
+        """
         return self._i_update(self.__mul__, other)
 
     def __rmul__(self, other: TImage | ScalarLike) -> TImage:
+        """Combine this image and another image using multiplication,
+        with this image on the right
+        """
         if type(other) in ScalarTypes:
-            return self.copy_with(data=other*self.array)
+            return self.copy_with(data=other * self.data)
         return other.__mul__(self)
 
     def __truediv__(self, other: TImage | ScalarLike) -> TImage:
@@ -298,7 +599,7 @@ class Image(np.ndarray):
 
     def __rtruediv__(self, other: TImage | ScalarLike) -> TImage:
         if type(other) in ScalarTypes:
-            return self.copy_with(data=other / self.array)
+            return self.copy_with(data=other / self.data)
         return other.__truediv__(self)
 
     def __floordiv__(self, other: TImage | ScalarLike) -> TImage:
@@ -309,7 +610,7 @@ class Image(np.ndarray):
 
     def __rfloordiv__(self, other: TImage | ScalarLike) -> TImage:
         if type(other) in ScalarTypes:
-            return self.copy_with(data=other // self.array)
+            return self.copy_with(data=other // self.data)
         return other.__floordiv__(self)
 
     def __pow__(self, other: TImage | ScalarLike) -> TImage:
@@ -320,7 +621,7 @@ class Image(np.ndarray):
 
     def __rpow__(self, other: TImage | ScalarLike) -> TImage:
         if type(other) in ScalarTypes:
-            return self.copy_with(data=other**self.array)
+            return self.copy_with(data=other**self.data)
         return other.__pow__(self)
 
     def __mod__(self, other: TImage | ScalarLike) -> TImage:
@@ -331,7 +632,7 @@ class Image(np.ndarray):
 
     def __rmod__(self, other: TImage | ScalarLike) -> TImage:
         if type(other) in ScalarTypes:
-            return self.copy_with(data=other % self.array)
+            return self.copy_with(data=other % self.data)
         return other.__mod__(self)
 
     def __and__(self, other: TImage | ScalarLike) -> TImage:
@@ -342,7 +643,7 @@ class Image(np.ndarray):
 
     def __rand__(self, other: TImage | ScalarLike) -> TImage:
         if type(other) in ScalarTypes:
-            return self.copy_with(data=other & self.array)
+            return self.copy_with(data=other & self.data)
         return other.__and__(self)
 
     def __or__(self, other: TImage | ScalarLike) -> TImage:
@@ -353,7 +654,7 @@ class Image(np.ndarray):
 
     def __ror__(self, other: TImage | ScalarLike) -> TImage:
         if type(other) in ScalarTypes:
-            return self.copy_with(data=other | self.array)
+            return self.copy_with(data=other | self.data)
         return other.__or__(self)
 
     def __xor__(self, other: TImage | ScalarLike) -> TImage:
@@ -364,48 +665,212 @@ class Image(np.ndarray):
 
     def __rxor__(self, other: TImage | ScalarLike) -> TImage:
         if type(other) in ScalarTypes:
-            return self.copy_with(data=other ^ self.array)
+            return self.copy_with(data=other ^ self.data)
         return other.__xor__(self)
 
-    def __lshift__(self, other: int | ScalarLike) -> TImage:
+    def __lshift__(self, other: ScalarLike) -> TImage:
         if not issubclass(np.dtype(type(other)).type, np.integer):
             raise TypeError("Bit shifting an image can only be done with integers")
-        return self.copy_with(data=self.array << other)
+        return self.copy_with(data=self.data << other)
 
-    def __ilshift__(self, other: int | ScalarLike) -> TImage:
+    def __ilshift__(self, other: ScalarLike) -> TImage:
         self[:] = self.__lshift__(other)
         return self
 
-    def __rshift__(self, other: int | ScalarLike) -> TImage:
+    def __rlshift__(self, other: ScalarLike) -> TImage:
+        return self.copy_with(data=other << self.data)
+
+    def __rshift__(self, other: ScalarLike) -> TImage:
         if not issubclass(np.dtype(type(other)).type, np.integer):
             raise TypeError("Bit shifting an image can only be done with integers")
-        return self.copy_with(data=self.array >> other)
+        return self.copy_with(data=self.data >> other)
 
-    def __irshift__(self, other: int | ScalarLike) -> TImage:
+    def __irshift__(self, other: ScalarLike) -> TImage:
         self[:] = self.__rshift__(other)
         return self
+
+    def __rrshift__(self, other: ScalarLike) -> TImage:
+        return self.copy_with(data=other >> self.data)
 
     def __matmul__(self, other: TImage | ScalarLike) -> TImage:
         raise TypeError("Images do not support matrix mutliplication")
 
     def __str__(self):
-        return "Image:\n" + super().__str__() + "\n"
+        return f"Image:\n {super().__str__()}\n  bands={self.bands}\n  bbox={self.bbox}"
 
-    def __array_finalize__(self, obj):
-        self.yx0 = getattr(obj, "yx0", (0, 0))
-        self.bands = getattr(obj, "bands", ())
-        self.indices = getattr(obj, "indices", {})
-        self.slices = getattr(obj, "slices", {})
+    def _get_sliced(self, indices, value: ArrayLike = None) -> TImage:
+        """Select a subset of an image
+
+        Parameters
+        ----------
+        indices:
+            The indices to select a subsection of the image.
+            The spectral index can either be a tuple of indices,
+            a slice of indices, or a single index used to select a
+            single-band 2D image.
+            The y and x indices must be slices or None, since the image
+            must be continuous and defined by a spatial bounding box.
+
+        Returns
+        -------
+        result: Image | np.ndarray
+            The resulting image obtained by selecting subsets of the iamge
+            based on the `indices`.
+        """
+        if not isinstance(indices, tuple):
+            indices = (indices,)
+
+        if self.is_multiband:
+            if len(indices) > 1 and indices[1] in self.bands:
+                # The indices are all band names,
+                # so use them all as a spectral
+                spectral_index = self.spectral_indices(indices)
+                y_index = x_index = slice(None)
+            else:
+                spectral_index = self.spectral_indices(indices[0])
+                if len(indices) > 1:
+                    if isinstance(indices[1], Box):
+                        overlap = self.bbox & indices[1]
+                        if overlap != indices[1]:
+                            raise IndexError("Bounding box is outside of the image")
+                        origin = indices[1].origin
+                        shape = indices[1].shape
+                        y_start = origin[0] - self.yx0[0]
+                        y_stop = origin[0] + shape[0] - self.yx0[0]
+                        x_start = origin[1] - self.yx0[1]
+                        x_stop = origin[1] + shape[1] - self.yx0[1]
+                        y_index = slice(y_start, y_stop)
+                        x_index = slice(x_start, x_stop)
+                    else:
+                        y_index = indices[1]
+                        if len(indices) > 2:
+                            if len(indices) > 3:
+                                raise IndexError(f"Unable to parse indices {indices}")
+                            x_index = indices[2]
+                        else:
+                            x_index = slice(None)
+                else:
+                    y_index = x_index = slice(None)
+
+            if isinstance(spectral_index, slice):
+                bands = self.bands[spectral_index]
+                full_index = (spectral_index, y_index, x_index)
+            elif len(spectral_index) == 1:
+                bands = ()
+                full_index = (spectral_index[0], y_index, x_index)
+            else:
+                bands = tuple(self.bands[idx] for idx in spectral_index)
+
+                if len(bands) > 0:
+                    full_index = (spectral_index, y_index, x_index)
+                else:
+                    full_index = (y_index, x_index)
+        else:
+            y_index = indices[0]
+            if len(indices) > 1:
+                if len(indices) > 2:
+                    raise IndexError(f"Unable to parse indices {indices}")
+                x_index = indices[1]
+            else:
+                x_index = slice(None)
+            bands = None
+            full_index = (y_index, x_index)
+
+        if not isinstance(y_index, slice):
+            raise IndexError(
+                f"Images can only be sliced over the spatial dimensions, got {y_index} for the y-dimension"
+            )
+        else:
+            y0 = y_index.start
+            if y0 is None:
+                y0 = 0
+        if not isinstance(x_index, slice):
+            raise IndexError(
+                f"Images can only be sliced over the spatial dimensions, got {x_index} for the x-dimension"
+            )
+        else:
+            x0 = x_index.start
+            if x0 is None:
+                x0 = 0
+
+        if value is None:
+            # This is a getter,
+            # so return an image with the data sliced properly
+            yx0 = (y0 + self.yx0[0], x0 + self.yx0[1])
+
+            data = self.data[full_index]
+
+            if len(data.shape) == 2:
+                # Only a single band was selected, so return that band
+                return Image(data, yx0=yx0)
+            return Image(data, bands=bands, yx0=yx0)
+
+        # Set the data
+        self._data[full_index] = value
+        return self
+
+    def __getitem__(self, indices) -> TImage:
+        """Get the subset of an image
+
+        Parameters
+        ----------
+        indices:
+            The indices to select a subsection of the image.
+
+        Returns
+        -------
+        result: Image | np.ndarray
+            The resulting image obtained by selecting subsets of the iamge
+            based on the `indices`.
+        """
+        return self._get_sliced(indices)
+
+    def __setitem__(self, indices, value: ArrayLike) -> TImage:
+        """Set a subset of an image to a given value
+
+        Parameters
+        ----------
+        indices:
+            The indices to select a subsection of the image.
+        value:
+            The value to use for the subset of the image.
+
+        Returns
+        -------
+        result: Image | np.ndarray
+            The resulting image obtained by selecting subsets of the iamge
+            based on the `indices`.
+        """
+        return self._get_sliced(indices, value)
 
 
-def _operate_on_images(image1: Image | ScalarLike, image2: Image | ScalarLike, op: Callable) -> Image:
+def _operate_on_images(
+    image1: Image | ScalarLike, image2: Image | ScalarLike, op: Callable
+) -> Image:
+    """Perform an operation on two images, that may or may not be spectrally
+    and spatially aligned.
+
+    Parameters
+    ----------
+    image1:
+        The image on the LHS of the operation
+    image2:
+        The image on the RHS of the operation
+    op:
+        The operation used to combine the images.
+
+    Returns
+    -------
+    image:
+        The resulting combined image.
+    """
     if type(image2) in ScalarTypes:
-        return image1.copy_with(data=op(image1.array, image2))
+        return image1.copy_with(data=op(image1.data, image2))
     if type(image1) in ScalarTypes:
-        return image2.copy_with(data=op(image1, image2.array))
+        return image2.copy_with(data=op(image1, image2.data))
     if image1.bands == image2.bands and image1.bbox == image2.bbox:
         # The images perfectly overlap, so just combine their results
-        return Image(op(image1.array, image2.array), bands=image1.bands, yx0=image1.yx0)
+        return Image(op(image1.data, image2.data), bands=image1.bands, yx0=image1.yx0)
 
     # Use all of the bands in the first image
     bands = image1.bands
@@ -422,3 +887,41 @@ def _operate_on_images(image1: Image | ScalarLike, image2: Image | ScalarLike, o
     # Use the operator to insert the second image
     image2.insert_into(result, op)
     return result
+
+
+def insert_image(
+    main_image: Image,
+    sub_image: Image,
+    op: Callable = operator.add,
+    save: bool = False,
+) -> Image:
+    """Insert one image into another image
+
+    Parameters
+    ----------
+    main_image:
+        The image that will have `sub_image` insertd.
+    sub_image:
+        The image that is inserted into `main_image`.
+    op:
+        The operator to use for insertion
+        (addition, subtraction, multiplication, etc.).
+    save:
+        Whether or not to save the speectral and spatial indices/slices
+        in order to match everything to
+
+    Returns
+    -------
+    image: Image
+        The image, with the other image inserted in place.
+    """
+    band_indices = sub_image.matched_spectral_indices(main_image)
+    slices = sub_image.matched_slices(main_image.bbox, save)
+
+    image_slices = (band_indices[0],) + slices[1]
+    self_slices = (band_indices[1],) + slices[0]
+
+    main_image._data[image_slices] = op(
+        main_image.data[image_slices], sub_image.data[self_slices]
+    )
+    return main_image

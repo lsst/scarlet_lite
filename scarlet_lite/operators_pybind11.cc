@@ -11,6 +11,28 @@ typedef Eigen::Array<int, Eigen::Dynamic, 1> IndexVector;
 typedef Eigen::Array<int, 4, 1> Bounds;
 typedef Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> MatrixB;
 
+template <typename M, typename T>
+void new_monotonicity(
+    Eigen::Ref<const IndexVector> coord_y,
+    Eigen::Ref<const IndexVector> coord_x,
+    std::vector<const M> weights,
+    Eigen::Ref<M, 0, Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic>> image
+){
+    for(int n=0; n<coord_x.size(); n++){
+        int px = coord_x[n];
+        int py = coord_y[n];
+
+        T ref_flux = 0;
+        for(int i=0; i<3; i++){
+            for(int j=0; j<3; j++){
+                int weight_index = 3*i + j;
+                ref_flux += image(py + i, px + j) * weights[weight_index](py, px);
+            }
+        }
+        image(py + 1, px + 1) = std::min(image(py+1, px+1), ref_flux);
+    }
+}
+
 template <typename T, typename M, typename V>
 void prox_weighted_monotonic(
     // Fast implementation of weighted monotonicity constraint
@@ -239,6 +261,9 @@ PYBIND11_MODULE(operators_pybind11, mod)
   typedef Eigen::Matrix<float, Eigen::Dynamic, 1> VectorF;
   typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> MatrixD;
   typedef Eigen::Matrix<double, Eigen::Dynamic, 1> VectorD;
+
+  mod.def("new_monotonicity", &new_monotonicity<MatrixF, float>, "Weighted Monotonic Proximal Operator");
+  mod.def("new_monotonicity", &new_monotonicity<MatrixD, double>, "Weighted Monotonic Proximal Operator");
 
   mod.def("prox_weighted_monotonic", &prox_weighted_monotonic<float, MatrixF, VectorF>,
           "Weighted Monotonic Proximal Operator");

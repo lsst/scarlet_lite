@@ -27,6 +27,7 @@ from typing import Sequence, TypeVar
 
 from .bbox import Box
 from .fft import Fourier, match_psf, convolve as fft_convolve
+from .image import Image
 from . import interpolation
 from .parameters import FistaParameter, Parameter
 
@@ -59,6 +60,58 @@ def _grad_convolve(convolved, image, psf, slices):
     return lambda input_grad: convolve(input_grad, psf[:, ::-1, ::-1], slices)
 
 
+def _set_image_like(
+    images: np.ndarray | Image, bands: tuple | None = None, bbox: Box | None = None
+) -> Image:
+    """Ensure that an image-like array is cast appropriately as an image
+
+     Parameters
+     ----------
+     images:
+        The multiband image-like array to cast as an Image.
+        If it already has `bands` and `bbox` properties then it is returned
+        with no modifications.
+    bands:
+        The bands for the multiband-image.
+        If `images` is a numpy array, this parameter is mandatory.
+        If `images` is an `Image` and `bands` is not `None`,
+        then `bands` must match `images.bands`.
+    bbox:
+        Bounding box containing the image.
+        If `images` is a numpy array, this parameter is mandatory.
+        If `images` is an `Image` and `bbox` is not `None`,
+        then `bbox` must match `images.bbox`.
+
+    Returns
+    -------
+    images: Image
+        The input images converted into an image.
+    """
+    if hasattr(images, "bbox") and hasattr(images, "bands"):
+        # This is already an image
+        return images
+
+    if bbox is None:
+        print(images)
+        bbox = Box(images.shape)
+    elif hasattr(images, "bbox") and images.bbox != bbox:
+        raise ValueError(
+            f"Mismatched bounding boxes, images.bbox is {images.bbox} while bbox is {bbox}"
+        )
+    if not hasattr(images, "bands"):
+        if bands is None:
+            msg = f"""The `images` must be either an `Image` instance or a numpy `ndarray` with
+            `bands` specified. Got {type(images)} and `bands = None`.
+            """
+            raise ValueError(msg)
+        images = Image(images, bands=bands, yx0=bbox.origin[-2:])
+    elif hasattr(images, "abnds") and images.bands != bands:
+        raise ValueError(
+            f"Mismatched bands, images.bands is {images.bands} while bands is {bands}"
+        )
+    return images
+
+
 class Observation:
     """A single observation
 
@@ -71,14 +124,14 @@ class Observation:
 
     def __init__(
         self,
-        bands: Sequence[object],
-        images: np.ndarray,
-        variance: np.ndarray,
-        weights: np.ndarray,
+        images: np.ndarray | Image,
+        variance: np.ndarray | Image,
+        weights: np.ndarray | Image,
         psfs: np.ndarray,
         model_psf: np.ndarray | None = None,
         noise_rms: np.ndarray | None = None,
         bbox: Box = None,
+        bands: Sequence[object] = None,
         padding: int = 3,
         convolution_mode: str = "fft",
     ):
@@ -109,16 +162,20 @@ class Observation:
         bbox:
             The bounding box containing the model. If `bbox` is `None` then
             a `Box` is created that is the shape of `images` with an origin
-            at `(0, 0, 0)`.
+            at `(0, 0)`.
         padding:
             Padding to use when performing an FFT convolution.
         convolution_mode:
             The method of convolution. This should be either "fft" or "real".
         """
-        self.bands = bands
+        # Convert the images to a multi-band `Image` and use the resulting
+        # bbox and bands.
+        images = _set_image_like(images, bands, bbox)
+        bands = images.bands
+        bbox = images.bbox
         self.images = images
-        self.variance = variance
-        self.weights = weights
+        self.variance = _set_image_like(variance, bands, bbox)
+        self.weights = _set_image_like(weights, bands, bbox)
         # make sure that the images and psfs have the same dtype
         if psfs.dtype != images.dtype:
             psfs = psfs.astype(images.dtype)
@@ -146,33 +203,35 @@ class Observation:
         else:
             self.diff_kernel = self.grad_kernel = None
 
-        if bbox is None:
-            self.bbox = Box(images.shape)
-        else:
-            self.bbox = bbox
         self._convolution_bounds = None
 
-    def convolve(
-        self, image: np.ndarray, mode: str = None, grad: bool = False
-    ) -> np.ndarray:
+    @property
+    def bands(self) -> tuple:
+        return self.images.bands
+
+    @property
+    def bbox(self) -> Box:
+        return self.images.bbox
+
+    def convolve(self, image: Image, mode: str = None, grad: bool = False) -> Image:
         """Convolve the model into the observed seeing in each band.
 
         Parameters
         ----------
-        image: np.ndarray
-            The 2D image to convolve.
-        mode: str
+        image:
+            The 3D image to convolve.
+        mode:
             The convolution mode to use.
             This should be "real" or "fft" or `None`,
             where `None` will use the default `convolution_mode`
             specified during init.
-        grad: bool
+        grad:
             Whether this is a backward gradient convolution
             (`grad==True`) or a pure convolution with the PSF.
 
         Returns
         -------
-        result: npndarray
+        result: Image
             The convolved image.
         """
         if grad:
@@ -187,17 +246,17 @@ class Observation:
             mode = self.mode
         if mode == "fft":
             result = fft_convolve(
-                Fourier(image),
+                Fourier(image.data),
                 kernel,
                 axes=(1, 2),
             ).image
         elif mode == "real":
-            result = convolve(image, kernel.image, self.convolution_bounds)
+            result = convolve(image.data, kernel.image, self.convolution_bounds)
         else:
             raise ValueError(f"mode must be either 'fft' or 'real', got {mode}")
-        return result
+        return Image(result, bands=image.bands, yx0=image.yx0)
 
-    def log_likelihood(self, model: np.ndarray) -> float:
+    def log_likelihood(self, model: Image) -> float:
         """Calculate the log likelihood of the given model
 
         Parameters
@@ -210,7 +269,8 @@ class Observation:
         result: float
             The log-likelihood of the given model.
         """
-        return 0.5 * -np.sum(self.weights * (self.images - model) ** 2)
+        result = 0.5 * -np.sum((self.weights * (self.images - model) ** 2).data)
+        return result
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -237,35 +297,6 @@ class Observation:
             )
         return self._convolution_bounds
 
-    def bands_to_indices(self, bands: str | Sequence[str]) -> Sequence[int]:
-        """Convert a list of band names to indices
-
-        It may desired to extract parts of a model or image,
-        or display them using an alternate order
-        (for example the bands may be in alphabetical order but should
-        be displayed in wavelength order), so this method extracts the
-        appropriate index for each band in `bands` in order to
-        extract the desired rows from a multiband image.
-
-        Parameters
-        ----------
-        bands:
-            The names of all the bands to extract from the image.
-
-        Returns
-        -------
-        result: Sequence[int]
-            A tuple of integers corresponding to numerical index needed
-            to extract each band in `bands`.
-        """
-        try:
-            bands = tuple(bands)
-        except TypeError:
-            bands = (bands,)
-
-        band_indices = tuple(self.bands.index(band) for band in bands)
-        return band_indices
-
 
 class FitPsfObservation(Observation):
     """An observation that fits the PSF used to convolve the model."""
@@ -274,14 +305,14 @@ class FitPsfObservation(Observation):
         self,
         diff_kernel: np.ndarray | Parameter,
         fft_shape: tuple[int, int],
-        bands: Sequence[object],
-        images: np.ndarray,
-        variance: np.ndarray,
-        weights: np.ndarray,
+        images: np.ndarray | Image,
+        variance: np.ndarray | Image,
+        weights: np.ndarray | Image,
         psfs: np.ndarray,
         model_psf: np.ndarray = None,
         noise_rms: np.ndarray = None,
         bbox: Box = None,
+        bands: Sequence[object] = None,
         padding: int = 3,
         convolution_mode: str = "fft",
     ):
@@ -290,7 +321,6 @@ class FitPsfObservation(Observation):
         See `Observation` for a description of the parameters.
         """
         super().__init__(
-            bands,
             images,
             variance,
             weights,
@@ -298,6 +328,7 @@ class FitPsfObservation(Observation):
             model_psf,
             noise_rms,
             bbox,
+            bands,
             padding,
             convolution_mode,
         )

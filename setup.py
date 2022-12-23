@@ -43,7 +43,7 @@ class GetPybindInclude(object):
     """Helper class to determine the pybind11 include path
     The purpose of this class is to postpone importing pybind11
     until it is actually installed, so that the ``get_include()``
-    method can be invoked. """
+    method can be invoked."""
 
     def __init__(self, user=False):
         self.user = user
@@ -55,6 +55,7 @@ class GetPybindInclude(object):
             return os.path.join(os.environ["PYBIND11_DIR"], "include")
         else:
             import pybind11
+
             return pybind11.get_include(self.user)
 
 
@@ -75,6 +76,7 @@ class GetEigenInclude(object):
             return os.path.join(os.environ["EIGEN_DIR"], "include")
         else:
             import peigen
+
             return peigen.header_path
 
 

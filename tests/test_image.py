@@ -23,7 +23,7 @@ import operator
 import unittest
 
 import numpy as np
-from numpy.testing import assert_array_equal
+from numpy.testing import assert_array_equal, assert_almost_equal
 
 from scarlet_lite import Image, Box
 from scarlet_lite.image import MismatchedBoxError, MismatchedBandsError
@@ -48,16 +48,21 @@ class TestImage(unittest.TestCase):
         self.assertEqual(image.indices, {})
         self.assertEqual(image.slices, {})
         self.assertEqual(image.bbox, Box((3, 4), (0, 0)))
-        assert_array_equal(image.array, data)
-        self.assertIsInstance(image.array, np.ndarray)
-        self.assertNotIsInstance(image.array, Image)
+        assert_array_equal(image.data, data)
+        self.assertIsInstance(image.data, np.ndarray)
+        self.assertNotIsInstance(image.data, Image)
 
         # Test constructor with all parameters
         data = np.arange(24, dtype=float).reshape(2, 3, 4)  # type: ignore
         bands = ("g", "i")
         y0, x0 = 10, 15
         indices = {("g", "r", "i", "z", "y"): ((0, 2), (0, 1))}
-        slices = {((100, 100), (0, 0)): ((slice(10, 13), slice(15, 19)), (slice(None), slice(None)))}
+        slices = {
+            ((100, 100), (0, 0)): (
+                (slice(10, 13), slice(15, 19)),
+                (slice(None), slice(None)),
+            )
+        }
         image = Image(
             data,
             bands=bands,
@@ -79,12 +84,19 @@ class TestImage(unittest.TestCase):
         self.assertEqual(len(image.slices.keys()), 1)
         self.assertEqual(
             image.slices[((100, 100), (0, 0))],
-            ((slice(10, 13), slice(15, 19)), (slice(None), slice(None)))
+            ((slice(10, 13), slice(15, 19)), (slice(None), slice(None))),
         )
         self.assertEqual(image.bbox, Box((3, 4), (10, 15)))
-        assert_array_equal(image.array, data)
-        self.assertIsInstance(image.array, np.ndarray)
-        self.assertNotIsInstance(image.array, Image)
+        assert_array_equal(image.data, data)
+        self.assertIsInstance(image.data, np.ndarray)
+        self.assertNotIsInstance(image.data, Image)
+
+        # test initializing an empty image from a bounding box
+        image = Image.from_box(Box((10, 10), (13, 50)))
+        assert_image_equal(image, Image(np.zeros((10, 10), dtype=float), bands=(), yx0=(13, 50)))
+        bands = ("g", "r", "i")
+        image = Image.from_box(Box((10, 10), (13, 50)), bands=bands)
+        assert_image_equal(image, Image(np.zeros((3, 10, 10), dtype=float), bands=bands, yx0=(13, 50)))
 
     def _binary_operation_test(
         self,
@@ -99,23 +111,24 @@ class TestImage(unittest.TestCase):
         op = getattr(operator, op_name)
 
         # Test operation with constants
-        for constant in (3, 3.14, 3.14+3j):
+        for constant in (3, 3.14, 3.14 + 3j):
             if op_name in ("floordiv", "mod", "rshift", "lshift") and constant != 3:
                 # Cannot use floats or complex numbers for some operations,
                 # so skip them
                 continue
-            print(op_name, constant)
             truth = op(lower_data, constant)
             truth_image = Image(truth, bands=lower.bands)
             result = op(lower, constant)
-            assert_array_equal(result.array, truth)
+            assert_array_equal(result.data, truth)
             assert_image_equal(result, truth_image)
 
-            if op_name not in ("eq", "ne", "ge", "le") and (op_name != "pow" or constant == 3.14):
+            if op_name not in ("eq", "ne", "ge", "le") and (
+                op_name != "pow" or constant == 3.14
+            ):
                 truth = op(constant, lower_data)
                 truth_image = Image(truth, bands=lower.bands)
                 result = getattr(lower, f"__r{op_name}__")(constant)
-                assert_array_equal(result.array, truth)
+                assert_array_equal(result.data, truth)
                 assert_image_equal(result, truth_image)
 
         if op_name in ["rshift", "lshift"]:
@@ -126,19 +139,19 @@ class TestImage(unittest.TestCase):
         truth = op(lower_data, higher_data)
         truth_image = Image(truth, bands=higher_image.bands)
         result = op(lower, higher)
-        assert_array_equal(result.array, truth)
+        assert_array_equal(result.data, truth)
         assert_image_equal(result, truth_image)
 
         if op_name not in ("eq", "ne", "ge", "le"):
             result = getattr(higher, f"__r{op_name}__")(lower)
-            assert_array_equal(result.array, truth)
+            assert_array_equal(result.data, truth)
             assert_image_equal(result, truth_image)
 
             truth = op(higher_data, lower_data)
             truth_image = Image(truth, bands=higher_image.bands)
             iop = getattr(operator, "i" + op_name)
             iop(higher, lower)
-            assert_array_equal(higher.array, truth)
+            assert_array_equal(higher.data, truth)
             assert_image_equal(higher, truth_image)
 
             with self.assertRaises(ValueError):
@@ -185,11 +198,25 @@ class TestImage(unittest.TestCase):
             "lshift",
         )
         for op_name in binary_operations:
+            if op_name == "pow":
+                _data_int = np.abs(data_int)
+                _data_int[_data_int == 0] = 1
+                _image_int = image_int.copy()
+                _image_int.data[:] = _data_int
+                _data_float = np.abs(data_float)
+                _data_float[_data_float == 0] = 1
+                _image_float = image_float.copy()
+                _image_float.data[:] = _data_float
+            else:
+                _data_float = data_float
+                _image_float = image_float
+                _data_int = data_int
+                _image_int = image_int
             self._binary_operation_test(
-                data_int,
-                data_float,
-                image_int,
-                image_float,
+                _data_int,
+                _data_float,
+                _image_int,
+                _image_float,
                 op_name,
             )
 
@@ -264,7 +291,131 @@ class TestImage(unittest.TestCase):
             assert_image_equal(image1, Image(data_result, bands=("g", "i")))
 
         # Test inversion
-        assert_image_equal(~_image1, Image(~data1, bands=("g", "i")))  # type: ignore
+        assert_image_equal(~_image1, Image(~data1, bands=("g", "i")))
+
+    def _mismatched_images_test(
+        self,
+        op_name: str,
+    ):
+        np.random.seed(1)
+        op = getattr(operator, op_name)
+        grizy = ("g", "r", "i", "z", "y")
+        gir = ("g", "i", "r")
+        igy = ("i", "g", "y")
+
+        # Test band insert
+        if op_name == "pow":
+            data1 = np.random.random((5, 3, 4)) + 1
+            data2 = np.random.random((3, 3, 4)) + 1
+        else:
+            data1 = (np.random.random((5, 3, 4)) - 0.5) * 10
+            data2 = (np.random.random((3, 3, 4)) - 0.5) * 10
+        image1 = Image(data1, bands=grizy)
+        image2 = Image(data2, bands=gir)
+        result = op(image1, image2)
+        truth = np.zeros((5, 3, 4), dtype=float)
+        truth += data1
+        truth[(0, 2, 1), :, :] = op(truth[(0, 2, 1), :, :], data2)
+        assert_almost_equal(result.data, truth)
+        assert_image_equal(result, Image(truth, bands=grizy))
+
+        # Test band mixture
+        if op_name == "pow":
+            data1 = np.random.random((3, 3, 4)) + 1
+            data2 = np.random.random((3, 3, 4)) + 1
+        else:
+            data1 = (np.random.random((3, 3, 4)) - 0.5) * 10
+            data2 = (np.random.random((3, 3, 4)) - 0.5) * 10
+        image1 = Image(data1, bands=gir)
+        image2 = Image(data2, bands=igy)
+        result = op(image1, image2)
+        truth = np.zeros((4, 3, 4), dtype=float)
+        truth[(0, 1, 2), :, :] = data1
+        truth[(1, 0, 3), :, :] = op(truth[(1, 0, 3), :, :], data2)
+        assert_almost_equal(result.data, truth)
+        assert_image_equal(result, Image(truth, bands=("g", "i", "r", "y")))
+
+        # Test spatial offsets
+        if op_name == "pow":
+            data1 = np.random.random((3, 3, 4)) + 1
+            data2 = np.random.random((3, 3, 4)) + 1
+        else:
+            data1 = (np.random.random((3, 3, 4)) - 0.5) * 10
+            data2 = (np.random.random((3, 3, 4)) - 0.5) * 10
+        image1 = Image(data1, bands=gir, yx0=(10, 20))
+        image2 = Image(data2, bands=gir, yx0=(11, 17))
+        result = op(image1, image2)
+        truth = np.zeros((3, 4, 7), dtype=float)
+        truth[:, :3, 3:] = data1
+        truth[:, 1:, :4] = op(truth[:, 1:, :4], data2)
+        assert_almost_equal(result.data, truth)
+        assert_image_equal(result, Image(truth, bands=gir, yx0=(10, 17)))
 
     def test_mismatchd_arithmetic(self):
-        pass
+        binary_operations = (
+            "add",
+            "sub",
+            "mul",
+            "truediv",
+            "floordiv",
+            "pow",
+            "mod",
+        )
+
+        for op_name in binary_operations:
+            self._mismatched_images_test(op_name)
+
+    def test_slicing(self):
+        bands = ("g", "r", "i", "z", "y")
+        yx0 = (27, 82)
+        data = (np.random.random((5, 30, 40)) - 0.5) * 10
+        image = Image(data, bands=bands, yx0=yx0)
+
+        # test band slicing
+        sub_img = image["g"]
+        assert_image_equal(sub_img, Image(data[0], yx0=yx0))
+
+        sub_img = image["g":"i"]
+        assert_image_equal(sub_img, Image(data[0:2], bands=("g", "r"), yx0=yx0))
+
+        sub_img = image["r":"y"]
+        assert_image_equal(sub_img, Image(data[1:4], bands=("r", "i", "z"), yx0=yx0))
+
+        sub_img = image["z":]
+        assert_image_equal(sub_img, Image(data[-2:], bands=("z", "y"), yx0=yx0))
+
+        sub_img = image[("z", "i", "y")]
+        assert_image_equal(sub_img, Image(data[(3, 2, 4), :, :], bands=("z", "i", "y"), yx0=yx0))
+
+        assert_image_equal(image[:], image)
+
+        # test spatial slicing
+        sub_img = image[:, :10, :10]
+        assert_image_equal(sub_img, Image(data[:, :10, :10], bands=bands, yx0=yx0))
+
+        sub_img = image[:, 10:20, 5:10]
+        assert_image_equal(sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87)))
+
+        # Test bounding box slicing
+        sub_img = image[:, Box((10, 5), (37, 87))]
+        assert_image_equal(sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87)))
+
+        with self.assertRaises(IndexError):
+            # Cannot index a single row, since it would not return an image
+            _ = image["g", 0]
+
+        with self.assertRaises(IndexError):
+            # Cannot index a single column, since it would not return an image
+            _ = image[:, :, 0]
+
+        with self.assertRaises(IndexError):
+            # Cannot use a tuple to select rows/columns
+            _ = image[("r", "i"), (1, 2)]
+
+        with self.assertRaises(IndexError):
+            # Cannot use a bounding box outside of the image
+            _ = image[:, Box((10, 10), (0, 0))]
+
+        with self.assertRaises(IndexError):
+            # Cannot use a bounding box partially outside of the image
+            _ = image[:, Box((40, 40), (20, 80))]

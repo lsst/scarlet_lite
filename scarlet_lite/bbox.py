@@ -390,6 +390,8 @@ class Box:
         return self.__copy__()
 
     def __eq__(self, other: TBox) -> bool:
+        if not hasattr(other, "shape") and not hasattr(other, "origin"):
+            return False
         return self.shape == other.shape and self.origin == other.origin
 
     def __hash__(self) -> int:

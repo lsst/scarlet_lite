@@ -28,7 +28,6 @@ import numpy.typing as npt
 
 from .bbox import overlapped_slices, Box
 from .component import Component
-from .utils import insert_image
 
 
 class Source:

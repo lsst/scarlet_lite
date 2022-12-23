@@ -27,6 +27,7 @@ import numpy as np
 
 from .bbox import overlapped_slices, Box
 from .component import Component, FactorizedComponent
+from .image import Image
 from .measure import weight_sources
 from .observation import Observation, FitPsfObservation
 from .source import Source
@@ -75,6 +76,10 @@ class Blend:
         self.loss = []
 
     @property
+    def shape(self) -> tuple[int, int, int]:
+        return self.observation.shape
+
+    @property
     def bbox(self) -> Box:
         """The bounding box of the entire blend"""
         return self.observation.bbox
@@ -83,7 +88,7 @@ class Blend:
     def components(self) -> list[Component]:
         return self._components
 
-    def get_model(self, convolve: bool = False, use_flux: bool = False) -> np.ndarray:
+    def get_model(self, convolve: bool = False, use_flux: bool = False) -> Image:
         """Generate a model of the entire blend
 
         Parameters
@@ -94,16 +99,18 @@ class Blend:
             Whether to use the re-distributed flux associated with the source
             instead of the component models.
         """
-        model = np.zeros(self.bbox.shape, dtype=self.observation.images.dtype)
+        model = Image(
+            np.zeros(self.shape, dtype=self.observation.images.dtype),
+            bands=self.observation.bands,
+            yx0=self.observation.bbox.origin[-2:],
+        )
 
         if use_flux:
             for src in self.sources:
-                slices = overlapped_slices(self.bbox, src.flux_box)
-                model[slices[0]] += src.flux
+                src.flux.insert_into(model, save=True)
         else:
             for component in self.components:
-                _model = component.get_model()
-                model[component.slices[0]] += _model[component.slices[1]]
+                component.get_model().insert_into(model, save=True)
             if convolve:
                 return self.observation.convolve(model)
         return model
@@ -114,9 +121,9 @@ class Blend:
         # Update the loss
         self.loss.append(self.observation.log_likelihood(model))
         # Calculate the gradient wrt the model d(logL)/d(model)
-        result = self.observation.weights * (model - self.observation.images)
+        result = self.observation.weights * (model - self.observation.images.data)
         result = self.observation.convolve(result, grad=True)
-        return result
+        return result.data
 
     @property
     def log_likelihood(self) -> float:

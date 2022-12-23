@@ -33,45 +33,6 @@ ScalarLike = bool | int | float | complex
 ScalarTypes = (bool, int, float, complex)
 
 
-def insert_image(
-    image_box: Box,
-    sub_box: Box,
-    sub_image: np.ndarray,
-    fill: float = 0,
-    dtype: npt.DTypeLike = None,
-) -> np.ndarray:
-    """Insert an image given both an image box and sub-image box
-
-    Parameters
-    ----------
-    image_box: Box
-        The bounding box that will contain the full image.
-    sub_box: Box
-        The bounding box of the sub-image that is inserted into the full image.
-    sub_image: np.ndarray
-        The image that will be inserted.
-    dtype: npt.DTypeLike
-        The dtype of the resulting image.
-    fill: float
-        The fill value of the image for pixels outside of `sub_image`.
-
-    Returns
-    -------
-    image: np.ndarray
-        An image of `fill` with the pixels in `sub_box` replaced
-        with `sub_image`.
-    """
-    if dtype is None:
-        dtype = sub_image.dtype
-    if fill != 0:
-        image = np.full(image_box.shape, fill, dtype=dtype)
-    else:
-        image = np.zeros(image_box.shape, dtype=dtype)
-    slices = overlapped_slices(image_box, sub_box)
-    image[slices[0]] = sub_image[slices[1]]
-    return image
-
-
 def project_morph_to_center(
     morph: np.ndarray,
     center: Sequence[int],

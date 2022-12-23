@@ -26,6 +26,7 @@ from typing import Sequence
 from .bbox import Box, get_minimal_boxsize
 from .component import FactorizedComponent
 from .detect import bounds_to_bbox, get_detect_wavelets
+from .image import Image
 from .measure import calculate_snr
 from .observation import Observation
 from .operators import (
@@ -35,7 +36,7 @@ from .operators import (
 )
 
 from .source import Source
-from .utils import project_morph_to_center, insert_image
+from .utils import project_morph_to_center
 
 
 logger = logging.getLogger("scarlet.lite.initialization")
@@ -232,21 +233,18 @@ def init_monotonic_morph(
 
 def multifit_seds(
     observation: Observation,
-    morphs: Sequence[np.ndarray],
-    boxes: Sequence[Box],
-    model: np.ndarray = None,
+    morphs: Sequence[Image],
+    model: Image = None,
 ) -> np.ndarray:
     """Fit the seds of multiple components simultaneously
 
     Parameters
     ----------
-    observation: Observation
+    observation:
         The class containing the observation data.
-    morphs: Sequence[np.ndarray]
+    morphs:
         The morphology of each component.
-    boxes: Sequence[Box]
-        The bounding box for each morph.
-    model: np.ndarray
+    model:
         An optional model for sources that are not factorized,
         and thus will not have their SEDs fit.
         This model is subtracted from the data before fittig the other
@@ -257,33 +255,18 @@ def multifit_seds(
     seds: np.ndarray
         The SED for each component, in the same order as `morphs` and `boxes`.
     """
-    if len(morphs) != len(boxes):
-        msg = (
-            f"morphs and boxes should have the same number of parameters, "
-            f"got {len(morphs)} and {len(boxes)} respectively"
-        )
-        raise ValueError(msg)
     bands = observation.images.shape[0]
     dtype = observation.images.dtype
 
-    if len(morphs) != len(boxes):
-        msg = f"morphs and boxes must be the same length, got {len(morphs)} and {len(boxes)}"
-        raise Exception(msg)
-    spec_box = observation.bbox[0]
-    full_box = boxes[0]
-    for box in boxes[1:]:
-        full_box |= box
-    full_box = spec_box @ full_box
     if model is not None:
-        data = observation.images - model
+        img = observation.images - model
     else:
-        data = observation.images
-    img = insert_image(full_box, observation.bbox, data)
+        img = observation.images.copy()
 
     morph_images = np.zeros((bands, len(morphs), img[0].size), dtype=dtype)
-    for idx, (morph, bbox) in enumerate(zip(morphs, boxes)):
-        _img = insert_image(full_box, spec_box @ bbox, morph[None, :, :])
-        morph_images[:, idx] = observation.convolve(_img).reshape(bands, -1)
+    for idx, morph in enumerate(morphs):
+        _img = Image.from_box(Box(img.shape[1:])).insert(morph)
+        morph_images[:, idx] = observation.convolve(_img).data.reshape(bands, -1)
 
     seds = np.zeros((len(morphs), bands), dtype=dtype)
 
@@ -298,14 +281,14 @@ def init_chi2_parameters(
     detect: np.ndarray,
     center: tuple[int, int],
     observation: Observation,
-    convolved: np.ndarray = None,
+    convolved: Image = None,
     use_mask: bool = False,
     thresh: float = 0.5,
 ) -> tuple[Box, np.ndarray | None, np.ndarray | None]:
     """Initialize parameters using the same general algorithm as scarlet main
 
     This is currently up to date as of commit `6619736`, but might get out of
-    date if the ain initialization changes, but even now there are slight
+    date if the main initialization changes, but even now there are slight
     differences that have very little effect on the overal initialization.
 
     Parameters
@@ -361,10 +344,9 @@ def init_chi2_parameters(
     if convolved is None:
         # Convolve the morphology to get the exact SED to match the image,
         # accurate to machine precision
-        _morph = insert_image(observation.bbox[1:], bbox, morph)
-        convolved = observation.convolve(
-            np.repeat(_morph[None, :, :], images.shape[0], axis=0), mode="real"
-        )
+        _morph = Image.from_box(observation.bbox[1:]).insert(morph)
+        _morph = _morph.repeat(observation.bands)
+        convolved = observation.convolve(_morph, mode="real")
     sed = images[sed_center] / convolved[sed_center]
     sed[sed < 0] = 0
     morph_max = np.max(morph)
@@ -421,20 +403,16 @@ class Chi2InitParameters:
                 observation.images / (observation.noise_rms**2)[:, None, None], axis=0
             )
         self.detect = detect
+        detect = Image(detect)
         # Convolve the detection image.
         # This may seem counter-intuitive, since this is effectively growing the model,
         # but this is exactly what convolution will do to the model in each iteration.
         # So we create the convolved model in order to correctly set the SED.
-        self.convolved = observation.convolve(
-            np.repeat(detect[None, :, :], observation.shape[0], axis=0), mode="real"
-        )
+        self.convolved = observation.convolve(detect.repeat(observation.bands), mode="real")
         # Get the model PSF
-        self.model_psf = observation.model_psf[0]
         # Convolve the PSF in order to set the SED of a point source correctly.
-        self.convolved_psf = observation.convolve(
-            np.repeat(observation.model_psf, observation.images.shape[0], axis=0),
-            mode="real",
-        )
+        self.model_psf = Image(observation.model_psf[0])
+        self.convolved_psf = observation.convolve(self.model_psf.repeat(observation.bands), mode="real")
         # Get the "SED" of the PSF
         self.py = self.model_psf.shape[0] // 2
         self.px = self.model_psf.shape[1] // 2
@@ -492,6 +470,7 @@ def init_chi2_source(
         )
         components = [
             FactorizedComponent(
+                init.observation.bands,
                 sed,
                 morph,
                 init.observation.bbox[0] @ bbox,
@@ -522,6 +501,7 @@ def init_chi2_source(
             # so initialize as a single component
             components = [
                 FactorizedComponent(
+                    init.observation.bands,
                     sed,
                     morph,
                     init.observation.bbox[0] @ bbox,
@@ -534,11 +514,16 @@ def init_chi2_source(
             disk_morph /= np.max(disk_morph)
 
             bulge_sed, disk_sed = multifit_seds(
-                init.observation, [bulge_morph, disk_morph], [bbox, bbox]
+                init.observation,
+                [
+                    Image(bulge_morph, yx0=bbox.origin),
+                    Image(disk_morph, yx0=bbox.origin),
+                ],
             )
 
             components = [
                 FactorizedComponent(
+                    init.observation.bands,
                     bulge_sed,
                     bulge_morph,
                     init.observation.bbox[0] @ bbox,
@@ -546,6 +531,7 @@ def init_chi2_source(
                     center,
                 ),
                 FactorizedComponent(
+                    init.observation.bands,
                     disk_sed,
                     disk_morph,
                     init.observation.bbox[0] @ bbox,
@@ -556,6 +542,7 @@ def init_chi2_source(
     else:
         components = [
             FactorizedComponent(
+                init.observation.bands,
                 sed,
                 morph,
                 init.observation.bbox[0] @ bbox,
@@ -661,16 +648,12 @@ class WaveletInitParameters:
 
         # useful extracted parameters
         images = observation.images
-        model_psf = observation.model_psf[0]
 
         # The convolve image, used to initialize the SED
-        convolved = observation.convolve(
-            np.repeat(detectlets[None, :, :], observation.shape[0], axis=0), mode="real"
-        )
-        convolved_psf = observation.convolve(
-            np.repeat(model_psf[None, :, :], observation.images.shape[0], axis=0),
-            mode="real",
-        )
+        detect = Image(detectlets)
+        convolved = observation.convolve(detect.repeat(observation.bands), mode="real")
+        model_psf = Image(observation.model_psf[0])
+        convolved_psf = observation.convolve(model_psf.repeat(observation.bands), mode="real")
         py = observation.model_psf.shape[1] // 2
         px = observation.model_psf.shape[2] // 2
         psf_sed = convolved_psf[:, py, px]
@@ -728,7 +711,7 @@ def init_wavelet_source(
         bbox = Box(model_psf.shape, origin=(center[0] - init.py, center[1] - init.px))
 
         component = FactorizedComponent(
-            sed, morph, observation.bbox[0] @ bbox, bbox, center
+            observation.bands, sed, morph, observation.bbox[0] @ bbox, bbox, center
         )
         source = Source([component], observation.dtype)
     elif nbr_components < 2:
@@ -743,7 +726,7 @@ def init_wavelet_source(
         morph = morph / np.max(morph)
 
         component = FactorizedComponent(
-            sed, morph, observation.bbox[0] @ bbox, bbox, center
+            observation.bands, sed, morph, observation.bbox[0] @ bbox, bbox, center
         )
         source = Source([component], observation.dtype)
     else:
@@ -763,13 +746,18 @@ def init_wavelet_source(
             return init_wavelet_source(center, 1, init)
         else:
             bulge_sed, disk_sed = multifit_seds(
-                observation, [bulge_morph, disk_morph], [bulge_box, disk_box]
+                observation,
+                [
+                    Image(bulge_morph, yx0=bulge_box.origin),
+                    Image(disk_morph, yx0=disk_box.origin),
+                ],
             )
 
             components = []
             if np.sum(bulge_sed != 0):
                 components.append(
                     FactorizedComponent(
+                        observation.bands,
                         bulge_sed,
                         bulge_morph,
                         observation.bbox[0] @ bulge_box,
@@ -782,6 +770,7 @@ def init_wavelet_source(
             if np.sum(disk_sed) != 0:
                 components.append(
                     FactorizedComponent(
+                        observation.bands,
                         disk_sed,
                         disk_morph,
                         observation.bbox[0] @ disk_box,
@@ -819,10 +808,27 @@ def init_all_sources_wavelets(
 
     Parameters
     ----------
+    observation:
+            The multiband observation of the blend.
+    centers:
+        The center location for each source to be initialized.
     min_snr:
         Minimum signal to noise for each component. So if `min_snr=50`,
         a source must have SNR > 50 to be initialized with one component
         and SNR > 100 for 2 components.
+    bulge_slice, disk_slice:
+        The slice used to select the wavelet scales used for the bulge/disk.
+    bulge_grow, disk_grow:
+        The number of pixels to grow the bounding box of the bulge/disk
+        to leave extra room for growth in the first few iterations.
+    use_psf:
+        Whether or not to use the PSF for single component sources.
+        If `use_psf` is `False` then only sources with low signal at all scales
+        are initialized with the PSF morphology.
+    scales:
+        Number of wavelet scales to use.
+    wavelets: `numpy.ndarray`
+        The array of wavelet coefficients `(scale, y, x)` used for detection.
 
     Returns
     -------

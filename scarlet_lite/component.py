@@ -39,6 +39,7 @@ from scipy.stats import gamma
 
 from .bbox import Box, get_minimal_boxsize, overlapped_slices
 from .frame import CartesianFrame, EllipseFrame
+from .image import Image
 from .operators import MonotonicityConstraint
 from .parameters import (
     parameter,
@@ -66,6 +67,7 @@ class Component(ABC):
 
     def __init__(
         self,
+        bands: tuple,
         bbox: Box,
         model_bbox: Box,
     ):
@@ -73,18 +75,28 @@ class Component(ABC):
 
         Parameters
         ----------
+        bands:
+            The bands used when the component model is created.
         bbox: Box
             The bounding box for this component.
         model_bbox: Box
             The bounding box for the full blend model.
         """
+        self._bands = bands
         self._bbox = bbox
-        self.slices = overlapped_slices(model_bbox, bbox)
+        spectral_box = Box((len(bands),))
+        self.result_box = spectral_box @ bbox
+        self.slices = overlapped_slices(spectral_box @ model_bbox, spectral_box @ bbox)
 
     @property
     def bbox(self):
         """The bounding box that contains the component in the full image"""
         return self._bbox
+
+    @property
+    def bands(self):
+        """The bands in the component model"""
+        return self._bands
 
     @abstractmethod
     def resize(self) -> bool:
@@ -109,16 +121,15 @@ class Component(ABC):
         pass
 
     @abstractmethod
-    def get_model(self, bbox: Box = None):
+    def get_model(self) -> Image:
         """Generate a model for the component
 
         This must be implemented in inherited classes.
 
-        Parameters
-        ----------
-        bbox: Box
-            A box to project the model into. If `bbox` is `None` then the
-            model is generated in the components bounding box.
+        Returns
+        -------
+        model: Image
+            The image of the component model.
         """
         pass
 
@@ -152,6 +163,7 @@ class FactorizedComponent(Component):
 
     def __init__(
         self,
+        bands: tuple,
         sed: Parameter | np.ndarray,
         morph: Parameter | np.ndarray,
         bbox: Box,
@@ -166,6 +178,8 @@ class FactorizedComponent(Component):
 
         Parameters
         ----------
+        bands:
+            The bands of the spectral dimension, in order.
         sed:
             The parameter to store and update the SED.
         morph:
@@ -190,6 +204,7 @@ class FactorizedComponent(Component):
         """
         # Initialize all of the base attributes
         super().__init__(
+            bands=bands,
             bbox=bbox,
             model_bbox=model_bbox,
         )
@@ -227,30 +242,29 @@ class FactorizedComponent(Component):
         """The array of morphology values"""
         return self._morph.view(np.ndarray)
 
-    def get_model(self, bbox: Box = None) -> np.ndarray:
+    @property
+    def shape(self) -> tuple:
+        """Shape of the resulting model image"""
+        return self.sed.shape + self.morph.shape
+
+    def get_model(self) -> Image:
         """Build the model from the SED and morphology"""
         # The sed and morph might be Parameters,
         # so cast them as arrays in the model.
         sed = self.sed.view(np.ndarray)
         morph = self.morph.view(np.ndarray)
         model = sed[:, None, None] * morph[None, :, :]
-
-        if bbox is not None and bbox != self.bbox:
-            slices = overlapped_slices(bbox, self.bbox)
-            _model = np.zeros(bbox.shape, self.morph.dtype)
-            _model[slices[0]] = model[slices[1]]
-            model = _model
-        return model
+        return Image(model, bands=self.bands, yx0=self.bbox.origin[-2:])
 
     def grad_sed(self, input_grad, sed, morph):
         """Gradient of the SED wrt. the component model"""
-        _grad = np.zeros(self.bbox.shape, dtype=self.morph.dtype)
+        _grad = np.zeros(self.result_box.shape, dtype=self.morph.dtype)
         _grad[self.slices[1]] = input_grad[self.slices[0]]
         return np.einsum("...jk,jk", _grad, morph)
 
     def grad_morph(self, input_grad, morph, sed):
         """Gradient of the morph wrt. the component model"""
-        _grad = np.zeros(self.bbox.shape, dtype=self.morph.dtype)
+        _grad = np.zeros(self.result_box.shape, dtype=self.morph.dtype)
         _grad[self.slices[1]] = input_grad[self.slices[0]]
         return np.einsum("i,i...", sed, _grad)
 
@@ -425,6 +439,7 @@ class SedComponent(FactorizedComponent):
 
     def __init__(
         self,
+        bands: tuple,
         sed: np.ndarray | Parameter,
         morph: np.ndarray | Parameter,
         model_bbox: Box,
@@ -451,6 +466,7 @@ class SedComponent(FactorizedComponent):
             with fewer than `min_area` connected pixels are removed.
         """
         super().__init__(
+            bands=bands,
             sed=sed,
             morph=morph,
             bbox=model_bbox,
@@ -842,6 +858,7 @@ class ParametricComponent(Component):
 
     def __init__(
         self,
+        bands: tuple,
         bbox: Box,
         model_bbox: Box,
         sed: Parameter | np.ndarray,
@@ -858,34 +875,36 @@ class ParametricComponent(Component):
 
         Parameters
         ----------
-        bbox: Box
+        bands:
+            The bands used in the model.
+        bbox:
             The bounding box that holds the model.
-        model_bbox: Box
+        model_bbox:
             The bounding box for the full blend model.
-        sed: Parameter | np.ndarray
+        sed:
             The SED of the component.
-        morph_params: Parameter | np.ndarray
+        morph_params:
             The parameters of the morphology.
-        morph_func: Callable
+        morph_func:
             The function to generate the 2D morphology image
             based on `morphParams`.
-        morph_grad: Callable
+        morph_grad:
             The function to calculate the gradient of the
             likelihood wrt the morphological parameters.
-        morph_prox: Callable
+        morph_prox:
             The proximal operator for the morphology parameters.
-        morph_step: Callable
+        morph_step:
             The function that calculates the gradient of the
             morphological model.
-        prox_sed: Callable
+        prox_sed:
             Proximal operator for the SED.
             If `prox_sed` is `None` then the default proximal
             operator `self.prox_sed` is used.
-        floor: float
+        floor:
             The minimum value of the SED, used to prevent
             divergences in the gradients.
         """
-        super().__init__(bbox=bbox, model_bbox=model_bbox)
+        super().__init__(bands=bands, bbox=bbox, model_bbox=model_bbox)
 
         self._sed = parameter(sed)
         self._params = parameter(morph_params)
@@ -982,16 +1001,10 @@ class ParametricComponent(Component):
         """
         return self._morph_step
 
-    def get_model(self, bbox: Box = None, frame: CartesianFrame = None) -> np.ndarray:
+    def get_model(self, frame: CartesianFrame = None) -> Image:
         """Generate the full model for this component"""
         model = self.sed[:, None, None] * self._get_morph(frame)[None, :, :]
-
-        if bbox is not None and bbox != self.bbox:
-            slices = overlapped_slices(bbox, self.bbox)
-            _model = np.zeros(bbox.shape, self.morph.dtype)
-            _model[slices[0]] = model[slices[1]]
-            model = _model
-        return model
+        return Image(model, bands=self.bands, yx0=self.bbox.origin[-2:])
 
     def prox_sed(self, sed: np.ndarray) -> np.ndarray:
         """Apply a prox-like update to the SED
@@ -1073,6 +1086,7 @@ class EllipticalParametricComponent(ParametricComponent):
 
     def __init__(
         self,
+        bands: tuple,
         bbox: Box,
         model_bbox: Box,
         sed: np.ndarray | Parameter,
@@ -1089,6 +1103,8 @@ class EllipticalParametricComponent(ParametricComponent):
 
         Parameters
         ----------
+        bands:
+            The bands used in the model.
         bbox: Box
             The bounding box that holds this component model.
         model_bbox: Box
@@ -1119,6 +1135,7 @@ class EllipticalParametricComponent(ParametricComponent):
             divergences in the gradients.
         """
         super().__init__(
+            bands=bands,
             bbox=bbox,
             model_bbox=model_bbox,
             sed=sed,

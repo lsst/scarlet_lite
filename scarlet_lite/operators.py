@@ -5,6 +5,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .cache import Cache
+from .bbox import Box
 from . import fft
 from . import interpolation
 
@@ -17,106 +18,116 @@ def prox_unity_plus(x: np.ndarray, axis=0):
     return x
 
 
-def sort_by_radius(
-    shape: tuple[int, int], center: tuple[float, float] = None
-) -> np.ndarray:
-    """Sort indices distance from the center
+class Monotonicity:
+    """Class to implement Monotonicity
 
-    Given a shape, calculate the distance of each
-    pixel from the center and return the indices
-    of each pixel, sorted by radial distance from
-    the center, which need not be in the center
-    of the image.
-
-    Parameters
-    ----------
-    shape: tuple[int, int]
-        Shape (y,x) of the source frame.
-
-    center: Sequence[float, float]
-        Location of the center pixel.
-
-    Returns
-    -------
-    didx: np.ndarray
-        Indices of elements in an image with shape `shape`,
-        sorted by distance from the center.
+    This differes from the monotonicity in the main scarlet branch because
+    this stores a single monotonicity operator to set the weights for all
+    of the pixels up to the size of the largest shape expected,
+    and only needs to be created once _per blend_, as oppossed to
+    once _per source_..
+    This class is then called with the source morphology
+    to make monotonic and the location of the "center" of the image,
+    and the full weight matrix is sliced accordingly.
     """
-    # Get the center pixels
-    if center is None:
+    def __init__(self, shape: tuple[int, int], dtype: npt.DTypeLike = float):
+        """Initialize the monotonicity operator
+
+        Parameters
+        ----------
+        shape:
+            The shape of the full operator.
+            This must be larger than the largest possible object size in the blend.
+        dtype:
+            The numpy ``dtype`` of the output image.
+        """
+        # Use the center of the operator as the center
+        # and calculate the distance to each pixel from the center
         cx = (shape[1] - 1) >> 1
         cy = (shape[0] - 1) >> 1
-    else:
-        cy, cx = int(center[0]), int(center[1])
-    # Calculate the distance between each pixel and the peak
-    x = np.arange(shape[1])
-    y = np.arange(shape[0])
-    x, y = np.meshgrid(x, y)
-    x = x - cx
-    y = y - cy
-    distance = np.sqrt(x**2 + y**2)
-    # Get the indices of the pixels sorted by distance from the peak
-    didx = np.argsort(distance.flatten())
-    return didx
+        x = np.arange(shape[1], dtype=dtype) - cx
+        y = np.arange(shape[0], dtype=dtype) - cy
+        x, y = np.meshgrid(x, y)
+        distance = np.sqrt(x ** 2 + y ** 2)
 
+        # Calculate the distance from each pixel to its 8 nearest neighbors
+        neighbor_dist = np.zeros((9,) + distance.shape, dtype=dtype)
+        neighbor_dist[0, 1:, 1:] = distance[1:, 1:] - distance[:-1, :-1]
+        neighbor_dist[1, 1:, :] = distance[1:, :] - distance[:-1, :]
+        neighbor_dist[2, 1:, :-1] = distance[1:, :-1] - distance[:-1, 1:]
+        neighbor_dist[3, :, 1:] = distance[:, 1:] - distance[:, :-1]
+        # For the center pixel, set the distance to 1 just so that it is
+        # non-zero
+        neighbor_dist[4, cy, cx] = 1
+        neighbor_dist[5, :, :-1] = distance[:, :-1] - distance[:, 1:]
+        neighbor_dist[6, :-1, 1:] = distance[:-1, 1:] - distance[1:, :-1]
+        neighbor_dist[7, :-1, :] = distance[:-1, :] - distance[1:, :]
+        neighbor_dist[8, :-1, :-1] = distance[:-1, :-1] - distance[1:, 1:]
 
-def _prox_weighted_monotonic(
-    x: np.ndarray,
-    weights: np.ndarray,
-    didx: Sequence[int],
-    offsets: Sequence[int],
-    min_gradient: float = 0.1,
-):
-    """Force an intensity profile to be monotonic based on weighting neighbors"""
-    from scarlet_lite.operators_pybind11 import prox_weighted_monotonic
+        # Calculate the difference in angle to the center
+        # from each pixel to its 8 nearest neighbors
+        angles = np.arctan2(y, x)
+        angle_diff = np.zeros((9,) + angles.shape, dtype=dtype)
+        angle_diff[0, 1:, 1:] = angles[1:, 1:] - angles[:-1, :-1]
+        angle_diff[1, 1:, :] = angles[1:, :] - angles[:-1, :]
+        angle_diff[2, 1:, :-1] = angles[1:, :-1] - angles[:-1, 1:]
+        angle_diff[3, :, 1:] = angles[:, 1:] - angles[:, :-1]
+        # For the center pixel, on the center will have a non-zero cosine,
+        # which is used as the weight.
+        angle_diff[4] = 1
+        angle_diff[4, cy, cx] = 0
+        angle_diff[5, :, :-1] = angles[:, :-1] - angles[:, 1:]
+        angle_diff[6, :-1, 1:] = angles[:-1, 1:] - angles[1:, :-1]
+        angle_diff[7, :-1, :] = angles[:-1, :] - angles[1:, :]
+        angle_diff[8, :-1, :-1] = angles[:-1, :-1] - angles[1:, 1:]
 
-    prox_weighted_monotonic(x.reshape(-1), weights, offsets, didx, min_gradient)
-    return x
+        # Use cos(theta) to set the weights, then normalize
+        weights = np.cos(angle_diff)
+        weights[neighbor_dist <= 0] = 0
+        # Adjust for the discontinuity at theta = 2pi
+        weights[weights < 0] = -weights[weights < 0]
+        weights = weights / np.sum(weights, axis=0)[None, :, :]
 
+        # Store the parameters needed later
+        self.weights = weights
+        self.distance = distance
+        self.center = (cy, cx)
 
-def prox_weighted_monotonic(
-    shape: tuple[int, int],
-    neighbor_weight: str = "flat",
-    min_gradient: float = 0.1,
-    center: tuple[int, int] = None,
-) -> Callable:
-    """Build the prox_monotonic operator
+    def __call__(self, image: np.ndarray, center: tuple[int, int]) -> np.ndarray:
+        """Make an input image monotonic about a center pixel
 
-    Parameters
-    ----------
-    shape: Sqeuence[int, int]
-        Shape of the monotonic array.
-    neighbor_weight: str
-        Which weighting scheme ('flat', 'angle', 'nearest') to use for
-        averaging all neighbor pixels towards `center`
-        as reference for the monotonicty test.
-    min_gradient: float
-        Forced gradient. A `thresh` of zero will allow a pixel to be the
-        same value as its reference pixels, while a `thresh` of one
-        will force the pixel to zero.
-    center: Sequence[int, int]
-        Location of the central (highest-value) pixel.
+        Parameters
+        ----------
+        image:
+            The image to make monotonic.
+        center:
+            The ``(y, x)`` location _in image coordinates__ to make the
+            center of the monotonic region.
 
-    Returns
-    -------
-    result: Callable
-        The monotonicity function.
-    """
-    height, width = shape
-    didx = sort_by_radius(shape, center)
-    coords = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
-    offsets = np.array([width * y + x for y, x in coords])
-    weights = _get_radial_monotonic_weights(
-        shape, neighbor_weight=neighbor_weight, center=center
-    )
-    result = partial(
-        _prox_weighted_monotonic,
-        weights=weights,
-        didx=didx[1:],
-        offsets=offsets,
-        min_gradient=min_gradient,
-    )
-    return result
+        Returns
+        -------
+        result: np.ndarray
+            The input image is updated in place, but also returned from this
+            method.
+        """
+        from scarlet_lite.operators_pybind11 import new_monotonicity
+
+        # Create the bounding box to slice the weights and distance as needed
+        cy, cx = self.center
+        py, px = center
+        bbox = Box((9,) + image.shape, origin=(0, cy - py, cx - px))
+        weights = self.weights[bbox.slices]
+        indices = np.argsort(self.distance[bbox.slices[1:]].flatten())
+        coords = np.unravel_index(indices, image.shape)
+
+        # Pad the image by 1 so that we don't have to worry about
+        # weights on the edges.
+        result_shape = (image.shape[0] + 2, image.shape[1] + 2)
+        result = np.zeros(result_shape, dtype=image.dtype)
+        result[1:-1, 1:-1] = image
+        new_monotonicity(coords[0], coords[1], [w for w in weights], result)
+        image[:] = result[1:-1, 1:-1]
+        return image
 
 
 def get_center(
@@ -220,6 +231,112 @@ def prox_monotonic_mask(
     # Clear all of the invalid pixels from the input image
     model = model * valid
     return valid, model, tuple(bounds)
+
+
+# TODO: remove all code below this before putting this into peer review
+
+
+def sort_by_radius(
+    shape: tuple[int, int], center: tuple[float, float] = None
+) -> np.ndarray:
+    """Sort indices distance from the center
+
+    Given a shape, calculate the distance of each
+    pixel from the center and return the indices
+    of each pixel, sorted by radial distance from
+    the center, which need not be in the center
+    of the image.
+
+    Parameters
+    ----------
+    shape: tuple[int, int]
+        Shape (y,x) of the source frame.
+
+    center: Sequence[float, float]
+        Location of the center pixel.
+
+    Returns
+    -------
+    didx: np.ndarray
+        Indices of elements in an image with shape `shape`,
+        sorted by distance from the center.
+    """
+    # Get the center pixels
+    if center is None:
+        cx = (shape[1] - 1) >> 1
+        cy = (shape[0] - 1) >> 1
+    else:
+        cy, cx = int(center[0]), int(center[1])
+    # Calculate the distance between each pixel and the peak
+    x = np.arange(shape[1])
+    y = np.arange(shape[0])
+    x, y = np.meshgrid(x, y)
+    x = x - cx
+    y = y - cy
+    distance = np.sqrt(x**2 + y**2)
+    # Get the indices of the pixels sorted by distance from the peak
+    didx = np.argsort(distance.flatten())
+    return didx
+
+
+def _prox_weighted_monotonic(
+    x: np.ndarray,
+    weights: np.ndarray,
+    didx: Sequence[int],
+    offsets: Sequence[int],
+    min_gradient: float = 0.1,
+):
+    """Force an intensity profile to be monotonic based on weighting neighbors"""
+    from scarlet_lite.operators_pybind11 import prox_weighted_monotonic
+
+    prox_weighted_monotonic(x.reshape(-1), weights, offsets, didx, min_gradient)
+    return x
+
+
+def prox_weighted_monotonic(
+    shape: tuple[int, int],
+    neighbor_weight: str = "flat",
+    min_gradient: float = 0.1,
+    center: tuple[int, int] = None,
+) -> Callable:
+    """Build the prox_monotonic operator
+
+    Parameters
+    ----------
+    shape: Sqeuence[int, int]
+        Shape of the monotonic array.
+    neighbor_weight: str
+        Which weighting scheme ('flat', 'angle', 'nearest') to use for
+        averaging all neighbor pixels towards `center`
+        as reference for the monotonicty test.
+    min_gradient: float
+        Forced gradient. A `thresh` of zero will allow a pixel to be the
+        same value as its reference pixels, while a `thresh` of one
+        will force the pixel to zero.
+    center: Sequence[int, int]
+        Location of the central (highest-value) pixel.
+
+    Returns
+    -------
+    result: Callable
+        The monotonicity function.
+    """
+    height, width = shape
+    didx = sort_by_radius(shape, center)
+    coords = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+    offsets = np.array([width * y + x for y, x in coords])
+    weights = _get_radial_monotonic_weights(
+        shape, neighbor_weight=neighbor_weight, center=center
+    )
+    result = partial(
+        _prox_weighted_monotonic,
+        weights=weights,
+        didx=didx[1:],
+        offsets=offsets,
+        min_gradient=min_gradient,
+    )
+    return result
+
 
 
 def uncentered_operator(
@@ -538,24 +655,6 @@ def _diagonalize_array(
     mask[7][np.arange(1, height - 1) * width - 1] = 1
 
     return diagonals, mask
-
-
-def _diagonals_to_sparse(
-    diagonals: np.ndarray, shape: tuple[int, int], dtype: npt.DTypeLike = np.float64
-):
-    """Convert a diagonalized array into a sparse diagonal matrix
-    ``diagonalizeArray`` creates an 8xN array representing the bands that describe the
-    interactions of a pixel with its neighbors. This function takes that 8xN array and converts
-    it into a sparse diagonal matrix.
-    See `diagonalizeArray` for the details of the 8xN array.
-    """
-    import scipy.sparse
-
-    height, width = shape
-    offsets, slices, slices_inverse = _get_offsets(width)
-    diags = [diag[slices_inverse[n]] for n, diag in enumerate(diagonals)]
-    diagonal_arr = scipy.sparse.diags(diags, offsets, dtype=dtype)  # type: ignore
-    return diagonal_arr
 
 
 def _get_radial_monotonic_weights(

@@ -24,18 +24,20 @@ import unittest
 import numpy as np
 from numpy.testing import assert_almost_equal, assert_array_equal
 
-from scarlet_lite import FactorizedComponent, Box, Parameter
+from scarlet_lite import Box, FactorizedComponent, Image, Parameter
 
 
 class TestFactorizedComponent(unittest.TestCase):
     def setUp(self) -> None:
         sed = np.arange(3)
         morph = np.arange(20).reshape(4, 5)
-        bbox = Box((3, 4, 5), (0, 22, 31))
-        model_bbox = Box((3, 100, 100))
+        bands = ("g", "r", "i")
+        bbox = Box((4, 5), (22, 31))
+        model_bbox = Box((100, 100))
         center = (24, 33)
 
         self.component = FactorizedComponent(
+            bands,
             sed,
             morph,
             bbox,
@@ -43,14 +45,15 @@ class TestFactorizedComponent(unittest.TestCase):
             center,
         )
 
-        print(self.component.slices)
-
+        self.bands = bands
         self.sed = sed
         self.morph = morph
+        self.full_shape = (3, 100, 100)
 
     def test_constructor(self):
         # Test with only required parameters
         component = FactorizedComponent(
+            self.bands,
             self.sed,
             self.morph,
             self.component.bbox,
@@ -71,12 +74,13 @@ class TestFactorizedComponent(unittest.TestCase):
 
         # Test that parameters are passed through
         center = self.component.center
-        bg_rms = np.arange(5)/10
+        bg_rms = np.arange(5) / 10
         bg_thresh = 0.9
         floor = 1e-10
         fit_center_radius = 3
 
         component = FactorizedComponent(
+            self.bands,
             self.sed,
             self.morph,
             self.component.bbox,
@@ -96,43 +100,52 @@ class TestFactorizedComponent(unittest.TestCase):
 
     def test_get_model(self):
         component = self.component
-        assert_array_equal(component.get_model(), self.sed[:, None, None] * self.morph[None, :, :])
+        assert_array_equal(
+            component.get_model(), self.sed[:, None, None] * self.morph[None, :, :]
+        )
 
         # Insert component into a larger model
-        full_model = np.zeros(component.model_bbox.shape)
+        full_model = np.zeros(self.full_shape)
         full_model[:, 22:26, 31:36] = self.sed[:, None, None] * self.morph[None, :, :]
-        assert_array_equal(component.get_model(bbox=self.component.model_bbox), full_model)
+
+        test_model = Image(np.zeros(self.full_shape), bands=self.bands)
+        test_model += component.get_model()
+
+        assert_array_equal(
+            test_model.data, full_model
+        )
 
     def test_gradients(self):
         component = self.component
         morph = self.morph
         sed = self.sed
 
-        input_grad = np.zeros(self.component.model_bbox.shape)
-        input_grad[:, 22:26, 31:36] = np.array([morph, 2*morph, 3*morph])
-        true_sed_grad = np.array([
-            np.sum(morph**2),
-            np.sum(2*morph**2),
-            np.sum(3*morph**2),
-        ])
+        input_grad = np.zeros(self.full_shape)
+        input_grad[:, 22:26, 31:36] = np.array([morph, 2 * morph, 3 * morph])
+        true_sed_grad = np.array(
+            [
+                np.sum(morph**2),
+                np.sum(2 * morph**2),
+                np.sum(3 * morph**2),
+            ]
+        )
         assert_almost_equal(component.grad_sed(input_grad, sed, morph), true_sed_grad)
 
         true_morph_grad = np.sum(input_grad * sed[:, None, None], axis=0)[22:26, 31:36]
-        assert_almost_equal(component.grad_morph(input_grad, morph, sed), true_morph_grad)
+        assert_almost_equal(
+            component.grad_morph(input_grad, morph, sed), true_morph_grad
+        )
 
     def test_proximal_operators(self):
         # Test SED positivity, morph threshold, and monotonicity
         sed = np.array([-1, 2, 3], dtype=float)
-        morph = np.array([
-            [10, 2, 1],
-            [1, 5, 3],
-            [.1, 4, -1]
-        ], dtype=float)
-        bbox = Box((3, 3, 3), (0, 10, 10))
-        morph_bbox = Box((3, 100, 100))
+        morph = np.array([[10, 2, 1], [1, 5, 3], [0.1, 4, -1]], dtype=float)
+        bbox = Box((3, 3), (10, 10))
+        morph_bbox = Box((100, 100))
         center = (11, 11)
 
         component = FactorizedComponent(
+            self.bands,
             sed.copy(),
             morph.copy(),
             bbox,
@@ -144,11 +157,7 @@ class TestFactorizedComponent(unittest.TestCase):
         )
 
         proxed_sed = np.array([1e-20, 2, 3])
-        proxed_morph = np.array([
-            [2.9497474683058336, 2, 1],
-            [1, 5, 3],
-            [0, 4, 0]
-        ])
+        proxed_morph = np.array([[2.9497474683058336, 2, 1], [1, 5, 3], [0, 4, 0]])
         proxed_morph = proxed_morph / 5
 
         component.prox_sed(component.sed)
