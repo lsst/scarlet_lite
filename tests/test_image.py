@@ -157,16 +157,10 @@ class TestImage(unittest.TestCase):
             with self.assertRaises(ValueError):
                 iop(lower_image, higher_image)
 
-    def test_simple_arithmetic(self):
-        np.random.seed(1)
-        data_bool = np.random.choice((True, False), size=(2, 3, 4))
-        data_int = np.random.randint(-10, 10, (2, 3, 4))
-        data_int[data_int == 0] = 1
-        data_float = (np.random.random((2, 3, 4)) - 0.5) * 10
-
-        image_bool = Image(data_bool, bands=("g", "i"))
-        image_int = Image(data_int, bands=("g", "i"))
-        image_float = Image(data_float, bands=("g", "i"))
+    def check_simple_arithmetic(self, data_bool, data_int, data_float, bands):
+        image_bool = Image(data_bool, bands=bands)
+        image_int = Image(data_int, bands=bands)
+        image_float = Image(data_float, bands=bands)
 
         self.assertEqual(data_bool.dtype, bool)
         self.assertEqual(data_int.dtype, int)
@@ -221,7 +215,7 @@ class TestImage(unittest.TestCase):
             )
 
         # Test negation
-        assert_image_equal(-image_float, Image(-data_float, bands=("g", "i")))  # type: ignore
+        assert_image_equal(-image_float, Image(-data_float, bands=bands))  # type: ignore
         # Test unary positive operator
         assert_image_equal(+image_float, image_float)
 
@@ -232,7 +226,23 @@ class TestImage(unittest.TestCase):
         with self.assertRaises(TypeError):
             image_int @= image_float
 
-    def test_image_equality(self):
+    def test_simple_3d_arithmetic(self):
+        np.random.seed(1)
+        data_bool = np.random.choice((True, False), size=(2, 3, 4))
+        data_int = np.random.randint(-10, 10, (2, 3, 4))
+        data_int[data_int == 0] = 1
+        data_float = (np.random.random((2, 3, 4)) - 0.5) * 10
+        self.check_simple_arithmetic(data_bool, data_int, data_float, bands=("g", "r"))
+
+    def test_simple_2d_arithmetic(self):
+        np.random.seed(1)
+        data_bool = np.random.choice((True, False), size=(3, 4))
+        data_int = np.random.randint(-10, 10, (3, 4))
+        data_int[data_int == 0] = 1
+        data_float = (np.random.random((3, 4)) - 0.5) * 10
+        self.check_simple_arithmetic(data_bool, data_int, data_float, bands=None)
+
+    def test_3d_image_equality(self):
         # Note: equality of the arrays is tested in other tests.
         # This just checks that comparing non-images to images,
         # or images with different bounding boxes or bands raises
@@ -254,6 +264,28 @@ class TestImage(unittest.TestCase):
                 op(image1, image2.copy_with(bands=("g", "i")))
             with self.assertRaises(MismatchedBandsError):
                 op(image1, image3.copy_with(bands=("g", "i")))
+            with self.assertRaises(MismatchedBoxError):
+                op(image1, image2.copy_with(yx0=(30, 35)))
+            with self.assertRaises(MismatchedBoxError):
+                op(image1, image3.copy_with(yx0=(30, 35)))
+
+    def test_2d_image_equality(self):
+        # Note: equality of the arrays is tested in other tests.
+        # This just checks that comparing non-images to images,
+        # or images with different bounding boxes or bands raises
+        # the appropriate exception.
+        np.random.seed(1)
+        data1 = np.random.randint(-10, 10, (3, 4))
+        data2 = data1.astype(float)
+        data3 = np.random.randint(-10, 10, (3, 4)).astype(float)
+
+        image1 = Image(data1)
+        image2 = Image(data2)
+        image3 = Image(data3)
+
+        for op in (operator.eq, operator.ne):
+            with self.assertRaises(TypeError):
+                op(image1, data1)
             with self.assertRaises(MismatchedBoxError):
                 op(image1, image2.copy_with(yx0=(30, 35)))
             with self.assertRaises(MismatchedBoxError):
@@ -293,7 +325,7 @@ class TestImage(unittest.TestCase):
         # Test inversion
         assert_image_equal(~_image1, Image(~data1, bands=("g", "i")))
 
-    def _mismatched_images_test(
+    def _3d_mismatched_images_test(
         self,
         op_name: str,
     ):
@@ -351,6 +383,29 @@ class TestImage(unittest.TestCase):
         assert_almost_equal(result.data, truth)
         assert_image_equal(result, Image(truth, bands=gir, yx0=(10, 17)))
 
+    def _2d_mismatched_images_test(
+        self,
+        op_name: str,
+    ):
+        np.random.seed(1)
+        op = getattr(operator, op_name)
+
+        # Test spatial offsets
+        if op_name == "pow":
+            data1 = np.random.random((3, 4)) + 1
+            data2 = np.random.random((3, 4)) + 1
+        else:
+            data1 = (np.random.random((3, 4)) - 0.5) * 10
+            data2 = (np.random.random((3, 4)) - 0.5) * 10
+        image1 = Image(data1, yx0=(10, 20))
+        image2 = Image(data2, yx0=(11, 17))
+        result = op(image1, image2)
+        truth = np.zeros((4, 7), dtype=float)
+        truth[:3, 3:] = data1
+        truth[1:, :4] = op(truth[1:, :4], data2)
+        assert_almost_equal(result.data, truth)
+        assert_image_equal(result, Image(truth, yx0=(10, 17)))
+
     def test_mismatchd_arithmetic(self):
         binary_operations = (
             "add",
@@ -363,7 +418,8 @@ class TestImage(unittest.TestCase):
         )
 
         for op_name in binary_operations:
-            self._mismatched_images_test(op_name)
+            self._3d_mismatched_images_test(op_name)
+            self._2d_mismatched_images_test(op_name)
 
     def test_slicing(self):
         bands = ("g", "r", "i", "z", "y")

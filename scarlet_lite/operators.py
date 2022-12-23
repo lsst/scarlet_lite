@@ -10,14 +10,6 @@ from . import fft
 from . import interpolation
 
 
-def prox_unity_plus(x: np.ndarray, axis=0):
-    """Non-negative projection onto sum=1 along an axis"""
-    below = x < 0
-    x[below] = 0
-    x[:] = x / np.sum(x, axis=axis, keepdims=True)
-    return x
-
-
 class Monotonicity:
     """Class to implement Monotonicity
 

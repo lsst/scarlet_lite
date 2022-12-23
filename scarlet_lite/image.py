@@ -879,7 +879,10 @@ def _operate_on_images(
     # Create a box that contains both images
     bbox = image1.bbox | image2.bbox
     # Create an image that will contain both images
-    shape = (len(bands),) + bbox.shape
+    if len(bands) > 0:
+        shape = (len(bands),) + bbox.shape
+    else:
+        shape = bbox.shape
     dtype = get_combined_dtype(image1, image2)
     result = Image(np.zeros(shape, dtype=dtype), bands=bands, yx0=bbox.origin)
     # Add the first image in place
@@ -915,12 +918,15 @@ def insert_image(
     image: Image
         The image, with the other image inserted in place.
     """
-    band_indices = sub_image.matched_spectral_indices(main_image)
-    slices = sub_image.matched_slices(main_image.bbox, save)
-
-    image_slices = (band_indices[0],) + slices[1]
-    self_slices = (band_indices[1],) + slices[0]
-
+    if len(main_image.bands) == 0 and len(sub_image.bands) == 0:
+        slices = sub_image.matched_slices(main_image.bbox, save)
+        image_slices = slices[1]
+        self_slices = slices[0]
+    else:
+        band_indices = sub_image.matched_spectral_indices(main_image)
+        slices = sub_image.matched_slices(main_image.bbox, save)
+        image_slices = (band_indices[0],) + slices[1]
+        self_slices = (band_indices[1],) + slices[0]
     main_image._data[image_slices] = op(
         main_image.data[image_slices], sub_image.data[self_slices]
     )
