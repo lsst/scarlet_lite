@@ -93,7 +93,7 @@ void get_valid_monotonic_pixels(
 ){
     // Check the pixel below this one
     if(i>0 && unchecked(i-1,j)){
-        if(image(i-1,j) < image(i,j)+variance && image(i-1,j) > thresh){
+        if(image(i-1,j) <= image(i,j)+variance && image(i-1,j) > thresh){
             unchecked(i-1,j) = false;
             orphans(i-1,j) = false;
             if(i-1 < bounds(0)){
@@ -106,7 +106,7 @@ void get_valid_monotonic_pixels(
     }
     // Check the pixel above this one
     if(i < image.rows()-1 && unchecked(i+1,j)){
-        if(image(i+1,j) < image(i,j)+variance && image(i+1,j) > thresh){
+        if(image(i+1,j) <= image(i,j)+variance && image(i+1,j) > thresh){
             unchecked(i+1,j) = false;
             orphans(i+1,j) = false;
             if(i+1 > bounds(1)){
@@ -119,7 +119,7 @@ void get_valid_monotonic_pixels(
     }
     // Check the pixel to the left of this one
     if(j>0 && unchecked(i,j-1)){
-        if(image(i,j-1) < image(i,j)+variance && image(i,j-1) > thresh){
+        if(image(i,j-1) <= image(i,j)+variance && image(i,j-1) > thresh){
             unchecked(i,j-1) = false;
             orphans(i,j-1) = false;
             if(j-1 < bounds(2)){
@@ -132,7 +132,7 @@ void get_valid_monotonic_pixels(
     }
     // Check the pixel to the right of this one
     if(j < image.cols()-1 && unchecked(i,j+1)){
-        if(image(i,j+1) < image(i,j)+variance && image(i,j+1) > thresh){
+        if(image(i,j+1) <= image(i,j)+variance && image(i,j+1) > thresh){
             unchecked(i,j+1) = false;
             orphans(i,j+1) = false;
             if(j+1 > bounds(3)){

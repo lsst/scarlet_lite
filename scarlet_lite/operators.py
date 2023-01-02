@@ -82,6 +82,7 @@ class Monotonicity:
         neighbor_dist[1, 1:, :] = distance[1:, :] - distance[:-1, :]
         neighbor_dist[2, 1:, :-1] = distance[1:, :-1] - distance[:-1, 1:]
         neighbor_dist[3, :, 1:] = distance[:, 1:] - distance[:, :-1]
+
         # For the center pixel, set the distance to 1 just so that it is
         # non-zero
         neighbor_dist[4, cy, cx] = 1
