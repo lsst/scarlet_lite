@@ -1,13 +1,9 @@
-from functools import partial
-from typing import Callable, Sequence
+from typing import Sequence
 
 import numpy as np
 import numpy.typing as npt
 
-from .cache import Cache
 from .bbox import Box
-from . import fft
-from . import interpolation
 
 
 def prox_connected(morph: np.ndarray, centers: Sequence[Sequence[int]]) -> np.ndarray:
@@ -63,7 +59,8 @@ class Monotonicity:
         ----------
         shape:
             The shape of the full operator.
-            This must be larger than the largest possible object size in the blend.
+            This must be larger than the largest possible object size
+            in the blend.
         dtype:
             The numpy ``dtype`` of the output image.
         """
@@ -211,7 +208,8 @@ def prox_monotonic_mask(
         Radius from the center pixel to search for a better center
         (ie. a pixel in `X` with higher flux than the pixel given by
          `center`).
-        If `center_radius == 0` then the `center` pixel is assumed to be correct.
+        If `center_radius == 0` then the `center` pixel is assumed
+        to be correct.
     variance: float
         The average variance in the image.
         This is used to allow pixels to be non-monotonic up to `variance`,
