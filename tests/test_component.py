@@ -25,6 +25,7 @@ import numpy as np
 from numpy.testing import assert_almost_equal, assert_array_equal
 
 from scarlet_lite import Box, FactorizedComponent, Image, Parameter
+from scarlet_lite.operators import Monotonicity
 
 
 class TestFactorizedComponent(unittest.TestCase):
@@ -70,14 +71,12 @@ class TestFactorizedComponent(unittest.TestCase):
         assert component.bg_rms is None
         assert component.bg_thresh == 0.25
         assert component.floor == 1e-20
-        assert component.monotonicity.fit_center_radius == 1
 
         # Test that parameters are passed through
         center = self.component.center
         bg_rms = np.arange(5) / 10
         bg_thresh = 0.9
         floor = 1e-10
-        fit_center_radius = 3
 
         component = FactorizedComponent(
             self.bands,
@@ -89,14 +88,12 @@ class TestFactorizedComponent(unittest.TestCase):
             bg_rms,
             bg_thresh,
             floor,
-            fit_center_radius,
         )
 
         assert component.center == center
         assert_array_equal(component.bg_rms, bg_rms)  # type: ignore
         assert component.bg_thresh == bg_thresh
         assert component.floor == floor
-        assert component.monotonicity.fit_center_radius == fit_center_radius
 
     def test_get_model(self):
         component = self.component
@@ -143,6 +140,7 @@ class TestFactorizedComponent(unittest.TestCase):
         bbox = Box((3, 3), (10, 10))
         morph_bbox = Box((100, 100))
         center = (11, 11)
+        monotonicity = Monotonicity((101, 101), fit_radius=0)
 
         component = FactorizedComponent(
             self.bands,
@@ -153,11 +151,11 @@ class TestFactorizedComponent(unittest.TestCase):
             center,
             bg_rms=np.array([1, 1, 1]),
             bg_thresh=0.5,
-            fit_center_radius=0,
+            monotonicity=monotonicity,
         )
 
         proxed_sed = np.array([1e-20, 2, 3])
-        proxed_morph = np.array([[2.9497474683058336, 2, 1], [1, 5, 3], [0, 4, 0]])
+        proxed_morph = np.array([[2.6666666666666667, 2, 1], [1, 5, 3], [0, 4, 0]])
         proxed_morph = proxed_morph / 5
 
         component.prox_sed(component.sed)
