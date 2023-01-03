@@ -71,66 +71,6 @@ def trim_morphology(
     return morph, bbox
 
 
-def get_min_psf(psfs: np.ndarray, thresh: float = 0.01) -> np.ndarray:
-    """Extract the significant portion of the PSF
-
-    This function compares the PSF in each band and
-    finds the minimum box needed to contain all pixels
-    in the PSF model that differ by more than `thresh`
-    in any two bands. The result is that all pixels
-    outside of
-
-    Parameters
-    ----------
-    psfs: np.ndarray
-        The full 3D (bands, height, width) PSF model.
-    thresh: float
-        The minimal difference between two PSFs to be
-        considered significant.
-
-    Returns
-    -------
-    psfs: np.ndarray
-        The extracted PSFs.
-    """
-    # The radius of the PSF in the X and Y directions
-    py = psfs.shape[1] // 2
-    px = psfs.shape[2] // 2
-
-    # Get the radial coordinates of each pixel
-    x = np.arange(psfs.shape[-1])
-    y = np.arange(psfs.shape[-2])
-    x, y = np.meshgrid(x, y)
-    r = np.sqrt((x - px) ** 2 + (y - py) ** 2)
-
-    max_radius = 0
-    for p1 in range(len(psfs) - 1):
-        for p2 in range(p1 + 1, len(psfs)):
-            # Calculate the difference between the PSFs
-            psf1 = psfs[p1]
-            psf2 = psfs[p2]
-            diff = (psf1 - psf2) / np.max([psf1, psf2])
-            # keep all pixels greater than the threshold
-            significant = np.abs(diff) > thresh
-            # extract the radius for all of the significant pixels
-            radius = int(np.max(r * significant))
-            # Update the maximum radius (if necessary)
-            if radius > max_radius:
-                max_radius = radius
-    # Create the slices to extract the PSF
-    dy = py - max_radius
-    dx = px - max_radius
-    if dy > 0:
-        sy = slice(dy, -dy)
-    else:
-        sy = slice(None)
-    if dx > 0:
-        sx = slice(dx, -dx)
-    else:
-        sx = slice(None)
-    return psfs[:, sy, sx].copy()
-
-
 def init_monotonic_morph(
     detect: np.ndarray,
     center: tuple[int, int],
