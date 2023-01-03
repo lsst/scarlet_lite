@@ -121,7 +121,8 @@ def assert_image_almost_equal(image: Image, truth: Image):
         )
         raise AssertionError(msg)
 
-    # The images overlap in multi-band image space, check the values of the images
+    # The images overlap in multi-band image space,
+    # check the values of the images
     assert_almost_equal(image.data, truth.data)
 
 
