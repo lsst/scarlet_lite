@@ -172,6 +172,31 @@ class TestOperators(unittest.TestCase):
         with self.assertRaises(ValueError):
             monotonicity(morph, (cy, cx))
 
+    def test_off_center_monotonicity(self):
+        monotonicity = Monotonicity((101, 101))
+        morph = self.detect.copy()
+        cy, cx = self.centers[1].astype(int)
+        truth = monotonicity(morph.copy(), (cy, cx))
+        morph = monotonicity(morph, (cy+1, cx))
+        assert_array_equal(morph, truth)
+
+        # Shift by 2 pixels and confirm that the morphologies are not equal
+        morph = self.detect.copy()
+        morph = monotonicity(morph, (cy + 2, cx))
+        with self.assertRaises(AssertionError):
+            assert_array_equal(morph, truth)
+
+        # Now increase the search radius and try again
+        monotonicity = Monotonicity((101, 101), fit_radius=2)
+        morph = self.detect.copy()
+        morph = monotonicity(morph, (cy + 2, cx))
+        assert_array_equal(morph, truth)
+
+        monotonicity = Monotonicity((101, 101), fit_radius=2)
+        morph = self.detect.copy()
+        morph = monotonicity(morph, (cy + 1, cx + 1))
+        assert_array_equal(morph, truth)
+
     def test_symmetry(self):
         # Test simple symmetry
         morph = np.arange(27).reshape(3, 9)

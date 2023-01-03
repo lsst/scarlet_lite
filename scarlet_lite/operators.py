@@ -52,7 +52,14 @@ class Monotonicity:
     to make monotonic and the location of the "center" of the image,
     and the full weight matrix is sliced accordingly.
     """
-    def __init__(self, shape: tuple[int, int], dtype: npt.DTypeLike = float, auto_update: bool = True):
+
+    def __init__(
+        self,
+        shape: tuple[int, int],
+        dtype: npt.DTypeLike = float,
+        auto_update: bool = True,
+        fit_radius: int = 1,
+    ):
         """Initialize the monotonicity operator
 
         Parameters
@@ -66,6 +73,8 @@ class Monotonicity:
         auto_update:
             If ``True`` the operator will update its shape if a image is
             too big to fit in the current operator.
+        fit_radius:
+            The radius around the center to search for a higher flux value.
         """
         # Initialize defined variables
         self.weights = None
@@ -73,6 +82,7 @@ class Monotonicity:
         self.sizes = None
         self.dtype = dtype
         self.auto_update = auto_update
+        self.fit_radius = fit_radius
         self.update(shape)
 
     @property
@@ -120,7 +130,7 @@ class Monotonicity:
         x = np.arange(shape[1], dtype=self.dtype) - cx
         y = np.arange(shape[0], dtype=self.dtype) - cy
         x, y = np.meshgrid(x, y)
-        distance = np.sqrt(x ** 2 + y ** 2)
+        distance = np.sqrt(x**2 + y**2)
 
         # Calculate the distance from each pixel to its 8 nearest neighbors
         neighbor_dist = np.zeros((9,) + distance.shape, dtype=self.dtype)
@@ -166,7 +176,9 @@ class Monotonicity:
         self.distance = distance
         self.sizes = (cy, cx, shape[0] - cy, shape[1] - cx)
 
-    def check_size(self, shape: tuple[int, int], center: tuple[int, int], update: bool = True):
+    def check_size(
+        self, shape: tuple[int, int], center: tuple[int, int], update: bool = True
+    ):
         """Check to see if the operator can be applied
 
         Parameters
@@ -187,7 +199,9 @@ class Monotonicity:
                 size = 2 * np.max(sizes) + 1
                 self.update((size, size))
             else:
-                raise ValueError(f"Cannot apply monotonicity to image with shape {shape} at {center}")
+                raise ValueError(
+                    f"Cannot apply monotonicity to image with shape {shape} at {center}"
+                )
 
     def __call__(self, image: np.ndarray, center: tuple[int, int]) -> np.ndarray:
         """Make an input image monotonic about a center pixel
@@ -207,6 +221,9 @@ class Monotonicity:
             method.
         """
         from scarlet_lite.operators_pybind11 import new_monotonicity
+
+        # Check for a better center
+        center = get_center(image, center, self.fit_radius)
 
         # Check that the operator can fit the image
         self.check_size(image.shape, center, self.auto_update)
@@ -338,7 +355,7 @@ def uncentered_operator(
     func: Callable,
     center: tuple[float, float] = None,
     fill: float = None,
-    **kwargs
+    **kwargs,
 ) -> np.ndarray:
     """Only apply the operator on a centered patch
 
