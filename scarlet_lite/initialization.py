@@ -32,6 +32,7 @@ from .observation import Observation
 from .operators import (
     prox_monotonic_mask,
     prox_uncentered_symmetry,
+    Monotonicity,
 )
 
 from .source import Source
@@ -75,32 +76,33 @@ def init_monotonic_morph(
     detect: np.ndarray,
     center: tuple[int, int],
     full_box: Box,
-    grow: int = 0,
+    padding: int = 5,
     normalize: bool = True,
-    use_mask: bool = True,
+    monotonicity: Monotonicity = None,
     thresh: float = 0,
 ) -> tuple[Box, np.ndarray | None]:
     """Initialize a morphology for a monotonic source
 
     Parameters
     ----------
-    detect: np.ndarray
+    detect:
         The 2D detection image contained in `full_box`.
-    center: Sequence[int, int]
+    center:
         The center of the monotonic source.
-    full_box: Box
+    full_box:
         The bounding box of `detect`.
-    grow: int
+    padding:
         The number of pixels to grow the morphology in each direction.
         This can be useful if initializing a source with a kernel that
         is known to be narrower than the expected value of the source.
-    normalize: bool
+    normalize:
         Whether or not to normalize the morphology.
-    use_mask: bool
-        When `True` the component is initialized with only the
+    monotonicity:
+        When `monotonicity` is `None`,
+        the component is initialized with only the
         monotonic pixels, otherwise the monotonicity operator is used to
         project the morphology to a monotonic solution.
-    thresh: float
+    thresh:
         The threshold (fraction above the background) to use for trimming the
         morphology.
 
@@ -111,32 +113,34 @@ def init_monotonic_morph(
     morph: np.ndarray
         The initialized morphology.
     """
-    if use_mask:
+    if monotonicity is None:
         _, morph, bounds = prox_monotonic_mask(detect, center, max_iter=0)
         bbox = bounds_to_bbox(bounds)
         if bbox.shape == (1, 1) and morph[bbox.slices][0, 0] == 0:
             return bbox, None
 
-        if grow is not None and grow > 0:
-            bbox = bbox.grow(grow)
-        morph, bbox = project_morph_to_center(morph, center, bbox, full_box)
-    else:
-        prox_monotonic = prox_weighted_monotonic(
-            detect.shape,
-            neighbor_weight="angle",
-            center=center,
-            min_gradient=0,
-        )
+        if padding is not None and padding > 0:
+            # Pad the morphology to allow it to grow
+            bbox = bbox.grow(padding)
 
-        morph = prox_monotonic(detect).reshape(detect.shape)
+        if thresh > 0:
+            morph, bbox = trim_morphology(morph, bg_thresh=thresh, padding=padding)
+
+    else:
+        morph = monotonicity(detect, center)
 
         # truncate morph at thresh * bg_rms
-        morph, bbox = trim_morphology(center, morph, bg_thresh=thresh)
-        if np.max(morph) == 0:
-            return Box((0, 0, 0)), None
+        morph, bbox = trim_morphology(morph, bg_thresh=thresh, padding=padding)
+
+    if np.max(morph) == 0:
+        return Box((0, 0)), None
 
     if normalize:
         morph /= np.max(morph)
+
+    # Ensure that the bounding box is inside the full box,
+    # even after padding.
+    bbox = bbox & full_box
     return bbox, morph
 
 
@@ -238,7 +242,7 @@ def init_chi2_parameters(
         _detect,
         center,
         observation.bbox[1:],
-        grow=0,
+        padding=0,
         normalize=False,
         use_mask=use_mask,
         thresh=thresh,

@@ -122,7 +122,7 @@ class Monotonicity:
             msg = f"Monotonicity is a 2D operator but received shape with {len(shape)} dimensions"
             raise ValueError(msg)
         if shape[0] % 2 == 0 or shape[1] % 2 == 0:
-            raise ValueError(f"The shape must be even, got {shape}")
+            raise ValueError(f"The shape must be odd, got {shape}")
         # Use the center of the operator as the center
         # and calculate the distance to each pixel from the center
         cx = (shape[1] - 1) >> 1
