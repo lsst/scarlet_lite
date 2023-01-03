@@ -19,18 +19,30 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import operator
 import unittest
 
 import numpy as np
-from numpy.testing import assert_array_equal, assert_almost_equal
+from numpy.testing import assert_array_equal
 
-from scarlet_lite import Image, Box
-from scarlet_lite.image import MismatchedBoxError, MismatchedBandsError
-
-from utils import assert_image_equal
+from scarlet_lite.initialization import trim_morphology
 
 
 class TestInitialization(unittest.TestCase):
     def test_trim_morphology(self):
-        pass
+        # Test default parameters
+        morph = np.zeros((50, 50))
+        morph[10:15, 12:27] = 1
+        trimmed, trimmed_box = trim_morphology(morph)
+        assert_array_equal(trimmed, morph)
+        self.assertTupleEqual(trimmed_box.origin, (5, 7))
+        self.assertTupleEqual(trimmed_box.shape, (15, 25))
+
+        # Test with parameters specified
+        morph = np.full((50, 50), .1)
+        morph[10:15, 12:27] = 1
+        truth = np.zeros(morph.shape)
+        truth[10:15, 12:27] = 1
+        trimmed, trimmed_box = trim_morphology(morph, 0.5, 1)
+        assert_array_equal(trimmed, truth)
+        self.assertTupleEqual(trimmed_box.origin, (9, 11))
+        self.assertTupleEqual(trimmed_box.shape, (7, 17))

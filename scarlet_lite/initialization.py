@@ -23,7 +23,7 @@ import logging
 import numpy as np
 from typing import Sequence
 
-from .bbox import Box, get_minimal_boxsize
+from .bbox import Box
 from .component import FactorizedComponent
 from .detect import bounds_to_bbox, get_detect_wavelets
 from .image import Image
@@ -42,25 +42,20 @@ logger = logging.getLogger("scarlet.lite.initialization")
 
 
 def trim_morphology(
-    center_index: tuple[int, int],
     morph: np.ndarray,
     bg_thresh: float = 0,
-    boxsize: int = None,
+    padding: int = 5,
 ) -> tuple[np.ndarray, Box]:
     """Trim the morphology up to pixels above a threshold
 
     Parameters
     ----------
-    center_index: Sequence[int, int]
-        The location of the center of the morphology.
-    morph: np.ndarray
+    morph:
         The morphology to be trimmed.
-    bg_thresh: float
+    bg_thresh:
         The morphology is trimed to pixels above the threshold.
-    boxsize: int
-        The size of the box that will contain the morphology.
-        If `boxsize` is `None` then the smallest box that will fit the
-        trimmed morphology is used.
+    padding:
+        The amount to pad each side to allow the source to grow.
 
     Returns
     -------
@@ -72,32 +67,7 @@ def trim_morphology(
     # trim morph to pixels above threshold
     mask = morph > bg_thresh
     morph[~mask] = 0
-
-    bbox = Box.from_data(morph, min_value=0)
-
-    # find fitting bbox
-    if bbox.contains(center_index):
-        size = 2 * max(
-            (
-                center_index[0] - bbox.start[-2],
-                bbox.stop[0] - center_index[-2],
-                center_index[1] - bbox.start[-1],
-                bbox.stop[1] - center_index[-1],
-            )
-        )
-    else:
-        size = 0
-
-    # define new box and cut morphology accordingly
-    if boxsize is None:
-        boxsize = get_minimal_boxsize(size)
-
-    bottom = center_index[0] - boxsize // 2
-    top = center_index[0] + boxsize // 2 + 1
-    left = center_index[1] - boxsize // 2
-    right = center_index[1] + boxsize // 2 + 1
-    bbox = Box.from_bounds((bottom, top), (left, right))
-    morph = bbox.extract_from(morph)
+    bbox = Box.from_data(morph, min_value=0).grow(padding)
     return morph, bbox
 
 
@@ -407,11 +377,15 @@ class Chi2InitParameters:
         # This may seem counter-intuitive, since this is effectively growing the model,
         # but this is exactly what convolution will do to the model in each iteration.
         # So we create the convolved model in order to correctly set the SED.
-        self.convolved = observation.convolve(detect.repeat(observation.bands), mode="real")
+        self.convolved = observation.convolve(
+            detect.repeat(observation.bands), mode="real"
+        )
         # Get the model PSF
         # Convolve the PSF in order to set the SED of a point source correctly.
         self.model_psf = Image(observation.model_psf[0])
-        self.convolved_psf = observation.convolve(self.model_psf.repeat(observation.bands), mode="real")
+        self.convolved_psf = observation.convolve(
+            self.model_psf.repeat(observation.bands), mode="real"
+        )
         # Get the "SED" of the PSF
         self.py = self.model_psf.shape[0] // 2
         self.px = self.model_psf.shape[1] // 2
@@ -652,7 +626,9 @@ class WaveletInitParameters:
         detect = Image(detectlets)
         convolved = observation.convolve(detect.repeat(observation.bands), mode="real")
         model_psf = Image(observation.model_psf[0])
-        convolved_psf = observation.convolve(model_psf.repeat(observation.bands), mode="real")
+        convolved_psf = observation.convolve(
+            model_psf.repeat(observation.bands), mode="real"
+        )
         py = observation.model_psf.shape[1] // 2
         px = observation.model_psf.shape[2] // 2
         psf_sed = convolved_psf[:, py, px]
