@@ -230,6 +230,26 @@ class FactorizedComponent(Component):
         return self._center
 
     @property
+    def component_center(self) -> tuple[int, int] | None:
+        """The center of the component in its bounding box
+
+        This is likely to be different than `Component.center`,
+        since `Component.center` is the center of the component in the
+        full model, whereas `component_center` is the center of the component
+        inside its bounding box.
+
+        Returns
+        -------
+        center:
+            The center of the component in its bounding box
+        """
+        center = (
+            self._center[0] - self.bbox.origin[-2],
+            self._center[1] - self.bbox.origin[-1],
+        )
+        return center
+
+    @property
     def sed(self) -> np.ndarray:
         """The array of SED values"""
         return self._sed.view(np.ndarray)
@@ -275,8 +295,7 @@ class FactorizedComponent(Component):
         """Apply a prox-like update to the morphology"""
         # monotonicity
         if self.monotonicity is not None:
-
-            morph = self.monotonicity(morph)
+            morph = self.monotonicity(morph, self.component_center)
 
         if self.bg_thresh is not None and self.bg_rms is not None:
             bg_thresh = self.bg_rms * self.bg_thresh
@@ -298,7 +317,7 @@ class FactorizedComponent(Component):
             )
         morph[center] = np.max([morph[center], self.floor])
         # Normalize the morphology
-        morph[:] = morph / morph.max()
+        morph[:] = morph / np.max(morph)
         return morph
 
     def resize(self) -> bool:
