@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Callable, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -43,7 +43,7 @@ def prox_connected(morph: np.ndarray, centers: Sequence[Sequence[int]]) -> np.nd
 class Monotonicity:
     """Class to implement Monotonicity
 
-    This differes from the monotonicity in the main scarlet branch because
+    This differes from the old monotonicity in the main scarlet branch because
     this stores a single monotonicity operator to set the weights for all
     of the pixels up to the size of the largest shape expected,
     and only needs to be created once _per blend_, as oppossed to
@@ -52,7 +52,7 @@ class Monotonicity:
     to make monotonic and the location of the "center" of the image,
     and the full weight matrix is sliced accordingly.
     """
-    def __init__(self, shape: tuple[int, int], dtype: npt.DTypeLike = float):
+    def __init__(self, shape: tuple[int, int], dtype: npt.DTypeLike = float, auto_update: bool = True):
         """Initialize the monotonicity operator
 
         Parameters
@@ -63,18 +63,67 @@ class Monotonicity:
             in the blend.
         dtype:
             The numpy ``dtype`` of the output image.
+        auto_update:
+            If ``True`` the operator will update its shape if a image is
+            too big to fit in the current operator.
         """
+        # Initialize defined variables
+        self.weights = None
+        self.distance = None
+        self.sizes = None
+        self.dtype = dtype
+        self.auto_update = auto_update
+        self.update(shape)
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """The 2D shape of the largest component that can be made monotonic
+
+        Returns
+        -------
+        result:
+            The shape of the oeprator.
+        """
+        return self.weights.shape[1:]
+
+    @property
+    def center(self) -> tuple[int, int]:
+        """The center of the full operator
+
+        Returns
+        -------
+        result:
+            The center of the full operator.
+        """
+        shape = self.shape
+        cx = (shape[1] - 1) >> 1
+        cy = (shape[0] - 1) >> 1
+        return cy, cx
+
+    def update(self, shape: tuple[int, int]):
+        """Update the operator with a new shape
+
+        Parameters
+        ----------
+        shape:
+            The new shape
+        """
+        if len(shape) != 2:
+            msg = f"Monotonicity is a 2D operator but received shape with {len(shape)} dimensions"
+            raise ValueError(msg)
+        if shape[0] % 2 == 0 or shape[1] % 2 == 0:
+            raise ValueError(f"The shape must be even, got {shape}")
         # Use the center of the operator as the center
         # and calculate the distance to each pixel from the center
         cx = (shape[1] - 1) >> 1
         cy = (shape[0] - 1) >> 1
-        x = np.arange(shape[1], dtype=dtype) - cx
-        y = np.arange(shape[0], dtype=dtype) - cy
+        x = np.arange(shape[1], dtype=self.dtype) - cx
+        y = np.arange(shape[0], dtype=self.dtype) - cy
         x, y = np.meshgrid(x, y)
         distance = np.sqrt(x ** 2 + y ** 2)
 
         # Calculate the distance from each pixel to its 8 nearest neighbors
-        neighbor_dist = np.zeros((9,) + distance.shape, dtype=dtype)
+        neighbor_dist = np.zeros((9,) + distance.shape, dtype=self.dtype)
         neighbor_dist[0, 1:, 1:] = distance[1:, 1:] - distance[:-1, :-1]
         neighbor_dist[1, 1:, :] = distance[1:, :] - distance[:-1, :]
         neighbor_dist[2, 1:, :-1] = distance[1:, :-1] - distance[:-1, 1:]
@@ -91,7 +140,7 @@ class Monotonicity:
         # Calculate the difference in angle to the center
         # from each pixel to its 8 nearest neighbors
         angles = np.arctan2(y, x)
-        angle_diff = np.zeros((9,) + angles.shape, dtype=dtype)
+        angle_diff = np.zeros((9,) + angles.shape, dtype=self.dtype)
         angle_diff[0, 1:, 1:] = angles[1:, 1:] - angles[:-1, :-1]
         angle_diff[1, 1:, :] = angles[1:, :] - angles[:-1, :]
         angle_diff[2, 1:, :-1] = angles[1:, :-1] - angles[:-1, 1:]
@@ -115,7 +164,30 @@ class Monotonicity:
         # Store the parameters needed later
         self.weights = weights
         self.distance = distance
-        self.center = (cy, cx)
+        self.sizes = (cy, cx, shape[0] - cy, shape[1] - cx)
+
+    def check_size(self, shape: tuple[int, int], center: tuple[int, int], update: bool = True):
+        """Check to see if the operator can be applied
+
+        Parameters
+        ----------
+        shape:
+            The shape of the image to apply monotonicity.
+        center:
+            The location (in `shape`) of the point where the monotonicity will
+            be taken from.
+        update:
+            When ``True`` the operator will update itself so that an image
+            with shape `shape` can be made monotonic about the `center`.
+            Otherwise an image that cann
+        """
+        sizes = np.array(tuple(center) + (shape[0] - center[0], shape[1] - center[1]))
+        if np.any(sizes > self.sizes):
+            if update:
+                size = 2 * np.max(sizes) + 1
+                self.update((size, size))
+            else:
+                raise ValueError(f"Cannot apply monotonicity to image with shape {shape} at {center}")
 
     def __call__(self, image: np.ndarray, center: tuple[int, int]) -> np.ndarray:
         """Make an input image monotonic about a center pixel
@@ -135,6 +207,9 @@ class Monotonicity:
             method.
         """
         from scarlet_lite.operators_pybind11 import new_monotonicity
+
+        # Check that the operator can fit the image
+        self.check_size(image.shape, center, self.auto_update)
 
         # Create the bounding box to slice the weights and distance as needed
         cy, cx = self.center
@@ -256,3 +331,119 @@ def prox_monotonic_mask(
     # Clear all of the invalid pixels from the input image
     model = model * valid
     return valid, model, tuple(bounds)
+
+
+def uncentered_operator(
+    x: np.ndarray,
+    func: Callable,
+    center: tuple[float, float] = None,
+    fill: float = None,
+    **kwargs
+) -> np.ndarray:
+    """Only apply the operator on a centered patch
+
+    In some cases, for example symmetry, an operator might not make
+    sense outside of a centered box. This operator only updates
+    the portion of `X` inside the centered region.
+
+    Parameters
+    ----------
+    x:
+        The parameter to update.
+    func:
+        The function (or operator) to apply to `x`.
+    center:
+        The location of the center of the sub-region to
+        apply `func` to `x`.
+    fill:
+        The value to fill the region outside of centered
+        `sub-region`, for example `0`. If `fill` is `None`
+        then only the subregion is updated and the rest of
+        `x` remains unchanged.
+
+    Returns
+    -------
+    result : np.ndarray
+        `x`, with an operator applied based on the shifted center.
+    """
+    if center is None:
+        py, px = np.unravel_index(np.argmax(x), x.shape)
+    else:
+        py, px = center
+    cy, cx = np.array(x.shape) // 2
+
+    if py == cy and px == cx:
+        return func(x, **kwargs)
+
+    dy = int(2 * (py - cy))
+    dx = int(2 * (px - cx))
+    if not x.shape[0] % 2:
+        dy += 1
+    if not x.shape[1] % 2:
+        dx += 1
+    if dx < 0:
+        xslice = slice(None, dx)
+    else:
+        xslice = slice(dx, None)
+    if dy < 0:
+        yslice = slice(None, dy)
+    else:
+        yslice = slice(dy, None)
+
+    if fill is not None:
+        _X = np.ones(x.shape, x.dtype) * fill
+        _X[yslice, xslice] = func(x[yslice, xslice], **kwargs)
+        x[:] = _X
+    else:
+        x[yslice, xslice] = func(x[yslice, xslice], **kwargs)
+
+    return x
+
+
+def prox_sdss_symmetry(x: np.ndarray):
+    """SDSS/HSC symmetry operator
+
+    This function uses the *minimum* of the two
+    symmetric pixels in the update.
+
+    Parameters
+    ----------
+    x: np.ndarray
+        The array to make symmetric.
+
+    Returns
+    -------
+    result: np.ndarray
+        The updated `x`.
+    """
+    symmetric = np.fliplr(np.flipud(x))
+    x[:] = np.min([x, symmetric], axis=0)
+    return x
+
+
+def prox_uncentered_symmetry(
+    x: np.ndarray,
+    center: tuple[int, int] = None,
+    fill: float = None,
+) -> np.ndarray:
+    """Symmetry with off-center peak
+
+    Symmetrize X for all pixels with a symmetric partner.
+
+    Parameters
+    ----------
+    x: np.ndarray
+        The parameter to update.
+    center: Sequence[int, int]
+        The center pixel coordinates to apply the symmetry operator.
+    fill: float
+        The value to fill the region that cannot be made symmetric.
+        When `fill` is `None` then the region of `X` that is not symmetric
+        is not constrained.
+
+    Returns
+    -------
+    result: Callable
+        The update function based on the specified parameters.
+    """
+    return uncentered_operator(x, prox_sdss_symmetry, center, fill=fill)

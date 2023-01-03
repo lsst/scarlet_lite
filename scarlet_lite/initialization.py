@@ -32,7 +32,6 @@ from .observation import Observation
 from .operators import (
     prox_monotonic_mask,
     prox_uncentered_symmetry,
-    prox_weighted_monotonic,
 )
 
 from .source import Source
@@ -322,7 +321,7 @@ def init_chi2_parameters(
     sed: np.ndarray
         The SED of the component.
     """
-    _detect = prox_uncentered_symmetry(detect.copy(), center, "sdss")
+    _detect = prox_uncentered_symmetry(detect.copy(), center)
     thresh = np.mean(observation.noise_rms) * thresh
 
     bbox, morph = init_monotonic_morph(

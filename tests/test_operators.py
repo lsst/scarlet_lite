@@ -26,9 +26,9 @@ import numpy as np
 from numpy.testing import assert_array_equal  # , assert_almost_equal
 
 from scarlet_lite import Image
-from scarlet_lite.operators import prox_connected, Monotonicity, prox_monotonic_mask
-
-# from utils import assert_image_equal
+from scarlet_lite.operators import (
+    prox_connected, Monotonicity, prox_monotonic_mask, prox_sdss_symmetry, prox_uncentered_symmetry,
+)
 
 
 class TestOperators(unittest.TestCase):
@@ -85,6 +85,8 @@ class TestOperators(unittest.TestCase):
         monotonicity = Monotonicity(shape)
         assert_array_equal(monotonicity.distance, distance)
         assert_array_equal(monotonicity.weights > 0, neighbor_dist > 0)
+        self.assertEqual(monotonicity.shape, (201, 201))
+        self.assertEqual(monotonicity.center, (100, 100))
 
         # Since the monotonicity operators _are_ the test for monotonicity,
         # we just check that the two different monotonicty operators run,
@@ -131,3 +133,70 @@ class TestOperators(unittest.TestCase):
             0,
         )
         assert_array_equal(morph, masked)
+
+    def test_resize_monotonicity(self):
+        monotonicity = Monotonicity((101, 101))
+        morph = self.detect.copy()
+        cy, cx = self.centers[1].astype(int)
+        morph = monotonicity(morph, (cy, cx))
+        self.assertEqual(monotonicity.shape, (101, 101))
+
+        monotonicity.update((201, 201))
+        morph2 = monotonicity(morph, (cy, cx))
+        self.assertEqual(monotonicity.shape, (201, 201))
+        assert_array_equal(morph, morph2)
+
+        with self.assertRaises(ValueError):
+            # Even shapes not allowed
+            Monotonicity((100, 100))
+
+        with self.assertRaises(ValueError):
+            # The shape should only have 2 dimensions
+            Monotonicity((101, 101, 101))  # type: ignore
+
+        with self.assertRaises(ValueError):
+            # The shape should have exactly 2 dimensions
+            Monotonicity((101,))  # type: ignore
+
+    def test_check_size(self):
+        monotonicity = Monotonicity((11, 11))
+        self.assertTupleEqual(monotonicity.shape, (11, 11))
+        self.assertTupleEqual(monotonicity.sizes, (5, 5, 6, 6))
+        morph = self.detect.copy()
+        cy, cx = self.centers[1].astype(int)
+        monotonicity(morph, (cy, cx))
+        self.assertTupleEqual(monotonicity.shape, (73, 73))
+        self.assertTupleEqual(monotonicity.sizes, (36, 36, 37, 37))
+
+        monotonicity = Monotonicity((11, 11), auto_update=False)
+        with self.assertRaises(ValueError):
+            monotonicity(morph, (cy, cx))
+
+    def test_symmetry(self):
+        # Test simple symmetry
+        morph = np.arange(27).reshape(3, 9)
+        truth = np.array(list(range(14)) + list(range(13)[::-1])).reshape(3, 9)
+        morph = prox_sdss_symmetry(morph)
+        assert_array_equal(morph, truth)
+
+        # Test uncentered symmetry
+        morph = np.arange(50).reshape(5, 10)
+
+        symmetric = [
+            [25, 26, 27, 28, 29],
+            [35, 36, 37, 36, 35],
+            [29, 28, 27, 26, 25],
+        ]
+
+        # Test leaving the non-symmetric part of the morphology
+        truth = morph.copy()
+        truth[2:, 5:] = symmetric
+        center = (3, 7)
+        symmetric_morph = prox_uncentered_symmetry(morph.copy(), center)
+        assert_array_equal(symmetric_morph, truth)
+
+        # Test setting the non-symmetric part of the morphology to zero
+        truth = np.zeros(morph.shape, dtype=int)
+        truth[2:, 5:] = symmetric
+        symmetric_morph = prox_uncentered_symmetry(morph.copy(), center, 0)
+        assert_array_equal(symmetric_morph, truth)

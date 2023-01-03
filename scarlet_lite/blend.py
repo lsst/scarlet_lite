@@ -25,7 +25,7 @@ from typing import cast, Sequence, TypeVar
 
 import numpy as np
 
-from .bbox import overlapped_slices, Box
+from .bbox import Box
 from .component import Component, FactorizedComponent
 from .image import Image
 from .measure import weight_sources

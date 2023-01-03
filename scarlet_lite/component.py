@@ -40,7 +40,7 @@ from scipy.stats import gamma
 from .bbox import Box, get_minimal_boxsize, overlapped_slices
 from .frame import CartesianFrame, EllipseFrame
 from .image import Image
-from .operators import MonotonicityConstraint
+from .operators import Monotonicity
 from .parameters import (
     parameter,
     Parameter,
@@ -113,9 +113,9 @@ class Component(ABC):
 
         Parameters
         ----------
-        it: int
+        it:
             The current iteration of the optimizer.
-        input_grad: np.ndarray
+        input_grad:
             Gradient of the likelihood wrt the component model
         """
         pass
@@ -172,7 +172,7 @@ class FactorizedComponent(Component):
         bg_rms: np.ndarray | None = None,
         bg_thresh: float | None = 0.25,
         floor: float = 1e-20,
-        fit_center_radius: int = 1,
+        monotonicity: Monotonicity | None = None,
     ):
         """Initialize the component.
 
@@ -198,9 +198,9 @@ class FactorizedComponent(Component):
             and shrink the component.
         floor:
             Minimum value of the SED or center morphology pixel.
-        fit_center_radius:
-            The number of pixels around the `center` to search
-            for a higher flux value when applying monotonicity.
+        monotonicity:
+            The monotonicity operator to use for making the source monotonic.
+            If this parameter is `None`, the source will not be made monotonic.
         """
         # Initialize all of the base attributes
         super().__init__(
@@ -214,12 +214,9 @@ class FactorizedComponent(Component):
         self.bg_rms = bg_rms
         self.bg_thresh = bg_thresh
 
-        # Initialize the monotonicity constraint
-        self.monotonicity = MonotonicityConstraint(
-            neighbor_weight="angle", min_gradient=0, fit_center_radius=fit_center_radius
-        )
         self.floor = floor
         self.model_bbox = model_bbox
+        self.monotonicity = monotonicity
 
     @property
     def center(self) -> tuple[int, int] | None:
@@ -277,7 +274,9 @@ class FactorizedComponent(Component):
     def prox_morph(self, morph: np.ndarray) -> np.ndarray:
         """Apply a prox-like update to the morphology"""
         # monotonicity
-        morph = self.monotonicity(morph)
+        if self.monotonicity is not None:
+
+            morph = self.monotonicity(morph)
 
         if self.bg_thresh is not None and self.bg_rms is not None:
             bg_thresh = self.bg_rms * self.bg_thresh
@@ -499,7 +498,7 @@ class SedComponent(FactorizedComponent):
         This is the main difference between an `SedComponent` and a
         `FactorizedComponent`, since this component has fewer constraints.
         """
-        from .detect_pybind11 import get_connected_multipeak, get_footprints
+        from scarlet_lite.detect_pybind11 import get_connected_multipeak, get_footprints
 
         if self.bg_thresh is not None:
             bg_thresh = self.bg_rms * self.bg_thresh
