@@ -337,8 +337,9 @@ class FactorizedComponent(Component):
             new_box = Box((1, 1), self.center).grow(self.padding)
         else:
             new_box = (
-                (Box.from_data(significant, min_value=0).grow(self.padding) + self.bbox.origin) & self.model_bbox
-            )
+                Box.from_data(significant, min_value=0).grow(self.padding)
+                + self.bbox.origin
+            ) & self.model_bbox
         if new_box == self.bbox:
             return False
 
@@ -347,7 +348,9 @@ class FactorizedComponent(Component):
         self._morph.grow(old_box, new_box)
 
         self.result_box = self.spectral_box @ self.bbox
-        self.slices = overlapped_slices(self.spectral_box @ self.model_bbox, self.result_box)
+        self.slices = overlapped_slices(
+            self.spectral_box @ self.model_bbox, self.result_box
+        )
         return True
 
     def update(self, it: int, input_grad: np.ndarray):

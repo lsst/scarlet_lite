@@ -47,6 +47,7 @@ DEFAULT_ADAPROX_FACTOR = 1e-2
 
 class Parameter:
     """A parameter in a `Component`"""
+
     def __init__(self, x, helpers: dict[str, np.ndarray]):
         self.x = x
         self.helpers = helpers
