@@ -19,8 +19,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import unittest
-
 import numpy as np
 from numpy.testing import assert_almost_equal, assert_array_equal
 from scipy.signal import convolve as scipy_convolve
@@ -29,10 +27,10 @@ from scarlet_lite import Observation, Box, Image
 from scarlet_lite.interpolation import get_filter_coords, get_filter_bounds
 from scarlet_lite.observation import convolve as scarlet_convolve
 from scarlet_lite.utils import integrated_circular_gaussian
-from utils import ObservationData, assert_image_equal, assert_image_almost_equal
+from utils import ObservationData, ScarletTestCase
 
 
-class TestObservation(unittest.TestCase):
+class TestObservation(ScarletTestCase):
     def setUp(self):
         bands = ("g", "r", "i")
         variance = np.ones((3, 35, 35), dtype=float)
@@ -108,17 +106,17 @@ class TestObservation(unittest.TestCase):
         observation = Observation(
             self.data.convolved, variance, 1 / variance, self.psfs, bands=self.bands,
         )
-        assert_image_equal(observation.images, self.data.convolved)
-        assert_image_equal(observation.variance, Image(variance, bands=self.bands))
-        assert_image_equal(observation.weights, Image(1 / variance, bands=self.bands))
+        self.assertImageEqual(observation.images, self.data.convolved)
+        self.assertImageEqual(observation.variance, Image(variance, bands=self.bands))
+        self.assertImageEqual(observation.weights, Image(1 / variance, bands=self.bands))
         assert_array_equal(observation.psfs, self.psfs)
-        self.assertEqual(observation.model_psf, None)
-        self.assertEqual(observation.diff_kernel, None)
-        self.assertEqual(observation.grad_kernel, None)
+        self.assertIsNone(observation.model_psf)
+        self.assertIsNone(observation.diff_kernel)
+        self.assertIsNone(observation.grad_kernel)
         assert_array_equal(
             observation.noise_rms, np.mean(np.sqrt(variance), axis=(1, 2))
         )
-        self.assertEqual(observation.bbox, Box(variance.shape[-2:]))
+        self.assertBoxEqual(observation.bbox, Box(variance.shape[-2:]))
         self.assertIn(observation.mode, ["fft", "real"])
 
         # Set all of the pixels in the model to 1 more than the images,
@@ -144,13 +142,12 @@ class TestObservation(unittest.TestCase):
         # convolution.
         observation = self.observation
         assert_array_equal(observation.diff_kernel.image, self.data.diff_kernel.image)
-        print(self.data.images)
         assert_almost_equal(observation.convolve(self.data.images).data, observation.images.data)
 
         # Test real conversions
         deconvolved = self.data.images
         observation.mode = "real"
-        assert_image_almost_equal(observation.convolve(deconvolved), observation.images)
+        self.assertImageAlmostEqual(observation.convolve(deconvolved), observation.images)
 
         # Test convolution with the gradient
         grad_convolved = np.array(
@@ -167,7 +164,7 @@ class TestObservation(unittest.TestCase):
 
         # Test that overriding the mode works
         real = observation.convolve(deconvolved, mode="real")
-        assert_image_almost_equal(real, observation.images)
+        self.assertImageAlmostEqual(real, observation.images)
 
     def test_index_extraction(self):
         alpha_bands = ("g", "i", "r", "y", "z")
@@ -190,12 +187,12 @@ class TestObservation(unittest.TestCase):
         truth = Image(
             np.arange(12, 24).reshape(3, 4),
         )
-        assert_image_equal(observation.images[bands, :, :], truth)
+        self.assertImageEqual(observation.images[bands, :, :], truth)
 
         bands = ("g", "r", "i")
         indices = observation.images.spectral_indices(bands)
         assert_array_equal(indices, (0, 2, 1))
-        assert_image_equal(
+        self.assertImageEqual(
             observation.images[bands, :, :],
             Image(np.array([image_g, image_r, image_i]), bands=("g", "r", "i"))
         )

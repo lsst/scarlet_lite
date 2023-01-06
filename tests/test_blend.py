@@ -20,7 +20,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from typing import cast
-import unittest
 
 import numpy as np
 from numpy.testing import assert_almost_equal
@@ -29,10 +28,10 @@ from scipy.signal import convolve as scipy_convolve
 from scarlet_lite import Blend, Source, FactorizedComponent, Observation, Box
 from scarlet_lite.component import default_adaprox_parameterization
 from scarlet_lite.utils import integrated_circular_gaussian
-from utils import ObservationData
+from utils import ObservationData, ScarletTestCase
 
 
-class TestBlend(unittest.TestCase):
+class TestBlend(ScarletTestCase):
     def setUp(self):
         bands = ("g", "r", "i")
         # The PSF in each band of the "obseration"
@@ -87,15 +86,15 @@ class TestBlend(unittest.TestCase):
         self.morphs = morphs
 
         components = []
-        for spectrum, center, morph, bbox in zip(
-            self.spectra, self.centers, self.morphs, self.data.boxes
+        for spectrum, center, morph, data_morph in zip(
+            self.spectra, self.centers, self.morphs, self.data.morphs
         ):
             components.append(
                 FactorizedComponent(
                     bands=bands,
                     sed=spectrum,
                     morph=morph,
-                    bbox=bbox,
+                    bbox=data_morph.bbox,
                     model_bbox=self.observation.bbox,
                     center=center,
                 )
@@ -111,12 +110,12 @@ class TestBlend(unittest.TestCase):
         builds the model correctly
         """
         blend = self.blend
-        assert len(blend.components) == 5
-        assert len(blend.sources) == 4
-        assert blend.bbox == Box(self.data.images.shape)
-        assert_almost_equal(blend.get_model(), self.data.images)
-        assert_almost_equal(blend.get_model(convolve=True), self.observation.images)
-        assert_almost_equal(
+        self.assertEqual(len(blend.components), 5)
+        self.assertEqual(len(blend.sources), 4)
+        self.assertBoxEqual(blend.bbox, Box(self.data.images.shape[1:]))
+        self.assertImageAlmostEqual(blend.get_model(), self.data.images)
+        self.assertImageEqual(blend.get_model(convolve=True), self.observation.images)
+        self.assertImageAlmostEqual(
             self.observation.convolve(blend.get_model(), mode="real"),
             self.observation.images,
         )
@@ -125,7 +124,7 @@ class TestBlend(unittest.TestCase):
         assert_almost_equal([blend.log_likelihood], [0])
 
         # Test that grad_log_likelihood updates the loss
-        assert blend.loss == []
+        self.assertListEqual(blend.loss, [])
         blend._grad_log_likelihood()
         assert_almost_equal(blend.loss, [0])
 
@@ -162,7 +161,7 @@ class TestBlend(unittest.TestCase):
 
         self.assertEqual(len(blend.components), 5)
         self.assertEqual(len(blend.sources), 4)
-        self.assertEqual(blend.bbox, Box(self.observation.bbox.shape))
+        self.assertBoxEqual(blend.bbox, Box(self.observation.bbox.shape))
         assert_almost_equal(blend.get_model(), self.data.images)
         assert_almost_equal(blend.get_model(convolve=True), self.observation.images)
 

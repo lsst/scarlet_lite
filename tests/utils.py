@@ -19,6 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from unittest import TestCase
 from typing import Sequence
 
 import numpy as np
@@ -28,10 +29,11 @@ from scipy.signal import convolve as scipy_convolve
 from scarlet_lite.bbox import Box
 from scarlet_lite.fft import match_psf
 from scarlet_lite.image import Image
+from scarlet_lite.observation import Observation
 from scarlet_lite.utils import integrated_circular_gaussian
 
 
-__all__ = ["get_psfs", "ObservationData", "assert_image_equal", "assert_image_almost_equal"]
+__all__ = ["get_psfs", "ObservationData", "ScarletTestCase"]
 
 
 def get_psfs(sigmas: float | Sequence[float]) -> np.ndarray:
@@ -100,32 +102,47 @@ class ObservationData:
         self.morphs = [Image(morph, yx0=origin) for morph, origin in zip(morphs, origins)]
 
 
-def assert_image_almost_equal(image: Image, truth: Image):
-    if not isinstance(image, Image):
-        raise AssertionError(f"image is a {type(image)}, not a scarlet_lite `Image`")
-    if not isinstance(truth, Image):
-        raise AssertionError(f"truth is a {type(truth)}, not a scarlet_lite `Image`")
+class ScarletTestCase(TestCase):
+    def assertBoxEqual(self, bbox: Box, truth: Box):
+        try:
+            self.assertTupleEqual(bbox.shape, truth.shape)
+        except AssertionError:
+            msg = f"Box shapes differ: {bbox.shape}!={truth.shape}"
+            raise AssertionError(msg)
+        try:
+            self.assertTupleEqual(bbox.origin, truth.origin)
+        except AssertionError:
+            msg = f"Box origins differ: {bbox.shape}!={truth.shape}"
+            raise AssertionError(msg)
 
-    try:
-        assert_array_equal(image.bands, truth.bands)
-    except AssertionError:
-        msg = f"Mismatched bands:\nimage: {image.bands}\ntruth: {truth.bands}"
-        raise AssertionError(msg)
+    def assertImageAlmostEqual(self, image: Image, truth: Image):
+        if not isinstance(image, Image):
+            raise AssertionError(f"image is a {type(image)}, not a scarlet_lite `Image`")
+        if not isinstance(truth, Image):
+            raise AssertionError(f"truth is a {type(truth)}, not a scarlet_lite `Image`")
 
-    try:
-        assert_array_equal(image.bbox.shape, truth.bbox.shape)
-        assert_array_equal(image.bbox.origin, truth.bbox.origin)
-    except AssertionError:
-        msg = (
-            f"Bounding boxes do not overlap:\nimage: {image.bbox}\ntruth: {truth.bbox}"
-        )
-        raise AssertionError(msg)
+        try:
+            self.assertTupleEqual(image.bands, truth.bands)
+        except AssertionError:
+            msg = f"Mismatched bands:{image.bands} != {truth.bands}"
+            raise AssertionError(msg)
 
-    # The images overlap in multi-band image space,
-    # check the values of the images
-    assert_almost_equal(image.data, truth.data)
+        try:
+            self.assertTupleEqual(image.bbox.shape, truth.bbox.shape)
+            self.assertTupleEqual(image.bbox.origin, truth.bbox.origin)
+        except AssertionError:
+            msg = (
+                f"Bounding boxes do not overlap:\nimage: {image.bbox}\ntruth: {truth.bbox}"
+            )
+            raise AssertionError(msg)
 
+        # The images overlap in multi-band image space,
+        # check the values of the images
+        assert_almost_equal(image.data, truth.data)
 
-def assert_image_equal(image: Image, truth: Image):
-    assert_image_almost_equal(image, truth)
-    assert_array_equal(image.data, truth.data)
+    def assertImageEqual(self, image: Image, truth: Image):
+        self.assertImageAlmostEqual(image, truth)
+        assert_array_equal(image.data, truth.data)
+
+    def assertObservationEqual(self, observation: Observation, truth: Observation):
+        pass

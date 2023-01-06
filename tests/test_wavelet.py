@@ -23,9 +23,10 @@ import numpy as np
 from numpy.testing import assert_almost_equal, assert_equal
 
 from scarlet_lite.wavelet import starlet_transform, starlet_reconstruction
+from utils import ScarletTestCase
 
 
-class TestWavelet(object):
+class TestWavelet(ScarletTestCase):
     def get_image(self) -> np.ndarray:
         x = np.linspace(-10, 10, 129)
         y = np.linspace(-10, 10, 129)

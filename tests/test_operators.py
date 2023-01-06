@@ -20,7 +20,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import os
-import unittest
 
 import numpy as np
 from numpy.testing import assert_array_equal  # , assert_almost_equal
@@ -29,9 +28,10 @@ from scarlet_lite import Image
 from scarlet_lite.operators import (
     prox_connected, Monotonicity, prox_monotonic_mask, prox_sdss_symmetry, prox_uncentered_symmetry,
 )
+from utils import ScarletTestCase
 
 
-class TestOperators(unittest.TestCase):
+class TestOperators(ScarletTestCase):
     def setUp(self) -> None:
         filename = os.path.join(__file__, "..", "..", "data", "hsc_cosmos_35.npz")
         filename = os.path.abspath(filename)
@@ -85,8 +85,8 @@ class TestOperators(unittest.TestCase):
         monotonicity = Monotonicity(shape)
         assert_array_equal(monotonicity.distance, distance)
         assert_array_equal(monotonicity.weights > 0, neighbor_dist > 0)
-        self.assertEqual(monotonicity.shape, (201, 201))
-        self.assertEqual(monotonicity.center, (100, 100))
+        self.assertTupleEqual(monotonicity.shape, (201, 201))
+        self.assertTupleEqual(monotonicity.center, (100, 100))
 
         # Since the monotonicity operators _are_ the test for monotonicity,
         # we just check that the two different monotonicty operators run,
@@ -139,11 +139,11 @@ class TestOperators(unittest.TestCase):
         morph = self.detect.copy()
         cy, cx = self.centers[1].astype(int)
         morph = monotonicity(morph, (cy, cx))
-        self.assertEqual(monotonicity.shape, (101, 101))
+        self.assertTupleEqual(monotonicity.shape, (101, 101))
 
         monotonicity.update((201, 201))
         morph2 = monotonicity(morph, (cy, cx))
-        self.assertEqual(monotonicity.shape, (201, 201))
+        self.assertTupleEqual(monotonicity.shape, (201, 201))
         assert_array_equal(morph, morph2)
 
         with self.assertRaises(ValueError):

@@ -20,7 +20,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import os
-import unittest
 
 import numpy as np
 from numpy.testing import assert_array_equal, assert_almost_equal
@@ -36,10 +35,10 @@ from scarlet_lite.initialization import (
 from scarlet_lite.operators import prox_monotonic_mask, Monotonicity
 from scarlet_lite.utils import integrated_circular_gaussian
 
-from utils import ObservationData
+from utils import ObservationData, ScarletTestCase
 
 
-class TestInitialization(unittest.TestCase):
+class TestInitialization(ScarletTestCase):
     def setUp(self) -> None:
         filename = os.path.join(__file__, "..", "..", "data", "hsc_cosmos_35.npz")
         filename = os.path.abspath(filename)
@@ -82,7 +81,7 @@ class TestInitialization(unittest.TestCase):
 
         # Default parameters
         bbox, morph = init_monotonic_morph(self.detect.copy(), center, full_box)
-        self.assertEqual(bbox, Box((38, 29), (14, 0)))
+        self.assertBoxEqual(bbox, Box((38, 29), (14, 0)))
         _, masked_morph, _ = prox_monotonic_mask(self.detect.copy(), center, max_iter=0)
         assert_array_equal(morph, masked_morph / np.max(masked_morph))
 
@@ -96,7 +95,7 @@ class TestInitialization(unittest.TestCase):
             None,  # monotonicity
             0.2,  # threshold
         )
-        self.assertEqual(bbox, Box((26, 21), (21, 3)))
+        self.assertBoxEqual(bbox, Box((26, 21), (21, 3)))
         # Remove pixels below the threshold
         truth = masked_morph.copy()
         truth[truth < 0.2] = 0
@@ -114,7 +113,7 @@ class TestInitialization(unittest.TestCase):
         truth = monotonicity(self.detect.copy(), center)
         truth[truth < 0] = 0
         truth = truth / np.max(truth)
-        self.assertEqual(bbox, Box((58, 48), origin=(0, 0)))
+        self.assertBoxEqual(bbox, Box((58, 48), origin=(0, 0)))
         assert_array_equal(morph, truth)
 
         # Specify parameters
@@ -129,7 +128,7 @@ class TestInitialization(unittest.TestCase):
         )
         truth = monotonicity(self.detect.copy(), center)
         truth[truth < 0.2] = 0
-        self.assertEqual(bbox, Box((45, 44), origin=(10, 3)))
+        self.assertBoxEqual(bbox, Box((45, 44), origin=(10, 3)))
         assert_array_equal(morph, truth)
 
     def test_multifit_spectra(self):
@@ -191,7 +190,7 @@ class TestInitialization(unittest.TestCase):
 
         self.assertEqual(init.observation, self.observation)
         self.assertEqual(init.min_snr, 50)
-        self.assertEqual(init.monotonicity, None)
+        self.assertIsNone(init.monotonicity)
         self.assertEqual(init.disk_percentile, 25)
         self.assertEqual(init.thresh, 0.5)
         self.assertTupleEqual((init.py, init.px), (7, 7))

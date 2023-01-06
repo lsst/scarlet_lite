@@ -19,16 +19,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import unittest
-
 import numpy as np
 from numpy.testing import assert_almost_equal, assert_array_equal
 
 from scarlet_lite import Box, FactorizedComponent, Image, Parameter
 from scarlet_lite.operators import Monotonicity
+from utils import ScarletTestCase
 
 
-class TestFactorizedComponent(unittest.TestCase):
+class TestFactorizedComponent(ScarletTestCase):
     def setUp(self) -> None:
         sed = np.arange(3)
         morph = np.arange(20).reshape(4, 5)
@@ -61,16 +60,16 @@ class TestFactorizedComponent(unittest.TestCase):
             self.component.model_bbox,
         )
 
-        assert isinstance(component._sed, Parameter)
+        self.assertIsInstance(component._sed, Parameter)
         assert_array_equal(component.sed, self.sed)
-        assert isinstance(component._morph, Parameter)
+        self.assertIsInstance(component._morph, Parameter)
         assert_array_equal(component.morph, self.morph)
-        assert component.bbox == self.component.bbox
-        assert component.model_bbox == self.component.model_bbox
-        assert component.center is None
-        assert component.bg_rms is None
-        assert component.bg_thresh == 0.25
-        assert component.floor == 1e-20
+        self.assertBoxEqual(component.bbox, self.component.bbox)
+        self.assertBoxEqual(component.model_bbox, self.component.model_bbox)
+        self.assertIsNone(component.center)
+        self.assertIsNone(component.bg_rms)
+        self.assertEqual(component.bg_thresh, 0.25)
+        self.assertEqual(component.floor, 1e-20)
 
         # Test that parameters are passed through
         center = self.component.center
@@ -90,10 +89,10 @@ class TestFactorizedComponent(unittest.TestCase):
             floor,
         )
 
-        assert component.center == center
+        self.assertTupleEqual(component.center, center)
         assert_array_equal(component.bg_rms, bg_rms)  # type: ignore
-        assert component.bg_thresh == bg_thresh
-        assert component.floor == floor
+        self.assertEqual(component.bg_thresh, bg_thresh)
+        self.assertEqual(component.floor, floor)
 
     def test_get_model(self):
         component = self.component
@@ -163,3 +162,35 @@ class TestFactorizedComponent(unittest.TestCase):
 
         assert_array_equal(component.sed, proxed_sed)
         assert_array_equal(component.morph, proxed_morph)
+
+    def test_resize(self):
+        sed = np.array([1, 2, 3], dtype=float)
+        morph = np.zeros((10, 10), dtype=float)
+        morph[3:6, 5:8] = np.arange(9).reshape(3, 3)
+        bbox = Box((10, 10), (3, 5))
+
+        morph_bbox = Box((100, 100))
+        center = (11, 11)
+        monotonicity = Monotonicity((101, 101), fit_radius=0)
+
+        component = FactorizedComponent(
+            self.bands,
+            sed.copy(),
+            morph.copy(),
+            bbox,
+            morph_bbox,
+            center,
+            bg_rms=np.array([1, 1, 1]),
+            bg_thresh=0.5,
+            monotonicity=monotonicity,
+            padding=1,
+        )
+
+        self.assertTupleEqual(component.morph.shape, (10, 10))
+        self.assertTupleEqual(component.component_center, (8, 6))
+
+        component.resize()
+        self.assertTupleEqual(component.morph.shape, (5, 5))
+        self.assertTupleEqual(component.bbox.origin, (5, 9))
+        self.assertTupleEqual(component.bbox.shape, (5, 5))
+        self.assertTupleEqual(component.component_center, (6, 2))

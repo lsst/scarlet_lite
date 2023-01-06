@@ -24,9 +24,10 @@ import numpy as np
 from numpy.testing import assert_array_equal, assert_almost_equal
 
 import scarlet_lite
+from utils import ScarletTestCase
 
 
-class TestProjections(object):
+class TestProjections(ScarletTestCase):
     """Test project_image
 
     Because the behavior of projections is dependent on
