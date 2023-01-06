@@ -809,6 +809,14 @@ class Image:
         self._data[full_index] = value
         return self
 
+    def overlapped_slices(
+        self, bbox: Box
+    ) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
+        overlap = self.bbox.overlapped_slices(bbox)
+        if self.is_multiband:
+            overlap = (slice(None),) + overlap[0], (slice(None),) + overlap[1]
+        return overlap
+
     def __getitem__(self, indices) -> TImage:
         """Get the subset of an image
 

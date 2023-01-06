@@ -1,15 +1,16 @@
 import numpy as np
 
 from .bbox import Box, overlapped_slices
+from .image import Image
 
 
 def calculate_snr(
-    images: np.ndarray,
-    variance: np.ndarray,
+    images: Image,
+    variance: Image,
     psfs: np.ndarray,
     center: tuple[int, int],
 ):
-    """Calculate the signal to noise for a source
+    """Calculate the signal to noise for a point source
 
     This is done by weighting the image with the PSF in each band
     and dividing by the PSF weighted variance.
@@ -32,11 +33,13 @@ def calculate_snr(
     """
     py = psfs.shape[1] // 2
     px = psfs.shape[2] // 2
-    bbox = Box(psfs.shape, origin=(0, -py + center[0], -px + center[1]))
-    noise = bbox.extract_from(variance)
-    img = bbox.extract_from(images)
-    numerator = img * psfs
-    denominator = (psfs * noise) * psfs
+    bbox = Box(psfs[0].shape, origin=(-py + center[0], -px + center[1]))
+    slices = images.overlapped_slices(bbox)
+    noise = variance[slices[0]].data
+    img = images[slices[0]].data
+    _psfs = psfs[slices[1]]
+    numerator = img * _psfs
+    denominator = (_psfs * noise) * _psfs
     return np.sum(numerator) / np.sqrt(np.sum(denominator))
 
 

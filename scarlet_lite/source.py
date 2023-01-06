@@ -26,8 +26,9 @@ from typing import Callable
 import numpy as np
 import numpy.typing as npt
 
-from .bbox import overlapped_slices, Box
+from .bbox import Box
 from .component import Component
+from .image import Image
 
 
 class Source:
@@ -66,6 +67,18 @@ class Source:
         return None
 
     @property
+    def source_center(self) -> tuple[int, int] | None:
+        _center = self.center
+        _origin = self.bbox.origin
+        if _center is not None:
+            center = (
+                _center[0] - _origin[0],
+                _center[1] - _origin[1],
+            )
+            return center
+        return None
+
+    @property
     def is_null(self) -> bool:
         """True if the source does not have any components"""
         return self.n_components == 0
@@ -77,13 +90,17 @@ class Source:
         Null sources have a bounding box with shape `(0,0,0)`
         """
         if self.n_components == 0:
-            return Box((0, 0, 0))
+            return Box((0, 0))
         bbox = self.components[0].bbox
         for component in self.components[1:]:
             bbox = bbox | component.bbox
         return bbox
 
-    def get_model(self, bbox: Box = None, use_flux: bool = False) -> np.ndarray:
+    @property
+    def bands(self) -> tuple:
+        return self.components[0].bands
+
+    def get_model(self, use_flux: bool = False) -> Image:
         """Build the model for the source
 
         This is never called during optimization and is only used
@@ -91,8 +108,6 @@ class Source:
 
         Parameters
         ----------
-        bbox: Box
-            An optional bounding box to project the source into.
         use_flux: bool
             Whether to use the re-distributed flux associated with the source
             instead of the component models.
@@ -112,12 +127,9 @@ class Source:
                 return self.flux
             return insert_image(bbox, self.flux_box, self.flux)
 
-        if bbox is None:
-            bbox = self.bbox
-        model = np.zeros(bbox.shape, dtype=self.dtype)
-        for component in self.components:
-            slices = overlapped_slices(bbox, component.bbox)
-            model[slices[0]] += component.get_model()[slices[1]]
+        model = self.components[0].get_model()
+        for component in self.components[1:]:
+            model = model + component.get_model()
         return model
 
     def parameterize(self, parameterization: Callable):

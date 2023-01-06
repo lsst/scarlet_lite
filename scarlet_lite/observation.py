@@ -37,7 +37,7 @@ TObservation = TypeVar("TObservation", bound="Observation")
 
 def convolve(image, psf, bounds):
     """Convolve an image with a PSF in real space"""
-    from .operators_pybind11 import apply_filter
+    from scarlet_lite.operators_pybind11 import apply_filter
 
     result = np.empty(image.shape, dtype=image.dtype)
     for band in range(len(image)):
@@ -92,7 +92,6 @@ def _set_image_like(
         return images
 
     if bbox is None:
-        print(images)
         bbox = Box(images.shape)
     elif hasattr(images, "bbox") and images.bbox != bbox:
         raise ValueError(
@@ -187,7 +186,7 @@ class Observation:
         ], "convolution_mode must be either 'fft' or 'real'"
         self.mode = convolution_mode
         if noise_rms is None:
-            noise_rms = np.array(np.mean(np.sqrt(variance), axis=(1, 2)))
+            noise_rms = np.array(np.mean(np.sqrt(variance.data), axis=(1, 2)))
         self.noise_rms = noise_rms
 
         # Create a difference kernel to convolve the model to the PSF

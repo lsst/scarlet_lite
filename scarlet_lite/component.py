@@ -37,7 +37,7 @@ import numpy as np
 from scipy.special import erf
 from scipy.stats import gamma
 
-from .bbox import Box, get_minimal_boxsize, overlapped_slices
+from .bbox import Box, overlapped_slices
 from .frame import CartesianFrame, EllipseFrame
 from .image import Image
 from .operators import Monotonicity
@@ -84,9 +84,9 @@ class Component(ABC):
         """
         self._bands = bands
         self._bbox = bbox
-        spectral_box = Box((len(bands),))
-        self.result_box = spectral_box @ bbox
-        self.slices = overlapped_slices(spectral_box @ model_bbox, spectral_box @ bbox)
+        self.spectral_box = Box((len(bands),))
+        self.result_box = self.spectral_box @ bbox
+        self.slices = overlapped_slices(self.spectral_box @ model_bbox, self.result_box)
 
     @property
     def bbox(self):
@@ -173,6 +173,7 @@ class FactorizedComponent(Component):
         bg_thresh: float | None = 0.25,
         floor: float = 1e-20,
         monotonicity: Monotonicity | None = None,
+        padding: int = 5,
     ):
         """Initialize the component.
 
@@ -217,6 +218,7 @@ class FactorizedComponent(Component):
         self.floor = floor
         self.model_bbox = model_bbox
         self.monotonicity = monotonicity
+        self.padding = padding
 
     @property
     def center(self) -> tuple[int, int] | None:
@@ -252,12 +254,12 @@ class FactorizedComponent(Component):
     @property
     def sed(self) -> np.ndarray:
         """The array of SED values"""
-        return self._sed.view(np.ndarray)
+        return self._sed.x
 
     @property
     def morph(self) -> np.ndarray:
         """The array of morphology values"""
-        return self._morph.view(np.ndarray)
+        return self._morph.x
 
     @property
     def shape(self) -> tuple:
@@ -268,10 +270,10 @@ class FactorizedComponent(Component):
         """Build the model from the SED and morphology"""
         # The sed and morph might be Parameters,
         # so cast them as arrays in the model.
-        sed = self.sed.view(np.ndarray)
-        morph = self.morph.view(np.ndarray)
+        sed = self.sed
+        morph = self.morph
         model = sed[:, None, None] * morph[None, :, :]
-        return Image(model, bands=self.bands, yx0=self.bbox.origin[-2:])
+        return Image(model, bands=self.bands, yx0=self.bbox.origin)
 
     def grad_sed(self, input_grad, sed, morph):
         """Gradient of the SED wrt. the component model"""
@@ -327,65 +329,26 @@ class FactorizedComponent(Component):
         if self.bg_thresh is None or self.bg_rms is None:
             return False
 
-        morph = self.morph
-        size = max(morph.shape)
-
-        # shrink the box? peel the onion
-        dist = 0
-        while (
-            np.all(morph[dist, :] == 0)
-            and np.all(morph[-dist, :] == 0)
-            and np.all(morph[:, dist] == 0)
-            and np.all(morph[:, -dist] == 0)
-        ):
-            dist += 1
-
-        new_size = get_minimal_boxsize(size - 2 * dist)
-        if new_size < size:
-            dist = (size - new_size) // 2
-            self.bbox.origin = (
-                self.bbox.origin[0],
-                self.bbox.origin[1] + dist,
-                self.bbox.origin[2] + dist,
+        model = self.sed[:, None, None] * self.morph[None, :, :]
+        bg_thresh = self.bg_rms * self.bg_thresh
+        significant = np.any(model >= bg_thresh[:, None, None], axis=0)
+        if np.sum(significant) == 0:
+            # There are no significant pixels, so make a small box around the center
+            new_box = Box((1, 1), self.center).grow(self.padding)
+        else:
+            new_box = (
+                (Box.from_data(significant, min_value=0).grow(self.padding) + self.bbox.origin) & self.model_bbox
             )
-            self.bbox.shape = (self.bbox.shape[0], new_size, new_size)
-            self._morph.shrink(dist)
-            self.slices = overlapped_slices(self.model_bbox, self.bbox)
-            return True
+        if new_box == self.bbox:
+            return False
 
-        # grow the box?
-        model = self.get_model()
-        edge_flux = np.array(
-            [
-                np.sum(model[:, 0]),
-                np.sum(model[:, -1]),
-                np.sum(model[0, :]),
-                np.sum(model[-1, :]),
-            ]
-        )
+        old_box = self.bbox
+        self._bbox = new_box
+        self._morph.grow(old_box, new_box)
 
-        edge_mask = np.array(
-            [
-                np.sum(model[:, 0] > 0),
-                np.sum(model[:, -1] > 0),
-                np.sum(model[0, :] > 0),
-                np.sum(model[-1, :] > 0),
-            ]
-        )
-
-        if np.any(edge_flux / edge_mask > self.bg_thresh * self.bg_rms[:, None, None]):
-            new_size = get_minimal_boxsize(size + 1)
-            dist = (new_size - size) // 2
-            self.bbox.origin = (
-                self.bbox.origin[0],
-                self.bbox.origin[1] - dist,
-                self.bbox.origin[2] - dist,
-            )
-            self.bbox.shape = (self.bbox.shape[0], new_size, new_size)
-            self._morph.grow(self.bbox.shape[1:], dist)
-            self.slices = overlapped_slices(self.model_bbox, self.bbox)
-            return True
-        return False
+        self.result_box = self.spectral_box @ self.bbox
+        self.slices = overlapped_slices(self.spectral_box @ self.model_bbox, self.result_box)
+        return True
 
     def update(self, it: int, input_grad: np.ndarray):
         """Update the SED and morphology parameters"""
@@ -396,7 +359,15 @@ class FactorizedComponent(Component):
         self._morph.update(it, input_grad, sed)
 
     def parameterize(self, parameterization: Callable) -> None:
-        """Convert the component parameter arrays into Parameter instances"""
+        """Convert the component parameter arrays into Parameter instances
+
+        Parameters
+        ----------
+        parameterization: Callable
+            A function to use to convert parameters of a given type into
+            a `Parameter` in place. It should take a single argument that
+            is the `Component` or `Source` that is to be parameterized.
+        """
         # Update the SED and morph in place
         parameterization(self)
         # update the parameters
@@ -426,9 +397,7 @@ def default_fista_parameterization(component: Component):
         raise NotImplementedError(f"Unrecognized component type {component}")
 
 
-def default_adaprox_parameterization(
-    component: Component, noise_rms: float = None, max_prox_iter: int = 1
-):
+def default_adaprox_parameterization(component: Component, noise_rms: float = None):
     """Initialize a factorized component to use Proximal ADAM for optimization"""
     if noise_rms is None:
         noise_rms = 1e-16
@@ -436,12 +405,10 @@ def default_adaprox_parameterization(
         component._sed = AdaproxParameter(
             component.sed,
             step=partial(relative_step, factor=1e-2, minimum=noise_rms),
-            max_prox_iter=max_prox_iter,
         )
         component._morph = AdaproxParameter(
             component.morph,
             step=1e-2,
-            max_prox_iter=max_prox_iter,
         )
     else:
         raise NotImplementedError(f"Unrecognized component type {component}")
@@ -947,17 +914,17 @@ class ParametricComponent(Component):
     @property
     def y0(self) -> float:
         """The y-center of the component"""
-        return self._params[0]
+        return self._params.x[0]
 
     @property
     def x0(self) -> float:
         """The x-center of the component"""
-        return self._params[1]
+        return self._params.x[1]
 
     @property
     def sed(self) -> np.ndarray:
         """The array of SED values"""
-        return self._sed.view(np.ndarray)
+        return self._sed.x
 
     @property
     def bbox(self) -> Box:
@@ -972,7 +939,7 @@ class ParametricComponent(Component):
     @property
     def radial_params(self) -> np.ndarray:
         """The parameters used to model the radial function"""
-        return self._params.view(np.ndarray)
+        return self._params.x
 
     def _get_morph(self, frame: CartesianFrame = None) -> np.ndarray:
         """The 2D image of the morphology
@@ -1170,27 +1137,27 @@ class EllipticalParametricComponent(ParametricComponent):
     @property
     def semi_major(self) -> float:
         """The length of the semi-major axis of the model"""
-        return self._params[2]
+        return self._params.x[2]
 
     @property
     def semi_minor(self) -> float:
         """The length of the semi-minor axis of the model"""
-        return self._params[3]
+        return self._params.x[3]
 
     @property
     def theta(self) -> float:
         """The counter-clockwise rotation angle of the model from the x-axis."""
-        return self._params[4]
+        return self._params.x[4]
 
     @property
     def ellipse_params(self) -> np.ndarray:
         """The parameters used to generate the scaled radius"""
-        return self._params[:5].view(np.ndarray)
+        return self._params.x[:5]
 
     @property
     def radial_params(self) -> np.ndarray:
         """The parameters used to model the radial function"""
-        return self._params[5:].view(np.ndarray)
+        return self._params.x[5:]
 
     @property
     def frame(self) -> EllipseFrame:

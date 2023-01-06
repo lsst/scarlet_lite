@@ -32,7 +32,9 @@ __all__ = [
 from typing import Callable, Sequence, TypeVar
 
 import numpy as np
+import numpy.typing as npt
 
+from .bbox import Box
 
 TParameter = TypeVar("TParameter", bound="Parameter")
 TFistaParameter = TypeVar("TFistaParameter", bound="FistaParameter")
@@ -43,43 +45,22 @@ TAdaproxParameter = TypeVar("TAdaproxParameter", bound="AdaproxParameter")
 DEFAULT_ADAPROX_FACTOR = 1e-2
 
 
-def grow_array(x: np.ndarray, new_shape: Sequence[int], dist: int) -> np.ndarray:
-    """grow an array and pad it with zeros
-
-    This is faster than `numpy.pad` by a factor of ~20.
-
-    Parameters
-    ----------
-     x: np.ndarray
-        The array to grow
-    new_shape: Sequence[int]
-        This is the new shape of the array.
-        It would be trivial to calculate in this function,
-        however in most cases this is already calculated for
-        other purposes, so it might as well be reused.
-    dist: int
-        The amount to pad each side of the input array
-        (so the new shape is extended by 2*dist on each axis).
-
-    Returns
-    -------
-    result: np.ndarray
-        The larger array that contains `x`.
-    """
-    result = np.zeros(new_shape, dtype=x.dtype)
-    result[dist:-dist, dist:-dist] = x
-    return result
-
-
-class Parameter(np.ndarray):
+class Parameter:
     """A parameter in a `Component`"""
+    def __init__(self, x, helpers: dict[str, np.ndarray]):
+        self.x = x
+        self.helpers = helpers
 
-    is_parameter = True
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return self.x.shape
 
-    def __new__(cls, array: np.ndarray, name: str | None = None) -> TParameter:
-        obj = np.asarray(array, dtype=array.dtype).view(cls)
-        obj.name = name
-        return obj
+    @property
+    def dtype(self) -> npt.DTypeLike:
+        return self.x.dtype
+
+    def copy(self) -> TParameter:
+        return Parameter(self.x.copy(), {})
 
     def update(self, it: int, input_grad: np.ndarray, *args):
         """Update the parameter in one iteration.
@@ -95,32 +76,27 @@ class Parameter(np.ndarray):
         input_grad: np.ndarray
             The gradient from the full model, passed to the parameter.
         """
-        pass
+        raise NotImplementedError("Base Parameters cannot be updated")
 
-    def grow(self, new_shape: Sequence[int], dist: int):
+    def grow(self, old_box: Box, new_box: Box):
         """Grow the parameter and all of the meta parameters
 
         Parameters
         ----------
-        new_shape: Sequence[int]
-            The new shape of the parameter.
-        dist: int
-            The amount to extend the array in each direction
+        old_box:
+            The old bounding box for the parameter.
+        new_box:
+            The new bounding box for the parameter.
         """
-        pass
+        slices = new_box.overlapped_slices(old_box)
+        x = np.zeros(new_box.shape, dtype=self.dtype)
+        x[slices[0]] = self.x[slices[1]]
+        self.x = x
 
-    def shrink(self, dist: int):
-        """Shrink the parameter and all of the meta parameters
-
-        Parameters
-        ----------
-        dist: int
-            The amount to shrink the array in each direction
-        """
-        pass
-
-    def __array_finalize__(self, obj):
-        self.name = getattr(obj, "name", None)
+        for name, value in self.helpers.items():
+            result = np.zeros(new_box.shape, dtype=self.dtype)
+            result[slices[0]] = value[slices[1]]
+            self.helpers[name] = result
 
 
 def parameter(x: np.ndarray | Parameter) -> Parameter:
@@ -136,9 +112,9 @@ def parameter(x: np.ndarray | Parameter) -> Parameter:
     result: Parameter
         `x`, converted into a `Parameter` if necessary.
     """
-    if hasattr(x, "is_parameter") and x.is_parameter:
+    if isinstance(x, Parameter):
         return x
-    return Parameter(x)
+    return Parameter(x, {})
 
 
 class FistaParameter(Parameter):
@@ -157,77 +133,18 @@ class FistaParameter(Parameter):
         t0: float = 1,
         z0: np.ndarray = None,
     ):
-        super().__init__()
         if z0 is None:
             z0 = array
+
+        super().__init__(
+            array,
+            {"z": z0},
+        )
+
         self.step = step
         self.grad = grad
         self.prox = prox
-        self.z = z0
         self.t = t0
-
-    def __new__(
-        cls,
-        array: np.ndarray,
-        step: float,
-        grad: Callable = None,
-        prox: Callable = None,
-        t0: float = 1,
-        z0: np.ndarray = None,
-        name: str | None = None,
-    ) -> TFistaParameter:
-        """Initialize the parameter
-
-        Parameters
-        ----------
-        array: np.ndarray
-            The initial guess for the parameter.
-        step: float
-            The step size for the parameter.
-            This is scaled in each step by the first argument to
-            `update` after the `input_grad`.
-        grad: Callable
-            The function to use to calculate the gradient.
-            `grad` should accept the `input_grad` and a list
-            of arguments.
-        prox: Callable
-            The function that acts as a proximal operator.
-            This function should take `x` as an input, however
-            the input `x` might not be the same as the input
-            parameter, but a meta parameter instead.
-        t0: float
-            The initial value of the acceleration parameter.
-        z0: np.ndarray
-            The initial value of the meta parameter `z`.
-            If this is `None` then `z` is initialized to the
-            initial `x`.
-        name: str | None
-            The name of this parameter.
-        """
-
-        return super().__new__(
-            cls,
-            array,
-            name,
-        )
-
-    def __array_finalize__(self, obj):
-        """Required by sublclasses of ndarray to handle different ways
-        of creating ndarrays
-
-        See
-        https://numpy.org/doc/stable/user/basics.subclassing.html#the-role-of-array-finalize  # noqa: W505
-        for more on why this method is necessary
-        """
-        if obj is None:
-            return
-
-        self.name = getattr(obj, "name", None)
-        self.step = getattr(obj, "step", np.nan)
-        self.grad = getattr(obj, "grad", None)
-        self.prox = getattr(obj, "prox", None)
-        self.t = getattr(obj, "t", 1)
-        self.z = getattr(obj, "z", obj.view(np.ndarray))
 
     def update(self, it: int, input_grad: np.ndarray, *args):
         """Update the parameter and meta-parameters using the PGM
@@ -235,27 +152,16 @@ class FistaParameter(Parameter):
         See `Parameter` for more.
         """
         step = self.step / np.sum(args[0] * args[0])
-        _x = self.view(np.ndarray)
+        _x = self.x
+        _z = self.helpers["z"]
 
-        y = self.z - step * self.grad(input_grad, _x, *args)
+        y = _z - step * self.grad(input_grad, _x, *args)
         x = self.prox(y)
         t = 0.5 * (1 + np.sqrt(1 + 4 * self.t**2))
         omega = 1 + (self.t - 1) / t
-        self.z = _x + omega * (x - _x)
+        self.helpers["z"] = _x + omega * (x - _x)
         _x[:] = x
         self.t = t
-
-    def grow(self, new_shape: Sequence[int], dist: int):
-        _x = self.view(np.ndarray)
-        _x[:] = grow_array(_x, new_shape, dist)
-        self.z = grow_array(self.z, new_shape, dist)
-        # self.t = 1
-
-    def shrink(self, dist: int):
-        _x = self.view(np.ndarray)
-        _x[:] = _x[dist:-dist, dist:-dist]
-        self.z = self.z[dist:-dist, dist:-dist]
-        # self.t = 1
 
 
 # noinspection PyUnusedLocal
@@ -395,7 +301,6 @@ class AdaproxParameter(Parameter):
         * PAdam (Chen & Gu 2018)
         * AdamX (Phuong & Phong 2019)
         * RAdam (Liu et al. 2019)
-    and PGM sub-iterations to satisfy feasibility and optimality.
     See details of the algorithms in the respective papers.
     """
 
@@ -413,10 +318,27 @@ class AdaproxParameter(Parameter):
         v0: np.ndarray = None,
         vhat0: np.ndarray = None,
         scheme: str = "amsgrad",
-        max_prox_iter: int = 1,
         prox_e_rel: float = 1e-6,
     ):
-        super().__init__()  # type: ignore
+        shape = array.shape
+        dtype = array.dtype
+        if m0 is None:
+            m0 = np.zeros(shape, dtype=dtype)
+
+        if v0 is None:
+            v0 = np.zeros(shape, dtype=dtype)
+
+        if vhat0 is None:
+            vhat0 = np.ones(shape, dtype=dtype) * -np.inf
+
+        super().__init__(
+            array,
+            {
+                "m": m0,
+                "v": v0,
+                "vhat": vhat0,
+            },
+        )
 
         if not hasattr(b1, "__getitem__"):
             b1 = SingleItemArray(b1)
@@ -436,119 +358,41 @@ class AdaproxParameter(Parameter):
             self.step = step
         self.grad = grad
         self.prox = prox
-        if m0 is None:
-            m0 = np.zeros(self.shape, dtype=self.dtype)
-        self.m = m0
-        if v0 is None:
-            v0 = np.zeros(self.shape, dtype=self.dtype)
-        self.v = v0
-        if vhat0 is None:
-            vhat0 = np.ones(self.shape, dtype=self.dtype) * -np.inf
-        self.vhat = vhat0
+
         self.phi_psi = phi_psi[scheme]
-        self.max_prox_iter = max_prox_iter
         self.e_rel = prox_e_rel
-
-    def __array_finalize__(self, obj):
-        """Required by sublclasses of ndarray to handle different ways
-        of creating ndarrays
-
-        See
-        https://numpy.org/doc/stable/user/basics.subclassing.html#the-role-of-array-finalize  # noqa: W505
-        for more on why this method is necessary
-        """
-        if obj is None:
-            return
-
-        self.name = getattr(obj, "name", None)
-        self.step = getattr(obj, "step", np.nan)
-        self.grad = getattr(obj, "grad", None)
-        self.prox = getattr(obj, "prox", None)
-        self.b1 = getattr(obj, "b1", 0.9)
-        self.b2 = getattr(obj, "b2", 0.999)
-        self.eps = getattr(obj, "eps", 1e-8)
-        self.p = getattr(obj, "p", 0.25)
-        self.m0 = getattr(obj, "m0", None)
-        self.v0 = getattr(obj, "v0", None)
-        self.vhat = getattr(obj, "vhat", None)
-        self.scheme = getattr(obj, "scheme", "amsgrad")
-        self.max_prox_iter = getattr(obj, "max_prox_iter", 1)
-        self.e_rel = getattr(obj, "e_rel", 1e-6)
-
-    def __new__(
-        cls,
-        array: np.ndarray,
-        step: Callable,
-        grad: Callable = None,
-        prox: Callable = None,
-        b1: float = 0.9,
-        b2: float = 0.999,
-        eps: float = 1e-8,
-        p: float = 0.25,
-        m0: np.ndarray = None,
-        v0: np.ndarray = None,
-        vhat0: np.ndarray = None,
-        scheme: str = "amsgrad",
-        max_prox_iter: int = 1,
-        prox_e_rel: float = 1e-6,
-        name: str | None = None,
-    ) -> TAdaproxParameter:
-        """Create a new instance of a FistaParameter
-
-        See `__init__` for a description of the parameters.
-        """
-        return super().__new__(
-            cls,
-            array,
-            name,
-        )
 
     def update(self, it: int, input_grad: np.ndarray, *args):
         """Update the parameter and meta-parameters using the PGM
 
         See `~LiteParameter` for more.
         """
-        _x = self.view(np.ndarray)
+        _x = self.x
         # Calculate the gradient
         grad = self.grad(input_grad, _x, *args)
         # Get the update for the parameter
         phi, psi = self.phi_psi(
-            it, grad, self.m, self.v, self.vhat, self.b1, self.b2, self.eps, self.p
+            it,
+            grad,
+            self.helpers["m"],
+            self.helpers["v"],
+            self.helpers["vhat"],
+            self.b1,
+            self.b2,
+            self.eps,
+            self.p,
         )
         # Calculate the step size
         step = self.step(_x)
         if it > 0:
-            _x[:] = _x - step * phi / psi
+            _x += -step * phi / psi
         else:
-            _x[:] = _x - step * phi / psi / 10
+            # This is a scheme that Peter Melchior and I came up with to
+            # dampen the known affect of ADAM, where the first iteration
+            # is often much larger than desired.
+            _x += -step * phi / psi / 10
 
-        # Iterate over the proximal operators until convergence
-        if self.prox is not None:
-            z = _x.copy()
-            gamma = step / np.max(psi)
-            for tau in range(1, self.max_prox_iter + 1):
-                _z = self.prox(z - gamma / step * psi * (z - _x))
-                converged = ((_z - z) ** 2).sum() <= self.e_rel**2 * (z**2).sum()
-                z = _z
-
-                if converged:
-                    break
-
-            _x[:] = z
-
-    def grow(self, new_shape: Sequence[int], dist: int):
-        _x = self.view(np.ndarray)
-        _x[:] = grow_array(_x, new_shape, dist)
-        self.m = grow_array(self.m, new_shape, dist)
-        self.v = grow_array(self.v, new_shape, dist)
-        self.vhat = grow_array(self.vhat, new_shape, dist)
-
-    def shrink(self, dist: int):
-        _x = self.view(np.ndarray)
-        _x[:] = _x[dist:-dist, dist:-dist]
-        self.m = self.m[dist:-dist, dist:-dist]
-        self.v = self.v[dist:-dist, dist:-dist]
-        self.vhat = self.vhat[dist:-dist, dist:-dist]
+        self.x = self.prox(_x)
 
 
 class FixedParameter(Parameter):

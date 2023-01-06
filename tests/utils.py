@@ -97,7 +97,7 @@ class ObservationData:
         self.images = Image(images, bands=bands)
         self.convolved = Image(convolved, bands=bands)
         self.diff_kernel = diff_kernel
-        self.boxes = boxes
+        self.morphs = [Image(morph, yx0=origin) for morph, origin in zip(morphs, origins)]
 
 
 def assert_image_almost_equal(image: Image, truth: Image):

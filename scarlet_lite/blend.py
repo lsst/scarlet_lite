@@ -21,7 +21,7 @@
 
 __all__ = ["Blend", "FitPsfBlend"]
 
-from typing import cast, Sequence, TypeVar
+from typing import cast, Callable, Sequence, TypeVar
 
 import numpy as np
 
@@ -115,15 +115,15 @@ class Blend:
                 return self.observation.convolve(model)
         return model
 
-    def _grad_log_likelihood(self) -> np.ndarray:
+    def _grad_log_likelihood(self) -> Image:
         """Gradient of the likelihood wrt the unconvolved model"""
         model = self.get_model(convolve=True)
         # Update the loss
         self.loss.append(self.observation.log_likelihood(model))
         # Calculate the gradient wrt the model d(logL)/d(model)
-        result = self.observation.weights * (model - self.observation.images.data)
+        result = self.observation.weights * (model - self.observation.images)
         result = self.observation.convolve(result, grad=True)
-        return result.data
+        return result
 
     @property
     def log_likelihood(self) -> float:
@@ -146,7 +146,7 @@ class Blend:
         blend: Blend
             The blend with updated components is returned.
         """
-        from .initialization import multifit_seds
+        from .initialization import multifit_spectra
 
         morphs = []
         seds = []
@@ -162,8 +162,11 @@ class Blend:
             else:
                 model[component.slices[0]] += component.get_model()[component.slices[1]]
 
-        boxes = [c.bbox[1:] for c in self.components]
-        fit_seds = multifit_seds(self.observation, morphs, boxes)
+        boxes = [c.bbox for c in self.components]
+        fit_seds = multifit_spectra(
+            self.observation,
+            [Image(morph, yx0=bbox.origin) for morph, bbox in zip(morphs, boxes)],
+        )
         for idx in range(len(morphs)):
             component = cast(
                 FactorizedComponent, self.components[factorized_indices[idx]]
@@ -233,7 +236,7 @@ class Blend:
             grad_log_likelihood = self._grad_log_likelihood()
             # Update each component given the current gradient
             for component in self.components:
-                component.update(it, grad_log_likelihood)
+                component.update(it, grad_log_likelihood.data)
             # Check to see if any components need to be resized
             if resize is not None and it > 0 and it % resize == 0:
                 for component in self.components:
@@ -249,6 +252,19 @@ class Blend:
         if reweight:
             weight_sources(self)
         return it, self.loss[-1]
+
+    def parameterize(self, parameterization: Callable):
+        """Convert the component parameter arrays into Parameter instances
+
+        Parameters
+        ----------
+        parameterization: Callable
+            A function to use to convert parameters of a given type into
+            a `Parameter` in place. It should take a single argument that
+            is the `Component` or `Source` that is to be parameterized.
+        """
+        for component in self.components:
+            component.parameterize(parameterization)
 
 
 class FitPsfBlend(Blend):

@@ -23,11 +23,20 @@ import os
 import unittest
 
 import numpy as np
-from numpy.testing import assert_array_equal
+from numpy.testing import assert_array_equal, assert_almost_equal
+from scipy.signal import convolve as scipy_convolve
 
+from scarlet_lite import Box, Image, Observation
+from scarlet_lite.initialization import (
+    trim_morphology,
+    init_monotonic_morph,
+    multifit_spectra,
+    FactorizedChi2Initialization,
+)
 from scarlet_lite.operators import prox_monotonic_mask, Monotonicity
-from scarlet_lite import Box
-from scarlet_lite.initialization import trim_morphology, init_monotonic_morph
+from scarlet_lite.utils import integrated_circular_gaussian
+
+from utils import ObservationData
 
 
 class TestInitialization(unittest.TestCase):
@@ -35,8 +44,18 @@ class TestInitialization(unittest.TestCase):
         filename = os.path.join(__file__, "..", "..", "data", "hsc_cosmos_35.npz")
         filename = os.path.abspath(filename)
         data = np.load(filename)
+        model_psf = integrated_circular_gaussian(sigma=0.8)
         self.detect = np.sum(data["images"], axis=0)
         self.centers = np.array([data["catalog"]["y"], data["catalog"]["x"]]).T
+        bands = data["filters"]
+        self.observation = Observation(
+            Image(data["images"], bands=bands),
+            Image(data["variance"], bands=bands),
+            Image(1/data["variance"], bands=bands),
+            data["psfs"],
+            model_psf[None],
+            bands=bands,
+        )
 
     def test_trim_morphology(self):
         # Test default parameters
@@ -112,3 +131,71 @@ class TestInitialization(unittest.TestCase):
         truth[truth < 0.2] = 0
         self.assertEqual(bbox, Box((45, 44), origin=(10, 3)))
         assert_array_equal(morph, truth)
+
+    def test_multifit_spectra(self):
+        bands = ("g", "r", "i")
+        variance = np.ones((3, 35, 35), dtype=float)
+        weights = 1 / variance
+        psfs = np.array(
+            [integrated_circular_gaussian(sigma=sigma) for sigma in [1.05, 0.9, 1.2]]
+        )
+        model_psf = integrated_circular_gaussian(sigma=0.8)
+
+        # The spectrum of each source
+        spectra = np.array(
+            [
+                [31, 10, 0],
+                [0, 5, 20],
+                [15, 8, 3],
+                [20, 3, 4],
+                [0, 30, 60],
+            ]
+        )
+
+        # Use a point source for all of the sources
+        morphs = [
+            integrated_circular_gaussian(sigma=sigma)
+            for sigma in [0.8, 3.1, 1.1, 2.1, 1.5]
+        ]
+        # Make the second component a disk component
+        morphs[1] = scipy_convolve(morphs[1], model_psf, mode="same")
+
+        # Give the first two components the same center, and unique centers
+        # for the remaining sources
+        centers = [
+            (10, 12),
+            (10, 12),
+            (20, 23),
+            (20, 10),
+            (25, 20),
+        ]
+
+        # Create the Observation
+        test_data = ObservationData(bands, psfs, spectra, morphs, centers, model_psf)
+        observation = Observation(
+            test_data.convolved,
+            variance,
+            weights,
+            psfs,
+            model_psf[None],
+            bands=bands,
+        )
+
+        fit_spectra = multifit_spectra(observation, test_data.morphs)
+
+        assert_almost_equal(fit_spectra, spectra)
+
+    def test_factorized_chi2_init(self):
+        # Test default parameters
+        init = FactorizedChi2Initialization(self.observation, self.centers)
+
+        self.assertEqual(init.observation, self.observation)
+        self.assertEqual(init.min_snr, 50)
+        self.assertEqual(init.monotonicity, None)
+        self.assertEqual(init.disk_percentile, 25)
+        self.assertEqual(init.thresh, 0.5)
+        self.assertTupleEqual((init.py, init.px), (7, 7))
+
+        # There is no good way to test that this is working,
+        # so we mainly test that this code completed,
+        # and that sources have a consistent number of components.

@@ -188,7 +188,7 @@ class Box:
         """Bounds of the box as slices"""
         return tuple([slice(o, o + s) for o, s in zip(self.origin, self.shape)])
 
-    def grow(self, radius: int) -> TBox:
+    def grow(self, radius: int | tuple[tuple[int, ...], ...]) -> TBox:
         """Grow the Box by the given radius in each direction"""
         if not hasattr(radius, "__iter__"):
             radius = [radius] * self.dimensions
@@ -396,24 +396,6 @@ class Box:
 
     def __hash__(self) -> int:
         return hash((self.shape, self.origin))
-
-
-def get_minimal_boxsize(size: int, min_size: int = 21, increment: int = 10) -> int:
-    """Calculate the smallest box that will contain a source with `size`
-
-    Parameters
-    ----------
-    size: int
-        The size of the source.
-    min_size: int
-        The minimum size of a box.
-    increment: int
-        The step size for the box size.
-    """
-    boxsize = min_size
-    while boxsize < size:
-        boxsize += increment  # keep box sizes quite small
-    return boxsize
 
 
 def overlapped_slices(

@@ -7,7 +7,9 @@ import numpy as np
 import numpy.typing as npt
 
 from .bbox import Box
-from .blend import Blend, Source
+from .blend import Blend
+from .source import Source
+from .image import Image
 
 
 # Size of a single panel, used for generating figures with multiple sub-plots
@@ -361,7 +363,7 @@ def show_scene(
     if show_model:
         extent = get_extent(bbox)
         ax[panel].imshow(
-            img_to_rgb(model, norm=norm, channel_map=channel_map, mask=mask),
+            img_to_rgb(model.data, norm=norm, channel_map=channel_map, mask=mask),
             extent=extent,
             origin="lower",
         )
@@ -374,7 +376,7 @@ def show_scene(
 
     if show_rendered:
         ax[panel].imshow(
-            img_to_rgb(model, norm=norm, channel_map=channel_map, mask=mask),
+            img_to_rgb(model.data, norm=norm, channel_map=channel_map, mask=mask),
             extent=extent,
             origin="lower",
         )
@@ -384,7 +386,7 @@ def show_scene(
     if show_observed:
         ax[panel].imshow(
             img_to_rgb(
-                observation.images, norm=norm, channel_map=channel_map, mask=mask
+                observation.images.data, norm=norm, channel_map=channel_map, mask=mask
             ),
             extent=extent,
             origin="lower",
@@ -394,9 +396,9 @@ def show_scene(
 
     if show_residual:
         residual = observation.images - model
-        norm_ = LinearPercentileNorm(residual)
+        norm_ = LinearPercentileNorm(residual.data)
         ax[panel].imshow(
-            img_to_rgb(residual, norm=norm_, channel_map=channel_map, mask=mask),
+            img_to_rgb(residual.data, norm=norm_, channel_map=channel_map, mask=mask),
             extent=extent,
             origin="lower",
         )
@@ -516,7 +518,6 @@ def show_sources(
         sources = blend.sources
     panels = sum((show_model, show_observed, show_rendered, show_spectrum))
     n_sources = len([src for src in sources if not src.is_null])
-    bbox = observation.bbox
     if figsize is None:
         figsize = (panel_size * panels, panel_size * n_sources)
 
@@ -543,12 +544,14 @@ def show_sources(
 
         if show_model:
             if model_mask:
-                _model_mask = np.max(model, axis=0) <= 0
+                _model_mask = np.max(model.data, axis=0) <= 0
             else:
                 _model_mask = None
             # Show the unrendered model in it's bbox
             ax[k - skipped][panel].imshow(
-                img_to_rgb(model, norm=norm, channel_map=channel_map, mask=_model_mask),
+                img_to_rgb(
+                    model.data, norm=norm, channel_map=channel_map, mask=_model_mask
+                ),
                 extent=extent,
                 origin="lower",
             )
@@ -567,11 +570,12 @@ def show_sources(
         # model in observation frame
         if show_rendered:
             # Center and show the rendered model
-            model_ = src.get_model(use_flux=use_flux, bbox=bbox)
+            model_ = Image(np.zeros(observation.shape), bands=observation.bands)
+            model_ += src.get_model(use_flux=use_flux)
             if not use_flux:
                 model_ = observation.convolve(model_)
             ax[k - skipped][panel].imshow(
-                img_to_rgb(model_, norm=norm, channel_map=channel_map),
+                img_to_rgb(model_.data, norm=norm, channel_map=channel_map),
                 extent=get_extent(observation.bbox),
                 origin="lower",
             )
@@ -591,7 +595,7 @@ def show_sources(
             # Center the observation on the source and display it
             _images = observation.images
             ax[k - skipped][panel].imshow(
-                img_to_rgb(_images, norm=norm, channel_map=channel_map),
+                img_to_rgb(_images.data, norm=norm, channel_map=channel_map),
                 extent=get_extent(observation.bbox),
                 origin="lower",
             )

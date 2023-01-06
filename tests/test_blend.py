@@ -28,7 +28,6 @@ from scipy.signal import convolve as scipy_convolve
 
 from scarlet_lite import Blend, Source, FactorizedComponent, Observation, Box
 from scarlet_lite.component import default_adaprox_parameterization
-from scarlet_lite.initialization import init_all_sources_chi2
 from scarlet_lite.utils import integrated_circular_gaussian
 from utils import ObservationData
 

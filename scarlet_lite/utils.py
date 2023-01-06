@@ -26,82 +26,11 @@ import numpy as np
 import numpy.typing as npt
 from scipy.special import erfc
 
-from .bbox import overlapped_slices, get_minimal_boxsize, Box
+from .bbox import overlapped_slices, Box
 
 
 ScalarLike = bool | int | float | complex
 ScalarTypes = (bool, int, float, complex)
-
-
-def project_morph_to_center(
-    morph: np.ndarray,
-    center: Sequence[int],
-    bbox: Box,
-    fullbox: Box,
-    boxsize: int = None,
-) -> tuple[np.ndarray, Box]:
-    """Project an uncentered morphology into a box that is centered on it
-
-    Since most astrophysical sources are roughly symmetric,
-    assuming that there will be an equal area of flux on opposing
-    sides of the center is true in most cases.
-    Projecting the morphology to the center of a square box
-    makes it easier to update the flux without resizing with
-    a minimal waste of memory.
-
-    Parameters
-    ----------
-    morph: np.ndarray
-        The 2D morphology that is to be centered.
-    center: Squence[int]
-        The center pixel of `morph` in `fullbox`.
-    bbox: Box
-        The bounding box of `morph`.
-    fullbox: Box
-        The bounding box of the full `image` in which
-        `center` describes the center of the source.
-    boxsize: int
-        The size of the centered morphology.
-        If `boxsize` is `None` then the minimal box needed to
-        contain the centered morphology with an odd number of
-        pixels in x and y (so that there is a center) is used.
-
-    Returns
-    -------
-    centered: np.ndarray
-        The centered morphology.
-    centered_box: `scarlet.bbox.Box`
-        The bounding box that contains the centered morphology
-        in coordinates of the `fullbaox`.
-    """
-    # find fitting bbox
-    if bbox.contains(center):
-        size = 2 * max(
-            (
-                center[0] - bbox.start[-2],
-                bbox.stop[0] - center[-2],
-                center[1] - bbox.start[-1],
-                bbox.stop[1] - center[-1],
-            )
-        )
-    else:
-        size = 0
-
-    # define new box and cut morphology accordingly
-    if boxsize is None:
-        boxsize = get_minimal_boxsize(size)
-
-    bottom = center[0] - boxsize // 2
-    top = center[0] + boxsize // 2 + 1
-    left = center[1] - boxsize // 2
-    right = center[1] + boxsize // 2 + 1
-    centered_box = Box.from_bounds((bottom, top), (left, right))
-
-    centered = np.zeros(centered_box.shape, dtype=morph.dtype)
-    slices = overlapped_slices(centered_box, fullbox)
-    centered[slices[0]] = morph[slices[1]]
-
-    return centered, centered_box
 
 
 def integrated_gaussian_psf(x: np.ndarray, sigma: float) -> np.ndarray:
