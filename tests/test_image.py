@@ -475,3 +475,30 @@ class TestImage(unittest.TestCase):
         with self.assertRaises(IndexError):
             # Cannot use a bounding box partially outside of the image
             _ = image[:, Box((40, 40), (20, 80))]
+
+    def test_overlap_detection(self):
+        # Test 2D image
+        image = Image(np.zeros((5, 6)), yx0=(10, 15))
+        slices = image.overlapped_slices(Box((8, 9), (7, 18)))
+        truth = (
+            (slice(0, 5), slice(3, 6)),
+            (slice(3, 8), slice(0, 3))
+        )
+        self.assertTupleEqual(slices, truth)
+
+        # Test 3D image
+        image = Image(np.zeros((3, 10, 12)), bands=("g", "r", "i"), yx0=(13, 21))
+        slices = image.overlapped_slices(Box((8, 9), (15, 18)))
+        truth = (
+            (slice(None), slice(2, 10), slice(0, 6)),
+            (slice(None), slice(0, 8), slice(3, 9))
+        )
+        self.assertTupleEqual(slices, truth)
+
+        # Test no overlap
+        slices = image.overlapped_slices(Box((8, 9), (115, 118)))
+        truth = (
+            (slice(None), slice(0, 0), slice(0, 0)),
+            (slice(None), slice(0, 0), slice(0, 0)),
+        )
+        self.assertTupleEqual(slices, truth)
