@@ -182,7 +182,7 @@ def img_to_3channel(
 
 
 def img_to_rgb(
-    img: np.ndarray,
+    img: np.ndarray | Image,
     channel_map: np.ndarray = None,
     fill_value: float = 0,
     norm: Mapping = None,
@@ -210,6 +210,8 @@ def img_to_rgb(
     rgb: np.ndarray
         RGB values with dimensions (3, height, width) and dtype uint8
     """
+    if isinstance(img, Image):
+        img = img.data
     _rgb = img_to_3channel(img, channel_map=channel_map, fill_value=fill_value)
     if norm is None:
         norm = LinearMapping(image=_rgb)

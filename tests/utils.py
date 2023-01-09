@@ -115,7 +115,7 @@ class ScarletTestCase(TestCase):
             msg = f"Box origins differ: {bbox.shape}!={truth.shape}"
             raise AssertionError(msg)
 
-    def assertImageAlmostEqual(self, image: Image, truth: Image):
+    def assertImageAlmostEqual(self, image: Image, truth: Image, decimal: int = 7):
         if not isinstance(image, Image):
             raise AssertionError(f"image is a {type(image)}, not a scarlet_lite `Image`")
         if not isinstance(truth, Image):
@@ -138,7 +138,7 @@ class ScarletTestCase(TestCase):
 
         # The images overlap in multi-band image space,
         # check the values of the images
-        assert_almost_equal(image.data, truth.data)
+        assert_almost_equal(image.data, truth.data, decimal=decimal)
 
     def assertImageEqual(self, image: Image, truth: Image):
         self.assertImageAlmostEqual(image, truth)
