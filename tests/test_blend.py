@@ -82,7 +82,12 @@ class TestBlend(ScarletTestCase):
         weights = 1 / variance
         weights = weights / np.max(weights)
         self.observation = Observation(
-            test_data.convolved, variance, weights, psfs, model_psf[None], bands=bands,
+            test_data.convolved,
+            variance,
+            weights,
+            psfs,
+            model_psf[None],
+            bands=bands,
         )
         self.data = test_data
         self.spectra = spectra
@@ -91,7 +96,7 @@ class TestBlend(ScarletTestCase):
 
         components = []
         for spectrum, center, morph, data_morph in zip(
-                self.spectra, self.centers, self.morphs, self.data.morphs
+            self.spectra, self.centers, self.morphs, self.data.morphs
         ):
             components.append(
                 FactorizedComponent(
@@ -118,7 +123,9 @@ class TestBlend(ScarletTestCase):
         self.assertEqual(len(blend.sources), 4)
         self.assertBoxEqual(blend.bbox, Box(self.data.images.shape[1:]))
         self.assertImageAlmostEqual(blend.get_model(), self.data.images)
-        self.assertImageAlmostEqual(blend.get_model(convolve=True), self.observation.images)
+        self.assertImageAlmostEqual(
+            blend.get_model(convolve=True), self.observation.images
+        )
         self.assertImageAlmostEqual(
             self.observation.convolve(blend.get_model(), mode="real"),
             self.observation.images,
@@ -168,7 +175,9 @@ class TestBlend(ScarletTestCase):
         self.assertEqual(len(blend.sources), 4)
         self.assertBoxEqual(blend.bbox, Box(self.observation.bbox.shape))
         self.assertImageAlmostEqual(blend.get_model(), self.data.images)
-        self.assertImageAlmostEqual(blend.get_model(convolve=True), self.observation.images)
+        self.assertImageAlmostEqual(
+            blend.get_model(convolve=True), self.observation.images
+        )
 
     def test_fit(self):
         observation = self.observation
@@ -179,9 +188,7 @@ class TestBlend(ScarletTestCase):
 
         monotonicity = Monotonicity((101, 101))
         init = FactorizedChi2Initialization(
-            observation,
-            self.centers,
-            monotonicity=monotonicity
+            observation, self.centers, monotonicity=monotonicity
         )
 
         blend = Blend(init.sources, self.observation).fit_spectra()

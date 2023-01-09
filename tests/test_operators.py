@@ -26,7 +26,11 @@ from numpy.testing import assert_array_equal  # , assert_almost_equal
 
 from scarlet_lite import Image
 from scarlet_lite.operators import (
-    prox_connected, Monotonicity, prox_monotonic_mask, prox_sdss_symmetry, prox_uncentered_symmetry,
+    prox_connected,
+    Monotonicity,
+    prox_monotonic_mask,
+    prox_sdss_symmetry,
+    prox_uncentered_symmetry,
 )
 from utils import ScarletTestCase
 
@@ -51,11 +55,7 @@ class TestOperators(ScarletTestCase):
         full_image = image + image4 + image5
 
         # Include 3 of the 5 box centers
-        centers = [
-            (7, 7),
-            (21, 20),
-            (12, 36)
-        ]
+        centers = [(7, 7), (21, 20), (12, 36)]
 
         result = prox_connected(full_image.data, centers)
         assert_array_equal(result, image.data)
@@ -67,7 +67,7 @@ class TestOperators(ScarletTestCase):
         x = np.arange(shape[1], dtype=float) - cx
         y = np.arange(shape[0], dtype=float) - cy
         x, y = np.meshgrid(x, y)
-        distance = np.sqrt(x ** 2 + y ** 2)
+        distance = np.sqrt(x**2 + y**2)
 
         neighbor_dist = np.zeros((9,) + distance.shape, dtype=float)
         neighbor_dist[0, 1:, 1:] = distance[1:, 1:] - distance[:-1, :-1]
@@ -177,7 +177,7 @@ class TestOperators(ScarletTestCase):
         morph = self.detect.copy()
         cy, cx = self.centers[1].astype(int)
         truth = monotonicity(morph.copy(), (cy, cx))
-        morph = monotonicity(morph, (cy+1, cx))
+        morph = monotonicity(morph, (cy + 1, cx))
         assert_array_equal(morph, truth)
 
         # Shift by 2 pixels and confirm that the morphologies are not equal

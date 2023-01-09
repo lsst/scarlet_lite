@@ -107,9 +107,7 @@ class TestFactorizedComponent(ScarletTestCase):
         test_model = Image(np.zeros(self.full_shape), bands=self.bands)
         test_model += component.get_model()
 
-        assert_array_equal(
-            test_model.data, full_model
-        )
+        assert_array_equal(test_model.data, full_model)
 
     def test_gradients(self):
         component = self.component

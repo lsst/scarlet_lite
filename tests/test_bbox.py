@@ -150,9 +150,13 @@ class TestBox(ScarletTestCase):
 
         # Test overlapping slices
         slices = bbox1.overlapped_slices(bbox2)
-        self.assertTupleEqual(slices, ((slice(0, 0), slice(0, 0)), (slice(0, 0), slice(0, 0))))
+        self.assertTupleEqual(
+            slices, ((slice(0, 0), slice(0, 0)), (slice(0, 0), slice(0, 0)))
+        )
         slices = bbox1.overlapped_slices(bbox3)
-        self.assertTupleEqual(slices, ((slice(0, 3), slice(0, 4)), (slice(10, 13), (slice(14, 18)))))
+        self.assertTupleEqual(
+            slices, ((slice(0, 3), slice(0, 4)), (slice(10, 13), (slice(14, 18))))
+        )
 
     def test_arithmetic(self):
         shape = (2, 5, 7)

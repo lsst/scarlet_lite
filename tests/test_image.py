@@ -92,10 +92,14 @@ class TestImage(ScarletTestCase):
 
         # test initializing an empty image from a bounding box
         image = Image.from_box(Box((10, 10), (13, 50)))
-        self.assertImageEqual(image, Image(np.zeros((10, 10), dtype=float), bands=(), yx0=(13, 50)))
+        self.assertImageEqual(
+            image, Image(np.zeros((10, 10), dtype=float), bands=(), yx0=(13, 50))
+        )
         bands = ("g", "r", "i")
         image = Image.from_box(Box((10, 10), (13, 50)), bands=bands)
-        self.assertImageEqual(image, Image(np.zeros((3, 10, 10), dtype=float), bands=bands, yx0=(13, 50)))
+        self.assertImageEqual(
+            image, Image(np.zeros((3, 10, 10), dtype=float), bands=bands, yx0=(13, 50))
+        )
 
     def _binary_operation_test(
         self,
@@ -440,7 +444,9 @@ class TestImage(ScarletTestCase):
         self.assertImageEqual(sub_img, Image(data[-2:], bands=("z", "y"), yx0=yx0))
 
         sub_img = image[("z", "i", "y")]
-        self.assertImageEqual(sub_img, Image(data[(3, 2, 4), :, :], bands=("z", "i", "y"), yx0=yx0))
+        self.assertImageEqual(
+            sub_img, Image(data[(3, 2, 4), :, :], bands=("z", "i", "y"), yx0=yx0)
+        )
 
         self.assertImageEqual(image[:], image)
 
@@ -449,11 +455,15 @@ class TestImage(ScarletTestCase):
         self.assertImageEqual(sub_img, Image(data[:, :10, :10], bands=bands, yx0=yx0))
 
         sub_img = image[:, 10:20, 5:10]
-        self.assertImageEqual(sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87)))
+        self.assertImageEqual(
+            sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
+        )
 
         # Test bounding box slicing
         sub_img = image[:, Box((10, 5), (37, 87))]
-        self.assertImageEqual(sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87)))
+        self.assertImageEqual(
+            sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
+        )
 
         with self.assertRaises(IndexError):
             # Cannot index a single row, since it would not return an image
@@ -479,10 +489,7 @@ class TestImage(ScarletTestCase):
         # Test 2D image
         image = Image(np.zeros((5, 6)), yx0=(10, 15))
         slices = image.overlapped_slices(Box((8, 9), (7, 18)))
-        truth = (
-            (slice(0, 5), slice(3, 6)),
-            (slice(3, 8), slice(0, 3))
-        )
+        truth = ((slice(0, 5), slice(3, 6)), (slice(3, 8), slice(0, 3)))
         self.assertTupleEqual(slices, truth)
 
         # Test 3D image
@@ -490,7 +497,7 @@ class TestImage(ScarletTestCase):
         slices = image.overlapped_slices(Box((8, 9), (15, 18)))
         truth = (
             (slice(None), slice(2, 10), slice(0, 6)),
-            (slice(None), slice(0, 8), slice(3, 9))
+            (slice(None), slice(0, 8), slice(3, 9)),
         )
         self.assertTupleEqual(slices, truth)
 

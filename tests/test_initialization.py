@@ -50,7 +50,7 @@ class TestInitialization(ScarletTestCase):
         self.observation = Observation(
             Image(data["images"], bands=bands),
             Image(data["variance"], bands=bands),
-            Image(1/data["variance"], bands=bands),
+            Image(1 / data["variance"], bands=bands),
             data["psfs"],
             model_psf[None],
             bands=bands,

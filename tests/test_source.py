@@ -65,7 +65,11 @@ class TestSource(ScarletTestCase):
         self.assertTupleEqual(source.bands, bands)
         self.assertImageEqual(
             source.get_model(),
-            Image(sed1[:, None, None] * morph1[None, :, :], yx0=component_box1.origin, bands=bands)
+            Image(
+                sed1[:, None, None] * morph1[None, :, :],
+                yx0=component_box1.origin,
+                bands=bands,
+            ),
         )
         self.assertIsNone(source.get_model(True))
 
@@ -90,7 +94,7 @@ class TestSource(ScarletTestCase):
                 component_box2,
                 bbox,
                 center,
-            )
+            ),
         ]
         source = Source(components)
         self.assertEqual(source.n_components, 2)
