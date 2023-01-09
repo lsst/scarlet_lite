@@ -24,7 +24,6 @@ __all__ = ["Source"]
 from typing import Callable
 
 import numpy as np
-import numpy.typing as npt
 
 from .bbox import Box
 from .component import Component
@@ -38,7 +37,7 @@ class Source:
     and each can be contained in different bounding boxes.
     """
 
-    def __init__(self, components: list[Component], dtype: npt.DTypeLike):
+    def __init__(self, components: list[Component]):
         """Initialize an instance.
 
         Parameters
@@ -51,7 +50,6 @@ class Source:
             the same dtype as the observation data.
         """
         self.components = components
-        self.dtype = dtype
         self.flux = None
         self.flux_box = None
 
@@ -98,6 +96,8 @@ class Source:
 
     @property
     def bands(self) -> tuple:
+        if self.is_null:
+            return ()
         return self.components[0].bands
 
     def get_model(self, use_flux: bool = False) -> Image:
@@ -123,9 +123,7 @@ class Source:
         if use_flux:
             # Return the redistributed flux
             # (calculated by scarlet.lite.measure.weight_sources)
-            if bbox is None:
-                return self.flux
-            return insert_image(bbox, self.flux_box, self.flux)
+            return self.flux
 
         model = self.components[0].get_model()
         for component in self.components[1:]:

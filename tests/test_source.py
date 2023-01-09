@@ -19,25 +19,94 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import os
-
 import numpy as np
-from numpy.testing import assert_array_equal, assert_almost_equal
-from scipy.signal import convolve as scipy_convolve
-
-from scarlet_lite import Box, Image, Observation, Source
-from scarlet_lite.initialization import (
-    trim_morphology,
-    init_monotonic_morph,
-    multifit_spectra,
-    FactorizedChi2Initialization,
-)
-from scarlet_lite.operators import prox_monotonic_mask, Monotonicity
+from scarlet_lite import Box, Image, Source
+from scarlet_lite.component import FactorizedComponent
 from scarlet_lite.utils import integrated_circular_gaussian
 
 from utils import ScarletTestCase
 
 
 class TestSource(ScarletTestCase):
-    def test_source(self):
-        morph = integrated_circular_gaussian(sigma=0.8)
+    def test_constructor(self):
+        # Test empty source
+        source = Source([])
+
+        self.assertEqual(source.n_components, 0)
+        self.assertIsNone(source.center)
+        self.assertIsNone(source.source_center)
+        self.assertTrue(source.is_null)
+        self.assertBoxEqual(source.bbox, Box((0, 0)))
+        self.assertTupleEqual(source.bands, ())
+
+        # Test a source with a single component
+        bands = tuple("grizy")
+        bbox = Box((101, 101))
+        center = (27, 32)
+        morph1 = integrated_circular_gaussian(sigma=0.8)
+        sed1 = np.arange(5)
+        component_box1 = Box((15, 15), (20, 25))
+        components = [
+            FactorizedComponent(
+                bands,
+                sed1,
+                morph1,
+                component_box1,
+                bbox,
+                center,
+            ),
+        ]
+        source = Source(components)
+        self.assertEqual(source.n_components, 1)
+        self.assertTupleEqual(source.center, center)
+        self.assertTupleEqual(source.source_center, (7, 7))
+        self.assertFalse(source.is_null)
+        self.assertBoxEqual(source.bbox, component_box1)
+        self.assertTupleEqual(source.bands, bands)
+        self.assertImageEqual(
+            source.get_model(),
+            Image(sed1[:, None, None] * morph1[None, :, :], yx0=component_box1.origin, bands=bands)
+        )
+        self.assertIsNone(source.get_model(True))
+
+        # Test a source with multiple components
+        morph2 = integrated_circular_gaussian(sigma=2.1)
+        sed2 = np.arange(5)[::-1]
+        component_box2 = Box((15, 15), (10, 35))
+
+        components = [
+            FactorizedComponent(
+                bands,
+                sed1,
+                morph1,
+                component_box1,
+                bbox,
+                center,
+            ),
+            FactorizedComponent(
+                bands,
+                sed2,
+                morph2,
+                component_box2,
+                bbox,
+                center,
+            )
+        ]
+        source = Source(components)
+        self.assertEqual(source.n_components, 2)
+        self.assertTupleEqual(source.center, center)
+        self.assertTupleEqual(source.source_center, (17, 7))
+        self.assertFalse(source.is_null)
+        self.assertBoxEqual(source.bbox, Box((25, 25), (10, 25)))
+        self.assertTupleEqual(source.bands, bands)
+
+        model = np.zeros((5, 25, 25), dtype=float)
+        model[:, 10:25, :15] = sed1[:, None, None] * morph1[None, :, :]
+        model[:, :15, 10:25] += sed2[:, None, None] * morph2[None, :, :]
+        model = Image(model, yx0=(10, 25), bands=tuple("grizy"))
+
+        self.assertImageEqual(
+            source.get_model(),
+            model,
+        )
+        self.assertIsNone(source.get_model(True))

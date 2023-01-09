@@ -104,8 +104,8 @@ class TestBlend(ScarletTestCase):
                 )
             )
 
-        sources = [Source(components[:2], float)]
-        sources += [Source([component], float) for component in components[2:]]
+        sources = [Source(components[:2])]
+        sources += [Source([component]) for component in components[2:]]
 
         self.blend = Blend(sources, self.observation)
 

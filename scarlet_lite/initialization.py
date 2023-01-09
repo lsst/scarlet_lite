@@ -459,7 +459,7 @@ class FactorizedChi2Initialization:
                 )
             ]
 
-        return Source(components, self.observation.dtype)
+        return Source(components)
 
 
 class WaveletInitParameters:
@@ -583,13 +583,13 @@ def init_wavelet_source(
         component = FactorizedComponent(
             observation.bands, sed, morph, observation.bbox[0] @ bbox, bbox, center
         )
-        source = Source([component], observation.dtype)
+        source = Source([component])
     elif nbr_components < 2:
         bbox, morph = init_monotonic_morph(
             init.detectlets, center, observation.bbox[1:], init.disk_grow
         )
         if morph is None or np.max(morph) <= 0:
-            return Source([], observation.dtype)
+            return Source([])
 
         sed = init.images[sed_center] / init.convolved[sed_center]
         sed[sed < 0] = 0
@@ -598,7 +598,7 @@ def init_wavelet_source(
         component = FactorizedComponent(
             observation.bands, sed, morph, observation.bbox[0] @ bbox, bbox, center
         )
-        source = Source([component], observation.dtype)
+        source = Source([component])
     else:
         bulge_box, bulge_morph = init_monotonic_morph(
             init.bulgelets, center, observation.bbox[1:], init.bulge_grow
@@ -651,7 +651,7 @@ def init_wavelet_source(
             else:
                 logger.debug("cut disk")
 
-            source = Source(components, observation.dtype)
+            source = Source(components)
     return source
 
 
