@@ -28,7 +28,7 @@ import numpy as np
 from .bbox import Box
 from .component import Component, FactorizedComponent
 from .image import Image
-from .measure import weight_sources
+from .measure import conserve_flux
 from .observation import Observation, FitPsfObservation
 from .source import Source
 
@@ -203,7 +203,7 @@ class Blend:
         e_rel: float = 1e-4,
         min_iter: int = 15,
         resize: int = 10,
-        reweight: bool = True,
+        do_conserve_flux: bool = True,
     ) -> tuple[int, float]:
         """Fit all of the parameters
 
@@ -219,7 +219,7 @@ class Blend:
             Number of iterations before attempting to resize the
             resizable components. If `resize` is `None` then
             no resizing is ever attempted.
-        reweight: bool
+        do_conserve_flux: bool
             Whether or not to reweight the flux using the source
             models as templates.
 
@@ -249,8 +249,8 @@ class Blend:
                 break
             it += 1
         self.it = it
-        if reweight:
-            weight_sources(self)
+        if do_conserve_flux:
+            conserve_flux(self)
         return it, self.loss[-1]
 
     def parameterize(self, parameterization: Callable):
@@ -288,7 +288,7 @@ class FitPsfBlend(Blend):
         e_rel: float = 1e-4,
         min_iter: int = 1,
         resize: int = 10,
-        reweight: bool = False,
+        do_conserve_flux: bool = False,
     ) -> tuple[int, float]:
         """Fit all of the parameters
 
@@ -304,7 +304,7 @@ class FitPsfBlend(Blend):
             Number of iterations before attempting to resize the
             resizable components. If `resize` is `None` then
             no resizing is ever attempted.
-        reweight: bool
+        do_conserve_flux: bool
             Whether or not to reweight the flux using the source
             models as templates.
         """
@@ -335,6 +335,6 @@ class FitPsfBlend(Blend):
                 break
             it += 1
         self.it = it
-        if reweight:
-            weight_sources(self)
+        if do_conserve_flux:
+            conserve_flux(self)
         return it, self.loss[-1]

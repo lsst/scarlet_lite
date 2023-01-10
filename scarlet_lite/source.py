@@ -51,7 +51,6 @@ class Source:
         """
         self.components = components
         self.flux = None
-        self.flux_box = None
 
     @property
     def n_components(self) -> int:

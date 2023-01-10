@@ -43,7 +43,7 @@ def calculate_snr(
     return np.sum(numerator) / np.sqrt(np.sum(denominator))
 
 
-def weight_sources(blend, mask_footprint=True):
+def conserve_flux(blend, mask_footprint=True):
     """Use the source models as templates to re-weight the data
 
     This is the standard "deblending" trick, where the models are
@@ -73,21 +73,25 @@ def weight_sources(blend, mask_footprint=True):
     if mask_footprint:
         images = images * (observation.weights > 0)
     model = blend.get_model()
+    # Always convolve in real space to avoid FFT artifacts
     model = observation.convolve(model, mode="real")
     model[model < 0] = 0
+    zero_shape = (model.n_bands, 0, 0)
 
     for src in blend.sources:
-        if len(src.components) == 0:
-            src.flux = 0
-            src.flux_box = Box((0, 0, 0))
+        if src.is_null:
+            zero_flux = np.zeros(zero_shape)
+            src.flux = Image(zero_flux, bands=observation.bands)
+            src.flux_box = Box((0, 0))
             continue
-        _model = src.get_model()
+        src_model = src.get_model()
+        # Grow the model to include the wings of the PSF
         bbox = src.bbox.grow((0, py, px))
-        _model = insert_image(bbox, src.bbox, _model)
-        _model = observation.convolve(_model, mode="real")
-        _model[_model < 0] = 0
+        src_model = insert_image(bbox, src.bbox, src_model)
+        src_model = observation.convolve(src_model, mode="real")
+        src_model[src_model < 0] = 0
         slices = overlapped_slices(observation.bbox, bbox)
-        numerator = _model[slices[1]]
+        numerator = src_model[slices[1]]
         denominator = model[slices[0]]
         cuts = denominator != 0
         ratio = np.zeros(numerator.shape, dtype=numerator.dtype)

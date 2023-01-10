@@ -193,6 +193,6 @@ class TestBlend(ScarletTestCase):
 
         blend = Blend(init.sources, self.observation).fit_spectra()
         blend.parameterize(default_adaprox_parameterization)
-        blend.fit(100, reweight=False)
+        blend.fit(100, do_conserve_flux=False)
 
         self.assertImageAlmostEqual(blend.get_model(convolve=True), images, decimal=1)
