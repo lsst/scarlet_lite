@@ -465,6 +465,16 @@ class TestImage(ScarletTestCase):
             sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
         )
 
+        sub_img = image[Box((10, 5), (37, 87))]
+        self.assertImageEqual(
+            sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
+        )
+
+        sub_img = image[10:20, 5:10]
+        self.assertImageEqual(
+            sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
+        )
+
         with self.assertRaises(IndexError):
             # Cannot index a single row, since it would not return an image
             _ = image["g", 0]

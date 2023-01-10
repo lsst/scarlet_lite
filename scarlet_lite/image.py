@@ -20,7 +20,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import operator
-from typing import Callable, Sequence, TypeVar
+from typing import Any, Callable, Sequence, TypeVar
 
 import numpy as np
 from numpy.typing import DTypeLike, ArrayLike
@@ -322,15 +322,18 @@ class Image:
     def project(
         self,
         bands: object | tuple[object] = None,
+        bbox: Box = None,
     ) -> TImage:
         """Project this image into a differnt set of bands
 
          Parameters
          ----------
          bands:
-            Spctral bands  to project this image into.
+            Spctral bands to project this image into.
             Not all bands have to be contained in the image, and not all
             bands contained in the image have to be used in the projection.
+         bbox:
+            A bounding box to project the image into.
 
         Results
         -------
@@ -339,8 +342,26 @@ class Image:
         """
         if bands is None:
             bands = self.bands
-        indices = self.spectral_indices(bands)
-        return Image(self.data[indices], bands=bands, yx0=self.yx0)
+        if self.is_multiband:
+            indices = self.spectral_indices(bands)
+            data = self.data[indices]
+        else:
+            data = self.data
+
+        if bbox is None:
+            return Image(data, bands=bands, yx0=self.yx0)
+
+        if self.is_multiband:
+            image = np.zeros((len(bands),) + bbox.shape, dtype=data.dtype)
+            slices = bbox.overlapped_slices(self.bbox)
+            # Insert a slice for the spectral dimension
+            image[(slice(None), ) + slices[0]] = data[(slice(None),) + slices[1]]
+            return Image(image, bands=bands, yx0=bbox.origin)
+
+        image = np.zeros(bbox.shape, dtype=data.dtype)
+        slices = bbox.overlapped_slices(self.bbox)
+        image[slices[0]] = data[slices[1]]
+        return Image(image, bands=bands, yx0=bbox.origin)
 
     def multiband_slices(self) -> tuple[tuple | slice, slice, slice]:
         """Return the
@@ -698,6 +719,25 @@ class Image:
     def __str__(self):
         return f"Image:\n {super().__str__()}\n  bands={self.bands}\n  bbox={self.bbox}"
 
+    def _is_spectral_index(self, index: Any):
+        """Check to see if an index is a spectral index.
+
+        Parameters
+        ----------
+        index:
+            Either a slice, a tuple, or an element in `Image.bands`.
+        """
+        bands = self.bands
+        if isinstance(index, slice):
+            if index.start in bands or index.stop in bands or (index.start is None and index.stop is None):
+                return True
+            return False
+        if index in self.bands:
+            return True
+        if isinstance(index, tuple) and index[0] in self.bands:
+            return True
+        return False
+
     def _get_sliced(self, indices, value: ArrayLike = None) -> TImage:
         """Select a subset of an image
 
@@ -727,14 +767,19 @@ class Image:
                 spectral_index = self.spectral_indices(indices)
                 y_index = x_index = slice(None)
             else:
-                spectral_index = self.spectral_indices(indices[0])
-                if len(indices) > 1:
-                    if isinstance(indices[1], Box):
-                        overlap = self.bbox & indices[1]
-                        if overlap != indices[1]:
+                if self._is_spectral_index(indices[0]):
+                    spectral_index = self.spectral_indices(indices[0])
+                    indices = indices[1:]
+                else:
+                    spectral_index = slice(None)
+
+                if len(indices) > 0:
+                    if isinstance(indices[0], Box):
+                        overlap = self.bbox & indices[0]
+                        if overlap != indices[0]:
                             raise IndexError("Bounding box is outside of the image")
-                        origin = indices[1].origin
-                        shape = indices[1].shape
+                        origin = indices[0].origin
+                        shape = indices[0].shape
                         y_start = origin[0] - self.yx0[0]
                         y_stop = origin[0] + shape[0] - self.yx0[0]
                         x_start = origin[1] - self.yx0[1]
@@ -742,11 +787,11 @@ class Image:
                         y_index = slice(y_start, y_stop)
                         x_index = slice(x_start, x_stop)
                     else:
-                        y_index = indices[1]
-                        if len(indices) > 2:
-                            if len(indices) > 3:
+                        y_index = indices[0]
+                        if len(indices) > 1:
+                            if len(indices) > 2:
                                 raise IndexError(f"Unable to parse indices {indices}")
-                            x_index = indices[2]
+                            x_index = indices[1]
                         else:
                             x_index = slice(None)
                 else:
@@ -766,15 +811,21 @@ class Image:
                 else:
                     full_index = (y_index, x_index)
         else:
-            y_index = indices[0]
-            if len(indices) > 1:
-                if len(indices) > 2:
-                    raise IndexError(f"Unable to parse indices {indices}")
-                x_index = indices[1]
+            if isinstance(indices[0], Box):
+                y0, x0 = indices[0].start
+                yf, xf = indices[0].stop
+                y_index = slice(y0, yf + 1)
+                x_index = slice(x0, xf + 1)
             else:
-                x_index = slice(None)
-            bands = None
-            full_index = (y_index, x_index)
+                y_index = indices[0]
+                if len(indices) > 1:
+                    if len(indices) > 2:
+                        raise IndexError(f"Unable to parse indices {indices}")
+                    x_index = indices[1]
+                else:
+                    x_index = slice(None)
+                bands = None
+                full_index = (y_index, x_index)
 
         if not isinstance(y_index, slice):
             raise IndexError(
