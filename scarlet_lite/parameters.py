@@ -351,6 +351,7 @@ class AdaproxParameter(Parameter):
         self.p = p
 
         if not hasattr(step, "__call__"):
+
             def _step(x):
                 return step
 

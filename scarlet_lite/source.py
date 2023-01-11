@@ -23,8 +23,6 @@ __all__ = ["Source"]
 
 from typing import Callable
 
-import numpy as np
-
 from .bbox import Box
 from .component import Component
 from .image import Image

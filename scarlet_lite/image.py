@@ -276,10 +276,10 @@ class Image:
             # The images are 2D, so no spectral slicing is necessary
             return (), ()
         if self.n_bands == 0 and other.n_bands > 1:
-            err = f"Attempted to insert a monochromatic image into a mutli-band image"
+            err = "Attempted to insert a monochromatic image into a mutli-band image"
             raise ValueError(err)
         if other.n_bands == 0:
-            err = f"Attempted to insert a multi-band image into a monochromatic image"
+            err = "Attempted to insert a multi-band image into a monochromatic image"
             raise ValueError(err)
         self_indices = self.spectral_indices(other.bands)
         matched_bands = tuple(self.bands[bidx] for bidx in self_indices)
@@ -344,7 +344,9 @@ class Image:
             bands = self.bands
         if self.is_multiband:
             indices = self.spectral_indices(bands)
-            data = self.data[indices, ]
+            data = self.data[
+                indices,
+            ]
         else:
             data = self.data
 
@@ -355,7 +357,7 @@ class Image:
             image = np.zeros((len(bands),) + bbox.shape, dtype=data.dtype)
             slices = bbox.overlapped_slices(self.bbox)
             # Insert a slice for the spectral dimension
-            image[(slice(None), ) + slices[0]] = data[(slice(None),) + slices[1]]
+            image[(slice(None),) + slices[0]] = data[(slice(None),) + slices[1]]
             return Image(image, bands=bands, yx0=bbox.origin)
 
         image = np.zeros(bbox.shape, dtype=data.dtype)
@@ -729,7 +731,11 @@ class Image:
         """
         bands = self.bands
         if isinstance(index, slice):
-            if index.start in bands or index.stop in bands or (index.start is None and index.stop is None):
+            if (
+                index.start in bands
+                or index.stop in bands
+                or (index.start is None and index.stop is None)
+            ):
                 return True
             return False
         if index in self.bands:

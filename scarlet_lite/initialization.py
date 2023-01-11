@@ -249,8 +249,10 @@ class FactorizedChi2Initialization:
         self.detect = detect
         detect = Image(detect)
         # Convolve the detection image.
-        # This may seem counter-intuitive, since this is effectively growing the model,
-        # but this is exactly what convolution will do to the model in each iteration.
+        # This may seem counter-intuitive,
+        # since this is effectively growing the model,
+        # but this is exactly what convolution will do to the model
+        # in each iteration.
         # So we create the convolved model in order to correctly set the SED.
         self.convolved = observation.convolve(
             detect.repeat(observation.bands), mode="real"
@@ -285,7 +287,8 @@ class FactorizedChi2Initialization:
         Parameters
         ----------
         center:
-            The location of the center of the source to detect in the full image.
+            The location of the center of the source to detect in the
+            full image.
 
         Returns
         -------
@@ -381,8 +384,8 @@ class FactorizedChi2Initialization:
             ]
         elif component_snr >= 2:
             # There was enough flux for a 2-component source,
-            # so split the single component model into two components, using the
-            # same algorithm as scarlet main.
+            # so split the single component model into two components,
+            # using the same algorithm as scarlet main.
             bulge_morph = morph.copy()
             disk_morph = morph
             flux_thresh = self.disk_percentile / 100
@@ -489,18 +492,20 @@ class WaveletInitParameters:
         observation:
             The multiband observation of the blend.
         bulge_slice, disk_slice:
-            The slice used to select the wavelet scales used for the bulge/disk.
+            The slice used to select the wavelet scales used for the
+            bulge/disk.
         bulge_grow, disk_grow:
             The number of pixels to grow the bounding box of the bulge/disk
             to leave extra room for growth in the first few iterations.
         use_psf:
             Whether or not to use the PSF for single component sources.
-            If `use_psf` is `False` then only sources with low signal at all scales
-            are initialized with the PSF morphology.
+            If `use_psf` is `False` then only sources with low signal
+            at all scales are initialized with the PSF morphology.
         scales:
             Number of wavelet scales to use.
         wavelets: `numpy.ndarray`
-            The array of wavelet coefficients `(scale, y, x)` used for detection.
+            The array of wavelet coefficients `(scale, y, x)`
+            used for detection.
         """
         if wavelets is None:
             wavelets = get_detect_wavelets(
@@ -673,8 +678,8 @@ def init_all_sources_wavelets(
     `parameterize_source` must still be run to select a parameterization
     (optimizer) that `LiteBlend` requires for fitting.
 
-    See the parameters of `~WaveletInitParameters.__init__` for a description of
-    the parameters.
+    See the parameters of `~WaveletInitParameters.__init__`
+    for a description of the parameters.
 
     Parameters
     ----------

@@ -331,7 +331,8 @@ def mk_shifter(
     shape:
         Shape of the 2-D array to shift.
     real:
-        if true, the frequencies are all returned for real transforms (all dimension are half of the shape).
+        if true, the frequencies are all returned for real transforms
+        (all dimension are half of the shape).
         if False, only the last dimension is considered a real transform.
 
     Returns:
@@ -351,8 +352,8 @@ def mk_shifter(
             freq_y = np.fft.rfftfreq(shape[-2])
         else:
             freq_y = np.fft.fftfreq(shape[-2])
-        # Shift the signal to recenter it, negative because math is opposite from
-        # pixel direction
+        # Shift the signal to recenter it.
+        # Negative because math is opposite from pixel direction
         shift_y = -1j * 2 * np.pi * freq_y
         shift_x = -1j * 2 * np.pi * freq_x
 

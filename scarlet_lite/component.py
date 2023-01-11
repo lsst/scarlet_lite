@@ -88,7 +88,9 @@ class Component(ABC):
         self.model_bbox = model_bbox
         self.overlap = model_bbox & bbox
         self.grad_box = self.spectral_box @ bbox
-        self.grad_slices = (self.spectral_box @ self.model_bbox).overlapped_slices(self.grad_box)
+        self.grad_slices = (self.spectral_box @ self.model_bbox).overlapped_slices(
+            self.grad_box
+        )
 
     @property
     def bbox(self):
@@ -334,7 +336,8 @@ class FactorizedComponent(Component):
         bg_thresh = self.bg_rms * self.bg_thresh
         significant = np.any(model >= bg_thresh[:, None, None], axis=0)
         if np.sum(significant) == 0:
-            # There are no significant pixels, so make a small box around the center
+            # There are no significant pixels,
+            # so make a small box around the center
             new_box = Box((1, 1), self.center).grow(self.padding)
         else:
             new_box = (
@@ -350,7 +353,9 @@ class FactorizedComponent(Component):
 
         self.overlap = self.model_bbox & new_box
         self.grad_box = self.spectral_box @ new_box
-        self.grad_slices = (self.spectral_box @ self.model_bbox).overlapped_slices(self.grad_box)
+        self.grad_slices = (self.spectral_box @ self.model_bbox).overlapped_slices(
+            self.grad_box
+        )
         return True
 
     def update(self, it: int, input_grad: np.ndarray):
@@ -401,7 +406,8 @@ def default_fista_parameterization(component: Component):
 
 
 def default_adaprox_parameterization(component: Component, noise_rms: float = None):
-    """Initialize a factorized component to use Proximal ADAM for optimization"""
+    """Initialize a factorized component to use Proximal ADAM for optimization
+    """
     if noise_rms is None:
         noise_rms = 1e-16
     if isinstance(component, FactorizedComponent):
@@ -905,7 +911,7 @@ class ParametricComponent(Component):
             self._prox_sed = self.prox_sed
         else:
             self._prox_sed = prox_sed
-        self.slices = overlapped_slices(model_frame.bbox, bbox)
+        self.slices = model_frame.bbox.overlapped_slices(bbox)
         self.floor = floor
 
     @property
@@ -1148,7 +1154,8 @@ class EllipticalParametricComponent(ParametricComponent):
 
     @property
     def theta(self) -> float:
-        """The counter-clockwise rotation angle of the model from the x-axis."""
+        """The counter-clockwise rotation angle of the model from the x-axis.
+        """
         return self._params.x[4]
 
     @property
@@ -1173,7 +1180,9 @@ class EllipticalParametricComponent(ParametricComponent):
 
     @property
     def morph_grad(self) -> Callable:
-        """The function that calculates the gradient of the morphological model"""
+        """The function that calculates the gradient of the
+        morphological model
+        """
         return self._morph_grad
 
     def update(self, it: int, input_grad: np.ndarray):
