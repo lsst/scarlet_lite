@@ -1,6 +1,7 @@
 import numpy as np
 
-from .bbox import Box, overlapped_slices
+from .bbox import Box
+from .blend import Blend
 from .image import Image
 
 
@@ -34,16 +35,16 @@ def calculate_snr(
     py = psfs.shape[1] // 2
     px = psfs.shape[2] // 2
     bbox = Box(psfs[0].shape, origin=(-py + center[0], -px + center[1]))
-    slices = images.overlapped_slices(bbox)
-    noise = variance[slices[0]].data
-    img = images[slices[0]].data
-    _psfs = psfs[slices[1]]
+    overlap = images.bbox & bbox
+    noise = variance[overlap].data
+    img = images[overlap].data
+    _psfs = Image(psfs, bands=images.bands, yx0=bbox.origin)[overlap].data
     numerator = img * _psfs
     denominator = (_psfs * noise) * _psfs
     return np.sum(numerator) / np.sqrt(np.sum(denominator))
 
 
-def conserve_flux(blend, mask_footprint=True):
+def conserve_flux(blend: Blend, mask_footprint: bool = True):
     """Use the source models as templates to re-weight the data
 
     This is the standard "deblending" trick, where the models are
@@ -71,28 +72,26 @@ def conserve_flux(blend, mask_footprint=True):
 
     images = observation.images.copy()
     if mask_footprint:
-        images = images * (observation.weights > 0)
+        images.data[observation.weights.data == 0] = 0
     model = blend.get_model()
     # Always convolve in real space to avoid FFT artifacts
     model = observation.convolve(model, mode="real")
-    model[model < 0] = 0
-    zero_shape = (model.n_bands, 0, 0)
+    model.data[model.data < 0] = 0
 
     for src in blend.sources:
         if src.is_null:
-            zero_flux = np.zeros(zero_shape)
-            src.flux = Image(zero_flux, bands=observation.bands)
-            src.flux_box = Box((0, 0))
+            src.flux = Image.from_box(Box((0, 0)), bands=observation.bands)
             continue
         src_model = src.get_model()
+
         # Grow the model to include the wings of the PSF
-        bbox = src.bbox.grow((0, py, px))
-        src_model = insert_image(bbox, src.bbox, src_model)
+        src_box = src.bbox.grow((py, px))
+        overlap = observation.bbox & src_box
+        src_model = src_model.project(bbox=overlap)
         src_model = observation.convolve(src_model, mode="real")
-        src_model[src_model < 0] = 0
-        slices = overlapped_slices(observation.bbox, bbox)
-        numerator = src_model[slices[1]]
-        denominator = model[slices[0]]
+        src_model.data[src_model.data < 0] = 0
+        numerator = src_model.data
+        denominator = model[overlap].data
         cuts = denominator != 0
         ratio = np.zeros(numerator.shape, dtype=numerator.dtype)
         ratio[cuts] = numerator[cuts] / denominator[cuts]
@@ -100,5 +99,4 @@ def conserve_flux(blend, mask_footprint=True):
         # sometimes numerical errors can cause a hot pixel to have a slightly
         # higher ratio than 1
         ratio[ratio > 1] = 1
-        src.flux = ratio * images[slices[0]]
-        src.flux_box = observation.bbox & bbox
+        src.flux = src_model.copy_with(data=ratio) * images[overlap]

@@ -28,7 +28,6 @@ import numpy as np
 from .bbox import Box
 from .component import Component, FactorizedComponent
 from .image import Image
-from .measure import conserve_flux
 from .observation import Observation, FitPsfObservation
 from .source import Source
 
@@ -160,7 +159,7 @@ class Blend:
                 seds.append(component.sed)
                 factorized_indices.append(idx)
             else:
-                model[component.slices[0]] += component.get_model()[component.slices[1]]
+                model[component.overlap] += component.get_model()[component.overlap]
 
         boxes = [c.bbox for c in self.components]
         fit_seds = multifit_spectra(
@@ -203,7 +202,6 @@ class Blend:
         e_rel: float = 1e-4,
         min_iter: int = 15,
         resize: int = 10,
-        do_conserve_flux: bool = True,
     ) -> tuple[int, float]:
         """Fit all of the parameters
 
@@ -219,9 +217,6 @@ class Blend:
             Number of iterations before attempting to resize the
             resizable components. If `resize` is `None` then
             no resizing is ever attempted.
-        do_conserve_flux: bool
-            Whether or not to reweight the flux using the source
-            models as templates.
 
         Returns
         -------
@@ -249,8 +244,6 @@ class Blend:
                 break
             it += 1
         self.it = it
-        if do_conserve_flux:
-            conserve_flux(self)
         return it, self.loss[-1]
 
     def parameterize(self, parameterization: Callable):
@@ -336,5 +329,5 @@ class FitPsfBlend(Blend):
             it += 1
         self.it = it
         if do_conserve_flux:
-            conserve_flux(self)
+            self.conserve_flux()
         return it, self.loss[-1]

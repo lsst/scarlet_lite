@@ -20,13 +20,10 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import sys
-from typing import Sequence
 
 import numpy as np
 import numpy.typing as npt
 from scipy.special import erfc
-
-from .bbox import overlapped_slices, Box
 
 
 ScalarLike = bool | int | float | complex

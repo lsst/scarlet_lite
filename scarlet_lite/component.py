@@ -37,7 +37,7 @@ import numpy as np
 from scipy.special import erf
 from scipy.stats import gamma
 
-from .bbox import Box, overlapped_slices
+from .bbox import Box
 from .frame import CartesianFrame, EllipseFrame
 from .image import Image
 from .operators import Monotonicity
@@ -85,8 +85,10 @@ class Component(ABC):
         self._bands = bands
         self._bbox = bbox
         self.spectral_box = Box((len(bands),))
-        self.result_box = self.spectral_box @ bbox
-        self.slices = overlapped_slices(self.spectral_box @ model_bbox, self.result_box)
+        self.model_bbox = model_bbox
+        self.overlap = model_bbox & bbox
+        self.grad_box = self.spectral_box @ bbox
+        self.grad_slices = (self.spectral_box @ self.model_bbox).overlapped_slices(self.grad_box)
 
     @property
     def bbox(self):
@@ -216,7 +218,6 @@ class FactorizedComponent(Component):
         self.bg_thresh = bg_thresh
 
         self.floor = floor
-        self.model_bbox = model_bbox
         self.monotonicity = monotonicity
         self.padding = padding
 
@@ -277,14 +278,14 @@ class FactorizedComponent(Component):
 
     def grad_sed(self, input_grad, sed, morph):
         """Gradient of the SED wrt. the component model"""
-        _grad = np.zeros(self.result_box.shape, dtype=self.morph.dtype)
-        _grad[self.slices[1]] = input_grad[self.slices[0]]
+        _grad = np.zeros(self.grad_box.shape, dtype=self.morph.dtype)
+        _grad[self.grad_slices[1]] = input_grad[self.grad_slices[0]]
         return np.einsum("...jk,jk", _grad, morph)
 
     def grad_morph(self, input_grad, morph, sed):
         """Gradient of the morph wrt. the component model"""
-        _grad = np.zeros(self.result_box.shape, dtype=self.morph.dtype)
-        _grad[self.slices[1]] = input_grad[self.slices[0]]
+        _grad = np.zeros(self.grad_box.shape, dtype=self.morph.dtype)
+        _grad[self.grad_slices[1]] = input_grad[self.grad_slices[0]]
         return np.einsum("i,i...", sed, _grad)
 
     def prox_sed(self, sed: np.ndarray) -> np.ndarray:
@@ -347,10 +348,9 @@ class FactorizedComponent(Component):
         self._bbox = new_box
         self._morph.grow(old_box, new_box)
 
-        self.result_box = self.spectral_box @ self.bbox
-        self.slices = overlapped_slices(
-            self.spectral_box @ self.model_bbox, self.result_box
-        )
+        self.overlap = self.model_bbox & new_box
+        self.grad_box = self.spectral_box @ new_box
+        self.grad_slices = (self.spectral_box @ self.model_bbox).overlapped_slices(self.grad_box)
         return True
 
     def update(self, it: int, input_grad: np.ndarray):
@@ -467,7 +467,6 @@ class SedComponent(FactorizedComponent):
 
         self.peaks = peaks
         self.min_area = min_area
-        self.slices = [slice(None), slice(None)]
 
     def prox_sed(self, sed: np.ndarray) -> np.ndarray:
         """Apply a prox-like update to the SED

@@ -534,7 +534,7 @@ def show_sources(
             skipped += 1
             continue
         if use_flux:
-            src_box = src.flux_box
+            src_box = src.flux.bbox
         else:
             src_box = src.bbox
 

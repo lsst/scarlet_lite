@@ -26,7 +26,7 @@ from numpy.testing import assert_raises
 from numpy.testing import assert_almost_equal
 from scipy.signal import convolve as scipy_convolve
 
-from scarlet_lite import Blend, Source, FactorizedComponent, Observation, Box
+from scarlet_lite import Blend, Box, FactorizedComponent, Observation, Source
 from scarlet_lite.component import default_adaprox_parameterization
 from scarlet_lite.initialization import FactorizedChi2Initialization
 from scarlet_lite.operators import Monotonicity
@@ -193,6 +193,6 @@ class TestBlend(ScarletTestCase):
 
         blend = Blend(init.sources, self.observation).fit_spectra()
         blend.parameterize(default_adaprox_parameterization)
-        blend.fit(100, do_conserve_flux=False)
+        blend.fit(100)
 
         self.assertImageAlmostEqual(blend.get_model(convolve=True), images, decimal=1)

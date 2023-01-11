@@ -24,8 +24,11 @@ from utils import ScarletTestCase
 
 import numpy as np
 
-from scarlet_lite import Image, Observation
-from scarlet_lite.measure import calculate_snr  # , conserve_flux
+from scarlet_lite import Blend, Image, Observation
+from scarlet_lite.component import default_adaprox_parameterization
+from scarlet_lite.initialization import FactorizedChi2Initialization
+from scarlet_lite.measure import calculate_snr, conserve_flux
+from scarlet_lite.operators import Monotonicity
 from scarlet_lite.utils import integrated_circular_gaussian
 
 
@@ -58,10 +61,9 @@ class TestMeasurements(ScarletTestCase):
         filename = os.path.abspath(filename)
         data = np.load(filename)
         model_psf = integrated_circular_gaussian(sigma=0.8)
-        self.detect = np.sum(data["images"], axis=0)
-        self.centers = np.array([data["catalog"]["y"], data["catalog"]["x"]]).T
+        centers = tuple(np.array([data["catalog"]["y"], data["catalog"]["x"]]).T.astype(int))
         bands = data["filters"]
-        self.observation = Observation(
+        observation = Observation(
             Image(data["images"], bands=bands),
             Image(data["variance"], bands=bands),
             Image(1 / data["variance"], bands=bands),
@@ -69,3 +71,14 @@ class TestMeasurements(ScarletTestCase):
             model_psf[None],
             bands=bands,
         )
+        monotonicity = Monotonicity((101, 101))
+        init = FactorizedChi2Initialization(
+            observation, centers, monotonicity=monotonicity
+        )
+
+        blend = Blend(init.sources, observation).fit_spectra()
+        blend.parameterize(default_adaprox_parameterization)
+        blend.fit(100, e_rel=1e-4)
+        conserve_flux(blend)
+        flux_model = blend.get_model(use_flux=True)
+        self.assertImageAlmostEqual(flux_model, observation.images, decimal=1)
