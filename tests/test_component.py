@@ -22,7 +22,8 @@
 import numpy as np
 from numpy.testing import assert_almost_equal, assert_array_equal
 
-from scarlet_lite import Box, FactorizedComponent, Image, Parameter
+from scarlet_lite import Box, Image, Parameter
+from scarlet_lite.component import FactorizedComponent
 from scarlet_lite.operators import Monotonicity
 from utils import ScarletTestCase
 

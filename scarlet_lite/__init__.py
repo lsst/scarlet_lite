@@ -1,7 +1,7 @@
 from .bbox import *
 from .blend import *
 from . import cache
-from .component import *
+from . import component
 from . import detect
 
 try:

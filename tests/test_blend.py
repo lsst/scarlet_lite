@@ -26,8 +26,8 @@ from numpy.testing import assert_raises
 from numpy.testing import assert_almost_equal
 from scipy.signal import convolve as scipy_convolve
 
-from scarlet_lite import Blend, Box, FactorizedComponent, Observation, Source
-from scarlet_lite.component import default_adaprox_parameterization
+from scarlet_lite import Blend, Box, Observation, Source
+from scarlet_lite.component import default_adaprox_parameterization, FactorizedComponent
 from scarlet_lite.initialization import FactorizedChi2Initialization
 from scarlet_lite.operators import Monotonicity
 from scarlet_lite.utils import integrated_circular_gaussian
