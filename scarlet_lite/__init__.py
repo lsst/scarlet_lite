@@ -9,7 +9,7 @@ try:
     import display
 except ImportError:
     pass
-from .frame import *
+
 from .fft import *
 from .image import *
 from . import initialization
