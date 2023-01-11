@@ -61,7 +61,8 @@ class Parameter:
         return self.x.dtype
 
     def copy(self) -> TParameter:
-        return Parameter(self.x.copy(), {})
+        helpers = {k: v.copy() for k, v in self.helpers.items()}
+        return Parameter(self.x.copy(), helpers)
 
     def update(self, it: int, input_grad: np.ndarray, *args):
         """Update the parameter in one iteration.
@@ -127,18 +128,18 @@ class FistaParameter(Parameter):
 
     def __init__(
         self,
-        array: np.ndarray,
+        x: np.ndarray,
         step: float,
-        grad: Callable = None,
-        prox: Callable = None,
+        grad: Callable,
+        prox: Callable,
         t0: float = 1,
         z0: np.ndarray = None,
     ):
         if z0 is None:
-            z0 = array
+            z0 = x
 
         super().__init__(
-            array,
+            x,
             {"z": z0},
         )
 
@@ -307,7 +308,7 @@ class AdaproxParameter(Parameter):
 
     def __init__(
         self,
-        array: np.ndarray,
+        x: np.ndarray,
         step: Callable | float,
         grad: Callable = None,
         prox: Callable = None,
@@ -321,8 +322,8 @@ class AdaproxParameter(Parameter):
         scheme: str = "amsgrad",
         prox_e_rel: float = 1e-6,
     ):
-        shape = array.shape
-        dtype = array.dtype
+        shape = x.shape
+        dtype = x.dtype
         if m0 is None:
             m0 = np.zeros(shape, dtype=dtype)
 
@@ -333,7 +334,7 @@ class AdaproxParameter(Parameter):
             vhat0 = np.ones(shape, dtype=dtype) * -np.inf
 
         super().__init__(
-            array,
+            x,
             {
                 "m": m0,
                 "v": v0,
@@ -350,7 +351,6 @@ class AdaproxParameter(Parameter):
         self.p = p
 
         if not hasattr(step, "__call__"):
-            # noinspection PyUnusedLocal
             def _step(x):
                 return step
 
@@ -399,16 +399,10 @@ class AdaproxParameter(Parameter):
 class FixedParameter(Parameter):
     """A parameter that is not updated"""
 
-    def __init__(self, array: np.ndarray):
-        super().__init__(array.shape)
+    def __init__(self, x: np.ndarray):
+        super().__init__(x, {})
 
     def update(self, it: int, input_grad: np.ndarray, *args):
-        pass
-
-    def grow(self, new_shape: Sequence[int], dist: int):
-        pass
-
-    def shrink(self, dist: int):
         pass
 
 
