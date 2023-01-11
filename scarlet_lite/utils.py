@@ -61,17 +61,17 @@ def integrated_circular_gaussian(
 
     Parameters
     ----------
-    x, y: npt.ArrayLike
+    x, y:
         The x,y-coordinates to evaluate the integrated Gaussian.
         If `X` and `Y` are `None` then they will both be given the
         default value `numpy.arange(-7, 8)`, resulting in a
         `15x15` centered image.
-    sigma: `float`
+    sigma:
         The standard deviation of the Gaussian.
 
     Returns
     -------
-    image: np.ndarray
+    image:
         A Gaussian function integrated over `X` and `Y`.
     """
     if x is None:
@@ -79,9 +79,14 @@ def integrated_circular_gaussian(
             x = np.arange(-7, 8)
             y = x
         else:
-            raise Exception(
+            raise ValueError(
                 f"Either X and Y must be specified, or neither must be specified, got X={x} and Y={y}"
             )
+    elif y is None:
+        raise ValueError(
+            f"Either X and Y must be specified, or neither must be specified, got X={x} and Y={y}"
+        )
+
     result = (
         integrated_gaussian_psf(x, sigma)[None, :]
         * integrated_gaussian_psf(y, sigma)[:, None]
