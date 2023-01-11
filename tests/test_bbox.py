@@ -71,6 +71,9 @@ class TestBox(ScarletTestCase):
         bbox = Box.from_data(x, min_value=10)
         self.assertBoxEqual(bbox, Box((4, 3), origin=(1, 0)))
 
+        bbox = Box.from_data(x, min_value=100)
+        self.assertBoxEqual(bbox, Box((0, 0), origin=(0, 0)))
+
     def test_contains(self):
         bbox = Box((6, 4, 3), origin=(0, 1, 0))
         p = (2, 2, 2)
@@ -84,6 +87,9 @@ class TestBox(ScarletTestCase):
 
         p = (3, 3, -1)
         self.assertFalse(bbox.contains(p))
+
+        with self.assertRaises(ValueError):
+            bbox.contains((1, 2))
 
     def test_extract_from(self):
         image = np.zeros((3, 5, 5))
@@ -121,6 +127,7 @@ class TestBox(ScarletTestCase):
         self.assertEqual(bbox.slices[0], slice(2, 12))
         self.assertEqual(bbox.slices[1], slice(7, 10))
         self.assertEqual(bbox.slices[2], slice(5, 13))
+        self.assertEqual(hash(bbox), hash((shape, origin)))
 
     def test_simple_methods(self):
         shape = (2, 4, 8, 16)
@@ -135,6 +142,30 @@ class TestBox(ScarletTestCase):
         # Shift the box
         shifted = bbox.shifted_by((0, 5, 2, 10))
         self.check_bbox(shifted, shape, (9, 10, 5, 19))
+
+    def test_union(self):
+        bbox1 = Box((3, 4), (20, 34))
+        bbox2 = Box((10, 15), (1, 2))
+        bbox3 = Box((20, 30, 40), (10, 20, 30))
+
+        result = bbox1 | bbox2
+        truth = Box((22, 36), (1, 2))
+        self.assertBoxEqual(result, truth)
+
+        with self.assertRaises(ValueError):
+            bbox1 | bbox3
+
+    def test_intersection(self):
+        bbox1 = Box((3, 4), (20, 34))
+        bbox2 = Box((20, 30), (10, 20))
+        bbox3 = Box((20, 30, 40), (10, 20, 30))
+
+        result = bbox1 & bbox2
+        truth = Box((3, 4), (20, 34))
+        self.assertBoxEqual(result, truth)
+
+        with self.assertRaises(ValueError):
+            bbox1 & bbox3
 
     def test_intersections(self):
         bbox1 = Box((3, 4), (20, 34))
@@ -157,6 +188,13 @@ class TestBox(ScarletTestCase):
         self.assertTupleEqual(
             slices, ((slice(0, 3), slice(0, 4)), (slice(10, 13), (slice(14, 18))))
         )
+
+    def test_offset(self):
+        shape = (2, 5, 7)
+        origin = (82, 34, 15)
+        bbox = Box(shape, origin)
+        bbox = bbox + 1
+        self.assertBoxEqual(bbox, Box(shape, (83, 35, 16)))
 
     def test_arithmetic(self):
         shape = (2, 5, 7)
@@ -190,6 +228,10 @@ class TestBox(ScarletTestCase):
         # Check a copy
         bbox2 = bbox.copy()
         self.assertBoxEqual(bbox, bbox2)
+
+        self.assertFalse(bbox1 == shape)
+        self.assertNotEqual(bbox1, bbox2)
+        self.assertEqual(bbox1, bbox1)
 
     def test_slicing(self):
         bbox = Box((1, 2, 3, 4), (2, 4, 6, 8))
