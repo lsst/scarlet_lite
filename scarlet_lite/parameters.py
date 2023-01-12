@@ -130,8 +130,8 @@ class FistaParameter(Parameter):
         self,
         x: np.ndarray,
         step: float,
-        grad: Callable,
-        prox: Callable,
+        grad: Callable = None,
+        prox: Callable = None,
         t0: float = 1,
         z0: np.ndarray = None,
     ):

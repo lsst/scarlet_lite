@@ -19,13 +19,33 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from typing import Callable
+
 import numpy as np
 from numpy.testing import assert_almost_equal, assert_array_equal
 
 from scarlet_lite import Box, Image, Parameter
-from scarlet_lite.component import FactorizedComponent
+from scarlet_lite.component import Component, FactorizedComponent
+from scarlet_lite.component.parameterize import (
+    default_fista_parameterization,
+    default_adaprox_parameterization
+)
 from scarlet_lite.operators import Monotonicity
 from utils import ScarletTestCase
+
+
+class DummyComponent(Component):
+    def resize(self) -> bool:
+        pass
+
+    def update(self, it: int, input_grad: np.ndarray):
+        pass
+
+    def get_model(self) -> Image:
+        pass
+
+    def parameterize(self, parameterization: Callable) -> None:
+        parameterization(self)
 
 
 class TestFactorizedComponent(ScarletTestCase):
@@ -216,3 +236,23 @@ class TestFactorizedComponent(ScarletTestCase):
         self.assertTupleEqual(component.bbox.origin, (5, 9))
         self.assertTupleEqual(component.bbox.shape, (5, 5))
         self.assertIsNone(component.component_center)
+
+    def test_parameterization(self):
+        component = self.component
+        assert_array_equal(
+            component.get_model(), self.sed[:, None, None] * self.morph[None, :, :]
+        )
+
+        component.parameterize(default_fista_parameterization)
+        helpers = set(component._morph.helpers.keys())
+        self.assertSetEqual(helpers, {"z"})
+        component.parameterize(default_adaprox_parameterization)
+        helpers = set(component._morph.helpers.keys())
+        self.assertSetEqual(helpers, {"m", "v", "vhat"})
+
+        params = (tuple("grizy"), Box((5, 5)), Box((10, 10)))
+        with self.assertRaises(NotImplementedError):
+            default_fista_parameterization(DummyComponent(*params))
+
+        with self.assertRaises(NotImplementedError):
+            default_adaprox_parameterization(DummyComponent(*params))
