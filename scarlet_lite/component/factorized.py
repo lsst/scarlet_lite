@@ -254,11 +254,6 @@ class FactorizedComponent(Component):
         self._morph.grad = self.grad_morph
         self._morph.prox = self.prox_morph
 
-    def clear_parameters(self):
-        """Convert all of the parameters back into numpy arrays"""
-        self._sed = self.sed
-        self._morph = self.morph
-
     def __str__(self):
         return "FactorizedComponent"
 

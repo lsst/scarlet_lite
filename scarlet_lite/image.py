@@ -744,7 +744,7 @@ class Image:
             return True
         return False
 
-    def _get_sliced(self, indices, value: ArrayLike = None) -> TImage:
+    def _get_sliced(self, indices, value: TImage = None) -> TImage:
         """Select a subset of an image
 
         Parameters
@@ -822,6 +822,8 @@ class Image:
                 yf, xf = indices[0].stop
                 y_index = slice(y0, yf + 1)
                 x_index = slice(x0, xf + 1)
+                full_index = (y_index, x_index)
+                bands = self.bands
             else:
                 y_index = indices[0]
                 if len(indices) > 1:
@@ -863,7 +865,7 @@ class Image:
             return Image(data, bands=bands, yx0=yx0)
 
         # Set the data
-        self._data[full_index] = value
+        self._data[full_index] = value.data
         return self
 
     def overlapped_slices(

@@ -118,11 +118,6 @@ class Component(ABC):
         """
         pass
 
-    @abstractmethod
-    def clear_parameters(self):
-        """Convert all of the parameters back into numpy arrays"""
-        pass
-
     def __str__(self):
         return "Component"
 

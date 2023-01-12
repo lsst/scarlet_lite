@@ -1,8 +1,6 @@
 import numpy as np
 import numpy.typing as npt
 
-from .cache import Cache
-
 
 def get_filter_coords(
     filter_values: np.ndarray, center: tuple[int, int] = None
@@ -319,44 +317,3 @@ def quintic_spline(
         dtype=dtype,
     )
     return result, window
-
-
-def mk_shifter(
-    shape: tuple[int, int], real: bool = False
-) -> tuple[np.ndarray, np.ndarray]:
-    """Performs shifts in the Fourier domain on Fourier objects
-
-    Parameters:
-    -----------
-    shape:
-        Shape of the 2-D array to shift.
-    real:
-        if true, the frequencies are all returned for real transforms
-        (all dimension are half of the shape).
-        if False, only the last dimension is considered a real transform.
-
-    Returns:
-    --------
-    result: tuple[np.ndarray, np.ndarray]
-        A Fourier object with shifted arrays.
-    """
-
-    # Name of the chached shifts.
-    name = "mk_shifter"
-    key = shape[0], shape[1], real
-    try:
-        shifters = Cache.check(name, key)
-    except KeyError:
-        freq_x = np.fft.rfftfreq(shape[-1])
-        if real is True:
-            freq_y = np.fft.rfftfreq(shape[-2])
-        else:
-            freq_y = np.fft.fftfreq(shape[-2])
-        # Shift the signal to recenter it.
-        # Negative because math is opposite from pixel direction
-        shift_y = -1j * 2 * np.pi * freq_y
-        shift_x = -1j * 2 * np.pi * freq_x
-
-        shifters = (shift_y, shift_x)
-    Cache.set(name, key, shifters)
-    return shifters

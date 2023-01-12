@@ -1,6 +1,5 @@
 from .bbox import *
 from .blend import *
-from . import cache
 from . import component
 from . import detect
 

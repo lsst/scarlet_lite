@@ -19,19 +19,42 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from typing import cast
+from typing import cast, Callable
 
 import numpy as np
 from numpy.testing import assert_raises
 from numpy.testing import assert_almost_equal
 from scipy.signal import convolve as scipy_convolve
 
-from scarlet_lite import Blend, Box, Observation, Source
-from scarlet_lite.component import default_adaprox_parameterization, FactorizedComponent
+from scarlet_lite import Blend, Box, Image, Observation, Source
+from scarlet_lite.component import default_adaprox_parameterization, Component, FactorizedComponent
 from scarlet_lite.initialization import FactorizedChi2Initialization
 from scarlet_lite.operators import Monotonicity
+from scarlet_lite.parameters import Parameter
 from scarlet_lite.utils import integrated_circular_gaussian
 from utils import ObservationData, ScarletTestCase
+
+
+class DummyCubeComponent(Component):
+    def __init__(self, model: Image, model_box: Box):
+        super().__init__(model.bands, model.bbox, model_box)
+        self._model = Parameter(model.data, {})
+
+    @property
+    def data(self) -> np.ndarray:
+        return self._model.x
+
+    def resize(self) -> bool:
+        pass
+
+    def update(self, it: int, input_grad: np.ndarray):
+        pass
+
+    def get_model(self) -> Image:
+        return Image(self.data, bands=self.bands, yx0=self.bbox.origin)
+
+    def parameterize(self, parameterization: Callable) -> None:
+        pass
 
 
 class TestBlend(ScarletTestCase):
@@ -140,7 +163,6 @@ class TestBlend(ScarletTestCase):
         assert_almost_equal(blend.loss, [0])
 
         # Remove one of the sources and calculate the non-zero log_likelihood
-        del blend._components[-1]
         del blend.sources[-1]
         # Check that the log-likelihood is unchanged because no gradient
         # step has been performed
@@ -196,3 +218,60 @@ class TestBlend(ScarletTestCase):
         blend.fit(100)
 
         self.assertImageAlmostEqual(blend.get_model(convolve=True), images, decimal=1)
+
+    def test_non_factorized(self):
+        np.random.seed(1)
+        blend = self.blend
+        # Remove the disk component from the first source
+        model = self.spectra[1][:, None, None] * self.morphs[1][None, :, :]
+        yx0 = blend.sources[0].components[1].bbox.origin
+        blend.sources[0].components = blend.sources[0].components[:1]
+
+        # Change the initial SEDs so that they can be fit later
+        for component in blend.components:
+            c = cast(FactorizedComponent, component)
+            c.sed[:] = np.random.rand(3) * 10
+
+        with assert_raises(AssertionError):
+            # Since the spectra have not yet been fit,
+            # the model and images should not be equal
+            self.assertImageEqual(blend.get_model(), self.data.images)
+
+        # Remove the disk component from the first source
+        blend.sources[0].components = blend.sources[0].components[:1]
+        # Create a new source for the disk with a non-factorized component
+        component = DummyCubeComponent(
+            Image(model, bands=self.blend.observation.bands, yx0=yx0),
+            self.observation.bbox,
+        )
+        blend.sources.append(Source([component]))
+
+        blend.fit_spectra()
+
+        self.assertEqual(len(blend.components), 5)
+        self.assertEqual(len(blend.sources), 5)
+        self.assertImageAlmostEqual(blend.get_model(), self.data.images)
+
+    def test_clipping(self):
+        blend = self.blend
+
+        # Change the initial SEDs so that they can be fit later
+        for component in blend.components:
+            c = cast(FactorizedComponent, component)
+            c.sed[:] = np.random.rand(3) * 10
+
+        with assert_raises(AssertionError):
+            # Since the spectra have not yet been fit,
+            # the model and images should not be equal
+            self.assertImageEqual(blend.get_model(), self.data.images)
+
+        # Add an empty source
+        zero_model = Image.from_box(Box((5, 5), (30, 0)), bands=blend.observation.bands)
+        component = DummyCubeComponent(zero_model, self.observation.bbox)
+        blend.sources.append(Source([component]))
+
+        blend.fit_spectra(clip=True)
+
+        self.assertEqual(len(blend.components), 5)
+        self.assertEqual(len(blend.sources), 5)
+        self.assertImageAlmostEqual(blend.get_model(), self.data.images)

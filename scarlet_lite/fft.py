@@ -27,8 +27,6 @@ import numpy as np
 from scipy import fftpack
 import operator
 
-from .interpolation import mk_shifter
-
 
 TFourier = TypeVar("TFourier", bound="Fourier")
 
@@ -474,43 +472,3 @@ def convolve(
         return convolved
     else:
         return np.real(convolved.image)
-
-
-def shift(
-    image: np.ndarray,
-    offset: Sequence[int],
-    fft_shape: Sequence[int] = None,
-    axes: Sequence[int] = (-2, -1),
-    return_fourier: bool = True,
-) -> np.ndarray | Fourier:
-
-    if fft_shape is None:
-        padding = 10
-        fft_shape = get_fft_shape(image, image, padding=padding, axes=axes)
-
-    shifter_y, shifter_x = mk_shifter(fft_shape)  # is cached!
-
-    if not isinstance(image, Fourier):
-        image = Fourier(image)
-
-    image_fft = image.fft(fft_shape, axes)
-
-    # Apply shift in Fourier
-    dimensions = len(image.shape)
-    shifter = np.exp(shifter_y[:, None] * offset[0]) * np.exp(
-        shifter_x[None, :] * offset[1]
-    )
-    if dimensions > 2:
-        expand_dims = tuple(
-            d for d in range(dimensions) if d not in axes and d - dimensions not in axes
-        )
-        shifter = np.expand_dims(shifter, axis=expand_dims)
-
-    result_fft = image_fft * shifter
-
-    result = Fourier.from_fft(result_fft, fft_shape, image.shape, axes)
-
-    if return_fourier:
-        return result
-    else:
-        return np.real(result.image)

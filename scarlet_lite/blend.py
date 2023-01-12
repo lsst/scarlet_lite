@@ -65,9 +65,6 @@ class Blend:
             PSF, etc. that are being fit.
         """
         self.sources = list(sources)
-        self._components = []
-        for source in sources:
-            self._components.extend(source.components)
         self.observation = observation
 
         # Initialzie the iteration count and loss function
@@ -85,7 +82,12 @@ class Blend:
 
     @property
     def components(self) -> list[Component]:
-        return self._components
+        """The list of all components in the blend.
+
+        Since the list of sources might change,
+        this is always built on the fly.
+        """
+        return [c for src in self.sources for c in src.components]
 
     def get_model(self, convolve: bool = False, use_flux: bool = False) -> Image:
         """Generate a model of the entire blend
@@ -150,8 +152,10 @@ class Blend:
         morphs = []
         seds = []
         factorized_indices = []
-        model = np.zeros(
-            self.observation.images.shape, dtype=self.observation.images.dtype
+        model = Image.from_box(
+            self.observation.bbox,
+            bands=self.observation.bands,
+            dtype=self.observation.dtype
         )
         for idx, component in enumerate(self.components):
             if hasattr(component, "morph") and hasattr(component, "sed"):
@@ -160,11 +164,13 @@ class Blend:
                 factorized_indices.append(idx)
             else:
                 model[component.overlap] += component.get_model()[component.overlap]
+        model = self.observation.convolve(model, mode="real")
 
         boxes = [c.bbox for c in self.components]
         fit_seds = multifit_spectra(
             self.observation,
             [Image(morph, yx0=bbox.origin) for morph, bbox in zip(morphs, boxes)],
+            model,
         )
         for idx in range(len(morphs)):
             component = cast(
@@ -173,26 +179,29 @@ class Blend:
             component.sed[:] = fit_seds[idx]
             component.sed[component.sed < 0] = 0
 
-        if clip:
-            components = []
-            # Remove components with no sed or morphology
-            for src in self.sources:
-                _components = []
-                for component in src.components:
-                    if np.any(component.sed) > 0 and np.any(component.morph) > 0:
-                        components.append(component)
-                        _components.append(component)
-                src.components = _components
-            self._components = components
-        else:
-            for src in self.sources:
-                for component in src.components:
-                    if (
+        # Run the proxes for all of the components to make sure that the
+        # spectra are consistent with the constraints.
+        # In practice this usually means making sure that they are
+        # non-negative.
+        for src in self.sources:
+            for component in src.components:
+                if (
                         hasattr(component, "sed")
                         and hasattr(component, "prox_sed")
                         and component.prox_sed is not None  # type: ignore
-                    ):
-                        component.prox_sed(component.sed)
+                ):
+                    component.prox_sed(component.sed)
+
+        if clip:
+            # Remove components with no positive flux
+            for src in self.sources:
+                _components = []
+                for component in src.components:
+                    component_model = component.get_model()
+                    component_model.data[component_model.data < 0] = 0
+                    if np.sum(component_model.data) > 0:
+                        _components.append(component)
+                src.components = _components
 
         return self
 
