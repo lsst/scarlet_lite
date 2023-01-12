@@ -71,6 +71,9 @@ class TestFactorizedComponent(ScarletTestCase):
         self.assertIsNone(component.bg_rms)
         self.assertEqual(component.bg_thresh, 0.25)
         self.assertEqual(component.floor, 1e-20)
+        self.assertTupleEqual(component.shape, (3, 4, 5))
+        self.assertEqual(str(component), "FactorizedComponent")
+        self.assertEqual(repr(component), "FactorizedComponent")
 
         # Test that parameters are passed through
         center = self.component.center
@@ -162,6 +165,27 @@ class TestFactorizedComponent(ScarletTestCase):
         assert_array_equal(component.sed, proxed_sed)
         assert_array_equal(component.morph, proxed_morph)
 
+        component = FactorizedComponent(
+            self.bands,
+            sed.copy(),
+            morph.copy(),
+            bbox,
+            morph_bbox,
+            None,
+        )
+
+        proxed_sed = np.array([1e-20, 2, 3])
+        proxed_morph = np.array([[10, 2, 1], [1, 5, 3], [0.1, 4, 0]])
+        proxed_morph = proxed_morph / 5
+
+        component.prox_sed(component.sed)
+        component.prox_morph(component.morph)
+
+        assert_array_equal(component.sed, proxed_sed)
+        assert_array_equal(component.morph, proxed_morph)
+
+        self.assertFalse(component.resize())
+
     def test_resize(self):
         sed = np.array([1, 2, 3], dtype=float)
         morph = np.zeros((10, 10), dtype=float)
@@ -169,7 +193,6 @@ class TestFactorizedComponent(ScarletTestCase):
         bbox = Box((10, 10), (3, 5))
 
         morph_bbox = Box((100, 100))
-        center = (11, 11)
         monotonicity = Monotonicity((101, 101), fit_radius=0)
 
         component = FactorizedComponent(
@@ -178,7 +201,7 @@ class TestFactorizedComponent(ScarletTestCase):
             morph.copy(),
             bbox,
             morph_bbox,
-            center,
+            None,
             bg_rms=np.array([1, 1, 1]),
             bg_thresh=0.5,
             monotonicity=monotonicity,
@@ -186,10 +209,10 @@ class TestFactorizedComponent(ScarletTestCase):
         )
 
         self.assertTupleEqual(component.morph.shape, (10, 10))
-        self.assertTupleEqual(component.component_center, (8, 6))
+        self.assertIsNone(component.component_center)
 
         component.resize()
         self.assertTupleEqual(component.morph.shape, (5, 5))
         self.assertTupleEqual(component.bbox.origin, (5, 9))
         self.assertTupleEqual(component.bbox.shape, (5, 5))
-        self.assertTupleEqual(component.component_center, (6, 2))
+        self.assertIsNone(component.component_center)
