@@ -281,11 +281,14 @@ class Image:
         if other.n_bands == 0:
             err = "Attempted to insert a multi-band image into a monochromatic image"
             raise ValueError(err)
+
         self_indices = self.spectral_indices(other.bands)
         matched_bands = tuple(self.bands[bidx] for bidx in self_indices)
         other_indices = other.spectral_indices(matched_bands)
         if save:
+            print("saving")
             self.indices[other.bands] = (other_indices, self_indices)
+            print(self.indices)
         return other_indices, self_indices
 
     def matched_slices(
@@ -344,9 +347,7 @@ class Image:
             bands = self.bands
         if self.is_multiband:
             indices = self.spectral_indices(bands)
-            data = self.data[
-                indices,
-            ]
+            data = self.data[indices, ]
         else:
             data = self.data
 
@@ -365,6 +366,7 @@ class Image:
         image[slices[0]] = data[slices[1]]
         return Image(image, bands=bands, yx0=bbox.origin)
 
+    @property
     def multiband_slices(self) -> tuple[tuple | slice, slice, slice]:
         """Return the
 
@@ -719,7 +721,7 @@ class Image:
         raise TypeError("Images do not support matrix mutliplication")
 
     def __str__(self):
-        return f"Image:\n {super().__str__()}\n  bands={self.bands}\n  bbox={self.bbox}"
+        return f"Image:\n {str(self.data)}\n  bands={self.bands}\n  bbox={self.bbox}"
 
     def _is_spectral_index(self, index: Any):
         """Check to see if an index is a spectral index.
@@ -743,6 +745,33 @@ class Image:
         if isinstance(index, tuple) and index[0] in self.bands:
             return True
         return False
+
+    def _get_box_slices(self, index):
+        overlap = self.bbox & index
+        if overlap != index:
+            raise IndexError("Bounding box is outside of the image")
+        origin = index.origin
+        shape = index.shape
+        y_start = origin[0] - self.yx0[0]
+        y_stop = origin[0] + shape[0] - self.yx0[0]
+        x_start = origin[1] - self.yx0[1]
+        x_stop = origin[1] + shape[1] - self.yx0[1]
+        y_index = slice(y_start, y_stop)
+        x_index = slice(x_start, x_stop)
+        return y_index, x_index
+
+    def _get_spatial_slices(self, indices):
+        if isinstance(indices[0], Box):
+            y_index, x_index = self._get_box_slices(indices[0])
+        else:
+            y_index = indices[0]
+            if len(indices) > 1:
+                if len(indices) > 2:
+                    raise IndexError(f"Unable to parse indices {indices}")
+                x_index = indices[1]
+            else:
+                x_index = slice(None)
+        return y_index, x_index
 
     def _get_sliced(self, indices, value: TImage = None) -> TImage:
         """Select a subset of an image
@@ -780,26 +809,7 @@ class Image:
                     spectral_index = slice(None)
 
                 if len(indices) > 0:
-                    if isinstance(indices[0], Box):
-                        overlap = self.bbox & indices[0]
-                        if overlap != indices[0]:
-                            raise IndexError("Bounding box is outside of the image")
-                        origin = indices[0].origin
-                        shape = indices[0].shape
-                        y_start = origin[0] - self.yx0[0]
-                        y_stop = origin[0] + shape[0] - self.yx0[0]
-                        x_start = origin[1] - self.yx0[1]
-                        x_stop = origin[1] + shape[1] - self.yx0[1]
-                        y_index = slice(y_start, y_stop)
-                        x_index = slice(x_start, x_stop)
-                    else:
-                        y_index = indices[0]
-                        if len(indices) > 1:
-                            if len(indices) > 2:
-                                raise IndexError(f"Unable to parse indices {indices}")
-                            x_index = indices[1]
-                        else:
-                            x_index = slice(None)
+                    y_index, x_index = self._get_spatial_slices(indices)
                 else:
                     y_index = x_index = slice(None)
 
@@ -811,29 +821,11 @@ class Image:
                 full_index = (spectral_index[0], y_index, x_index)
             else:
                 bands = tuple(self.bands[idx] for idx in spectral_index)
-
-                if len(bands) > 0:
-                    full_index = (spectral_index, y_index, x_index)
-                else:
-                    full_index = (y_index, x_index)
+                full_index = (spectral_index, y_index, x_index)
         else:
-            if isinstance(indices[0], Box):
-                y0, x0 = indices[0].start
-                yf, xf = indices[0].stop
-                y_index = slice(y0, yf + 1)
-                x_index = slice(x0, xf + 1)
-                full_index = (y_index, x_index)
-                bands = self.bands
-            else:
-                y_index = indices[0]
-                if len(indices) > 1:
-                    if len(indices) > 2:
-                        raise IndexError(f"Unable to parse indices {indices}")
-                    x_index = indices[1]
-                else:
-                    x_index = slice(None)
-                bands = None
-                full_index = (y_index, x_index)
+            y_index, x_index = self._get_spatial_slices(indices)
+            bands = None
+            full_index = (y_index, x_index)
 
         if not isinstance(y_index, slice):
             raise IndexError(
@@ -912,7 +904,7 @@ class Image:
 
 
 def _operate_on_images(
-    image1: Image | ScalarLike, image2: Image | ScalarLike, op: Callable
+    image1: Image, image2: Image | ScalarLike, op: Callable
 ) -> Image:
     """Perform an operation on two images, that may or may not be spectrally
     and spatially aligned.
@@ -933,8 +925,6 @@ def _operate_on_images(
     """
     if type(image2) in ScalarTypes:
         return image1.copy_with(data=op(image1.data, image2))
-    if type(image1) in ScalarTypes:
-        return image2.copy_with(data=op(image1, image2.data))
     if image1.bands == image2.bands and image1.bbox == image2.bbox:
         # The images perfectly overlap, so just combine their results
         return Image(op(image1.data, image2.data), bands=image1.bands, yx0=image1.yx0)
@@ -990,7 +980,7 @@ def insert_image(
         image_slices = slices[1]
         self_slices = slices[0]
     else:
-        band_indices = sub_image.matched_spectral_indices(main_image)
+        band_indices = sub_image.matched_spectral_indices(main_image, save)
         slices = sub_image.matched_slices(main_image.bbox, save)
         image_slices = (band_indices[0],) + slices[1]
         self_slices = (band_indices[1],) + slices[0]

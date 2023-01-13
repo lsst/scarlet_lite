@@ -101,6 +101,16 @@ class TestImage(ScarletTestCase):
             image, Image(np.zeros((3, 10, 10), dtype=float), bands=bands, yx0=(13, 50))
         )
 
+        with self.assertRaises(ValueError):
+            Image(np.zeros((3, 4, 5)), bands=tuple("gr"))
+
+        truth = "Image:\n [[[0 1 2]\n  [3 4 5]]]\n  bands=('g',)\n  bbox=<Box shape=(2, 3), origin=(3, 2)>"
+        data = np.arange(6).reshape(1, 2, 3)
+        bands = tuple("g")
+        yx0 = (3, 2)
+        image = Image(data, bands=bands, yx0=yx0)
+        self.assertEqual(str(image), truth)
+
     def _binary_operation_test(
         self,
         lower_data: np.ndarray,
@@ -424,11 +434,34 @@ class TestImage(ScarletTestCase):
             self._3d_mismatched_images_test(op_name)
             self._2d_mismatched_images_test(op_name)
 
+    def test_scalar_arithmetic(self):
+        data = np.arange(6).reshape(1, 2, 3)
+        bands = tuple("g")
+        yx0 = (3, 2)
+        image = Image(data, bands=bands, yx0=yx0)
+        self.assertImageEqual(2 & image, Image(2 & data, bands=bands, yx0=yx0))
+        self.assertImageEqual(2 | image, Image(2 | data, bands=bands, yx0=yx0))
+        self.assertImageEqual(2 ^ image, Image(2 ^ data, bands=bands, yx0=yx0))
+
+        with self.assertRaises(TypeError):
+            image << 2.0
+        with self.assertRaises(TypeError):
+            image >> 2.0
+
+        image2 = image.copy()
+        image2 <<= 2
+        self.assertImageEqual(image2, Image(data << 2, bands=bands, yx0=yx0))
+
+        image2 = image.copy()
+        image2 >>= 2
+        self.assertImageEqual(image2, Image(data >> 2, bands=bands, yx0=yx0))
+
     def test_slicing(self):
         bands = ("g", "r", "i", "z", "y")
         yx0 = (27, 82)
         data = (np.random.random((5, 30, 40)) - 0.5) * 10
         image = Image(data, bands=bands, yx0=yx0)
+        image_2d = Image(data[0], yx0=yx0)
 
         # test band slicing
         sub_img = image["g"]
@@ -470,6 +503,16 @@ class TestImage(ScarletTestCase):
             sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
         )
 
+        sub_img = image_2d[Box((10, 5), (37, 87))]
+        self.assertImageEqual(
+            sub_img, Image(data[0, 10:20, 5:10], yx0=(37, 87))
+        )
+
+        sub_img = image[10:20, 5:10]
+        self.assertImageEqual(
+            sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
+        )
+
         sub_img = image[10:20, 5:10]
         self.assertImageEqual(
             sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
@@ -495,6 +538,17 @@ class TestImage(ScarletTestCase):
             # Cannot use a bounding box partially outside of the image
             _ = image[:, Box((40, 40), (20, 80))]
 
+        with self.assertRaises(IndexError):
+            # Too many spatial indices
+            _ = image[:, :, :, :]
+
+        truth = (
+            (0, 1, 2, 3, 4),
+            slice(27, 57),
+            slice(82, 122),
+        )
+        self.assertTupleEqual(image.multiband_slices, truth)
+
     def test_overlap_detection(self):
         # Test 2D image
         image = Image(np.zeros((5, 6)), yx0=(10, 15))
@@ -518,3 +572,60 @@ class TestImage(ScarletTestCase):
             (slice(None), slice(0, 0), slice(0, 0)),
         )
         self.assertTupleEqual(slices, truth)
+
+    def test_insertion(self):
+        img1 = Image.from_box(Box((20, 20)), bands=tuple("gri"))
+        img2 = Image.from_box(Box((5, 5), (11, 12)), bands=tuple("gi"))
+        img2.data[:] = np.arange(1, 3)[:, None, None]
+        img1.insert(img2, save=True)
+
+        truth = img1.copy()
+        truth.data[0, 11:16, 12:17] = 1
+        truth.data[2, 11:16, 12:17] = 2
+        self.assertImageEqual(img1, truth)
+
+        # Test that the index was saved for fast slicing in the future
+        img1.insert(img2)
+        truth.data[:] = truth.data[:] * 2
+        self.assertImageEqual(img1, truth)
+        self.assertTrue(img1.bands in img2.indices)
+
+    def test_matched_spectral_indices(self):
+        img1 = Image.from_box(Box((5, 5)))
+        img2 = Image.from_box(Box((5, 5)))
+        indices = img1.matched_spectral_indices(img2)
+        self.assertTupleEqual(indices, ((), ()))
+
+        img3 = Image.from_box(Box((5, 5)), bands=tuple("gri"))
+        with self.assertRaises(ValueError):
+            img1.matched_spectral_indices(img3)
+
+        with self.assertRaises(ValueError):
+            img3.matched_spectral_indices(img1)
+
+    def test_project(self):
+        data = np.arange(30).reshape(5, 6)
+        img = Image(data, yx0=(11, 15))
+
+        result = img.project(bbox=Box((20, 20), (2, 3)))
+        truth = np.zeros((20, 20))
+        truth[9:14, 12:18] = data
+        truth = Image(truth, yx0=(2, 3))
+        self.assertImageEqual(result, truth)
+
+        data = np.arange(60).reshape(3, 4, 5)
+        img = Image(data, bands=tuple("gri"))
+        result = img.project(tuple("gi"))
+        truth = data[(0, 2), ]
+        self.assertImageEqual(result, Image(truth, bands=tuple("gi")))
+
+    def test_repeat(self):
+        data = np.arange(18).reshape(3, 6)
+        image = Image(data, yx0=(15, 32))
+        result = image.repeat(tuple("grizy"))
+        truth = np.array([data, data, data, data, data])
+        truth = Image(truth, bands=tuple("grizy"), yx0=(15, 32))
+        self.assertImageEqual(result, truth)
+
+        with self.assertRaises(ValueError):
+            result.repeat(tuple("ubv"))
