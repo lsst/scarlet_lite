@@ -24,7 +24,7 @@ from utils import ScarletTestCase
 
 import numpy as np
 
-from scarlet_lite import Blend, Image, Observation
+from scarlet_lite import Blend, Image, Observation, Source
 from scarlet_lite.component import default_adaprox_parameterization
 from scarlet_lite.initialization import FactorizedChi2Initialization
 from scarlet_lite.measure import calculate_snr, conserve_flux
@@ -77,6 +77,7 @@ class TestMeasurements(ScarletTestCase):
         )
 
         blend = Blend(init.sources, observation).fit_spectra()
+        blend.sources.append(Source([]))
         blend.parameterize(default_adaprox_parameterization)
         blend.fit(100, e_rel=1e-4)
         conserve_flux(blend)
