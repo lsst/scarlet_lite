@@ -24,8 +24,8 @@ from numpy.testing import assert_almost_equal, assert_array_equal
 from scipy.signal import convolve as scipy_convolve
 
 from scarlet_lite import Observation, Box, Image
-from scarlet_lite.interpolation import get_filter_coords, get_filter_bounds
 from scarlet_lite.observation import convolve as scarlet_convolve
+from scarlet_lite.observation import get_filter_coords, get_filter_bounds
 from scarlet_lite.utils import integrated_circular_gaussian
 from utils import ObservationData, ScarletTestCase
 
