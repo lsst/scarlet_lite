@@ -114,7 +114,7 @@ class ScarletTestCase(TestCase):
         try:
             self.assertTupleEqual(bbox.origin, truth.origin)
         except AssertionError:
-            msg = f"Box origins differ: {bbox.shape}!={truth.shape}"
+            msg = f"Box origins differ: {bbox.origin}!={truth.origin}"
             raise AssertionError(msg)
 
     def assertImageAlmostEqual(self, image: Image, truth: Image, decimal: int = 7):

@@ -31,6 +31,7 @@ from scarlet_lite.initialization import (
     init_monotonic_morph,
     multifit_spectra,
     FactorizedChi2Initialization,
+    FactorizedWaveletInitialization,
 )
 from scarlet_lite.operators import prox_monotonic_mask, Monotonicity
 from scarlet_lite.utils import integrated_circular_gaussian
@@ -101,6 +102,11 @@ class TestInitialization(ScarletTestCase):
         truth[truth < 0.2] = 0
         assert_array_equal(morph, truth)
 
+        # Test an empty morphology
+        bbox, morph = init_monotonic_morph(np.zeros(self.detect.shape), center, full_box)
+        self.assertBoxEqual(bbox, Box((0, 0)))
+        self.assertIsNone(morph)
+
     def test_init_monotonic_weighted(self):
         full_box = Box(self.detect.shape)
         center = self.centers[0]
@@ -130,6 +136,12 @@ class TestInitialization(ScarletTestCase):
         truth[truth < 0.2] = 0
         self.assertBoxEqual(bbox, Box((45, 44), origin=(10, 3)))
         assert_array_equal(morph, truth)
+
+        # Test zero morphologu
+        zeros = np.zeros(self.detect.shape)
+        bbox, morph = init_monotonic_morph(zeros, center, full_box, monotonicity=monotonicity)
+        self.assertBoxEqual(bbox, Box((0, 0)))
+        self.assertIsNone(morph)
 
     def test_multifit_spectra(self):
         bands = ("g", "r", "i")
@@ -187,14 +199,25 @@ class TestInitialization(ScarletTestCase):
     def test_factorized_chi2_init(self):
         # Test default parameters
         init = FactorizedChi2Initialization(self.observation, self.centers)
-
         self.assertEqual(init.observation, self.observation)
         self.assertEqual(init.min_snr, 50)
         self.assertIsNone(init.monotonicity)
         self.assertEqual(init.disk_percentile, 25)
         self.assertEqual(init.thresh, 0.5)
         self.assertTupleEqual((init.py, init.px), (7, 7))
+        self.assertEqual(len(init.sources), 7)
 
-        # There is no good way to test that this is working,
-        # so we mainly test that this code completed,
-        # and that sources have a consistent number of components.
+        centers = tuple(tuple(center.astype(int)) for center in self.centers) + ((0, 4),)
+        init = FactorizedChi2Initialization(self.observation, centers)
+        self.assertEqual(len(init.sources), 8)
+
+    def test_factorized_wavelet_init(self):
+        # Test default parameters
+        init = FactorizedWaveletInitialization(self.observation, self.centers)
+        self.assertEqual(init.observation, self.observation)
+        self.assertEqual(init.min_snr, 50)
+        self.assertIsNone(init.monotonicity)
+        self.assertTupleEqual((init.py, init.px), (7, 7))
+        self.assertEqual(len(init.sources), 7)
+        components = np.sum(len(src.components) for src in init.sources)
+        self.assertEqual(components, 8)

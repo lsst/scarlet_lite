@@ -27,7 +27,6 @@ __all__ = [
     "get_multiresolution_support",
 ]
 
-import typing
 from typing import Iterable, Callable
 
 import numpy as np
@@ -315,7 +314,7 @@ def get_multiresolution_support(
             m = np.abs(starlets) > sigma_scaling * sigma_j[:, None, None]
             # Take the standard deviation of the current
             # insignificant coeffs at each scale
-            s = typing.cast(~m, np.ndarray)
+            s = ~m
             sigma_j = np.std(starlets * s.astype(int), axis=(1, 2))
             # At lower scales all of the pixels may be significant,
             # so sigma is effectively zero. To avoid infinities we
