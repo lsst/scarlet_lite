@@ -117,11 +117,6 @@ def convolve(image, psf, bounds):
     return result
 
 
-def _grad_convolve(convolved, image, psf, slices):
-    """Gradient of a real space convolution"""
-    return lambda input_grad: convolve(input_grad, psf[:, ::-1, ::-1], slices)
-
-
 def _set_image_like(
     images: np.ndarray | Image, bands: tuple | None = None, bbox: Box | None = None
 ) -> Image:
@@ -137,12 +132,12 @@ def _set_image_like(
         The bands for the multiband-image.
         If `images` is a numpy array, this parameter is mandatory.
         If `images` is an `Image` and `bands` is not `None`,
-        then `bands` must match `images.bands`.
+        then `bands` is ignored.
     bbox:
         Bounding box containing the image.
         If `images` is a numpy array, this parameter is mandatory.
         If `images` is an `Image` and `bbox` is not `None`,
-        then `bbox` must match `images.bbox`.
+        then `bbox` is ignored.
 
     Returns
     -------
@@ -154,23 +149,8 @@ def _set_image_like(
         return images
 
     if bbox is None:
-        bbox = Box(images.shape)
-    elif hasattr(images, "bbox") and images.bbox != bbox:
-        raise ValueError(
-            f"Mismatched bounding boxes, images.bbox is {images.bbox} while bbox is {bbox}"
-        )
-    if not hasattr(images, "bands"):
-        if bands is None:
-            msg = f"""The `images` must be either an `Image` instance or a numpy `ndarray` with
-            `bands` specified. Got {type(images)} and `bands = None`.
-            """
-            raise ValueError(msg)
-        images = Image(images, bands=bands, yx0=bbox.origin[-2:])
-    elif hasattr(images, "abnds") and images.bands != bands:
-        raise ValueError(
-            f"Mismatched bands, images.bands is {images.bands} while bands is {bands}"
-        )
-    return images
+        bbox = Box(images.shape[-2:])
+    return Image(images, bands=bands, yx0=bbox.origin)
 
 
 class Observation:

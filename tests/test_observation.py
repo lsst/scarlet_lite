@@ -100,6 +100,12 @@ class TestObservation(ScarletTestCase):
         convolved = scarlet_convolve(images.data, self.observation.psfs, bounds)
         assert_almost_equal(convolved, true_convolved)
 
+        with self.assertRaises(ValueError):
+            get_filter_coords(np.arange(10))
+
+        with self.assertRaises(ValueError):
+            get_filter_coords(np.arange(16).reshape(4, 4))
+
     def test_constructors(self):
         np.random.seed(1)
         variance = np.random.normal(size=self.data.convolved.shape) ** 2
@@ -183,6 +189,9 @@ class TestObservation(ScarletTestCase):
         # Test that overriding the mode works
         real = observation.convolve(deconvolved, mode="real")
         self.assertImageAlmostEqual(real, observation.images)
+
+        with self.assertRaises(ValueError):
+            observation.convolve(deconvolved, mode="fake")
 
     def test_index_extraction(self):
         alpha_bands = ("g", "i", "r", "y", "z")
