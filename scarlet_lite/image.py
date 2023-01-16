@@ -544,10 +544,26 @@ class Image:
 
     def __ge__(self, other: TImage | ScalarLike) -> TImage:
         """Check if this image is greater than or equal to another"""
+        if type(other) in ScalarTypes:
+            return self.copy_with(data=self.data >= other)
         return self._check_equality(other, operator.ge)
 
     def __le__(self, other: TImage | ScalarLike) -> TImage:
         """Check if this image is less than or equal to another"""
+        if type(other) in ScalarTypes:
+            return self.copy_with(data=self.data <= other)
+        return self._check_equality(other, operator.le)
+
+    def __gt__(self, other: TImage | ScalarLike) -> TImage:
+        """Check if this image is greater than or equal to another"""
+        if type(other) in ScalarTypes:
+            return self.copy_with(data=self.data > other)
+        return self._check_equality(other, operator.ge)
+
+    def __lt__(self, other: TImage | ScalarLike) -> TImage:
+        """Check if this image is less than or equal to another"""
+        if type(other) in ScalarTypes:
+            return self.copy_with(data=self.data < other)
         return self._check_equality(other, operator.le)
 
     def __neg__(self):
@@ -984,6 +1000,7 @@ def insert_image(
         slices = sub_image.matched_slices(main_image.bbox, save)
         image_slices = (band_indices[0],) + slices[1]
         self_slices = (band_indices[1],) + slices[0]
+
     main_image._data[image_slices] = op(
         main_image.data[image_slices], sub_image.data[self_slices]
     )

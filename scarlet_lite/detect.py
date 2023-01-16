@@ -3,8 +3,9 @@ from typing import Sequence, TypeVar
 
 import numpy as np
 
-from .bbox import Box, overlapped_slices
+from .bbox import Box
 from .detect_pybind11 import Footprint
+from .image import Image
 from .utils import continue_class
 from .wavelet import starlet_transform, get_multiresolution_support
 
@@ -44,7 +45,13 @@ class Footprint:  # noqa: F811
         """
         return bounds_to_bbox(self.bounds)
 
-    def intersection(self, other: TFootprint) -> np.ndarray[bool] | None:
+    @property
+    def yx0(self) -> tuple[int, int]:
+        """Origin in y, x of the lower left corner of the footprint
+        """
+        return self.bounds[0], self.bounds[2]
+
+    def intersection(self, other: TFootprint) -> Image | None:
         """The intersection of two footprints
 
         Parameters
@@ -54,47 +61,29 @@ class Footprint:  # noqa: F811
 
         Returns
         -------
-        overlap: np.ndarray[bool]
-            The overlapping region between two footprints.
+        intersection:
+            The intersection of two footprints.
         """
-        box1 = self.bbox
-        box2 = other.bbox
-        if not box1.intersects(box2):
-            return None
-        slices1, slices2 = overlapped_slices(box1, box2)
-        overlap = self.footprint[slices1] * other.footprint[slices2]
-        return overlap
+        footprint1 = Image(self.footprint, yx0=self.yx0)
+        footprint2 = Image(other.footprint, yx0=other.yx0)
+        return footprint1 & footprint2
 
-    def does_overlap(self, other: TFootprint) -> bool:
+    def union(self, other: TFootprint) -> Image | None:
+        """The intersection of two footprints
+
+        Parameters
+        ----------
+        other:
+            The other footprint to compare.
+
+        Returns
+        -------
+        union:
+            The union of two footprints.
         """
-
-        :param other:
-        :return:
-        """
-
-
-def footprint_intersect(
-    footprint1: Footprint, box1: Box, footprint2: Footprint, box2: Box
-) -> bool:
-    """Check if two footprints overlap
-
-    Parameters
-    ----------
-    box1, box2: Box
-        The boxes of the footprints to check for overlap.
-    footprint1, footprint2: Footprint
-        The boolean mask for the two footprints.
-
-    Returns
-    -------
-    overlap: `bool`
-        True when the two footprints overlap.
-    """
-    if not box1.intersects(box2):
-        return False
-    slices1, slices2 = overlapped_slices(box1, box2)
-    overlap = footprint1[slices1] * footprint2[slices2]
-    return np.sum(overlap) > 0
+        footprint1 = Image(self.footprint, yx0=self.yx0)
+        footprint2 = Image(other.footprint, yx0=other.yx0)
+        return footprint1 | footprint2
 
 
 def scarlet_footprints_to_image(
@@ -114,15 +103,16 @@ def scarlet_footprints_to_image(
     result: np.ndarray
         The image created from the footprints.
     """
-    result = np.zeros(shape, dtype=int)
-    for k, fp in enumerate(footprints):
-        bbox = bounds_to_bbox(fp.bounds)
-        result[bbox.slices] += fp.footprint * (k + 1)
+    result = Image.from_box(Box(shape), dtype=int)
+    for k, footprint in enumerate(footprints):
+        bbox = bounds_to_bbox(footprint.bounds)
+        fp_image = Image(footprint.footprint, yx0=bbox.origin)
+        result = result + fp_image * (k + 1)
     return result
 
 
 def get_wavelets(
-    images: np.ndarray, variance: np.ndarray, scales: int = 3
+    images: np.ndarray, variance: np.ndarray, scales: int = None
 ) -> np.ndarray:
     """Calculate wavelet coefficents given a set of images and their variances
 

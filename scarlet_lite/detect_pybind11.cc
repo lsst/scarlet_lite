@@ -247,7 +247,7 @@ std::vector<Footprint> get_footprints(
     Eigen::Ref<const M> image,
     const double min_separation,
     const int min_area,
-    const int thresh,
+    const double thresh,
     const bool find_peaks=true
 ){
     const int height = image.rows();
