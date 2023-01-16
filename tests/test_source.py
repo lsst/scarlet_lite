@@ -103,6 +103,8 @@ class TestSource(ScarletTestCase):
         self.assertFalse(source.is_null)
         self.assertBoxEqual(source.bbox, Box((25, 25), (10, 25)))
         self.assertTupleEqual(source.bands, bands)
+        self.assertEqual(repr(source), "Source<2>")
+        self.assertEqual(str(source), "Source<FactorizedComponent,FactorizedComponent>")
 
         model = np.zeros((5, 25, 25), dtype=float)
         model[:, 10:25, :15] = sed1[:, None, None] * morph1[None, :, :]
@@ -114,3 +116,7 @@ class TestSource(ScarletTestCase):
             model,
         )
         self.assertIsNone(source.get_model(True))
+
+        source = Source([])
+        result = source.get_model()
+        self.assertEqual(result, 0)

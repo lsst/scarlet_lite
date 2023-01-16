@@ -265,8 +265,8 @@ class Blend:
             a `Parameter` in place. It should take a single argument that
             is the `Component` or `Source` that is to be parameterized.
         """
-        for component in self.components:
-            component.parameterize(parameterization)
+        for source in self.sources:
+            source.parameterize(parameterization)
 
 
 class FitPsfBlend(Blend):
