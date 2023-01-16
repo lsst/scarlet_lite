@@ -26,6 +26,7 @@ __all__ = [
     "AdaproxParameter",
     "FixedParameter",
     "relative_step",
+    "phi_psi",
     "DEFAULT_ADAPROX_FACTOR",
 ]
 
@@ -199,10 +200,7 @@ def _amsgrad_phi_psi(it, g, m, v, vhat, b1, b2, eps, p):
     v[:] = (1 - b2) * (g**2) + b2 * v
 
     phi = m
-    if vhat is None:
-        vhat = v
-    else:
-        vhat[:] = np.maximum(vhat, v)
+    vhat[:] = np.maximum(vhat, v)
     # sanitize zero-gradient elements
     if eps > 0:
         vhat = np.maximum(vhat, eps)
@@ -216,10 +214,7 @@ def _padam_phi_psi(it, g, m, v, vhat, b1, b2, eps, p):
     v[:] = (1 - b2) * (g**2) + b2 * v
 
     phi = m
-    if vhat is None:
-        vhat = v
-    else:
-        vhat[:] = np.maximum(vhat, v)
+    vhat[:] = np.maximum(vhat, v)
     # sanitize zero-gradient elements
     if eps > 0:
         vhat = np.maximum(vhat, eps)
@@ -234,11 +229,8 @@ def _adamx_phi_psi(it, g, m, v, vhat, b1, b2, eps, p):
     v[:] = (1 - b2) * (g**2) + b2 * v
 
     phi = m
-    if vhat is None:
-        vhat = v
-    else:
-        factor = (1 - b1[it]) ** 2 / (1 - b1[it - 1]) ** 2
-        vhat[:] = np.maximum(factor * vhat, v)
+    factor = (1 - b1[it]) ** 2 / (1 - b1[it - 1]) ** 2
+    vhat[:] = np.maximum(factor * vhat, v)
     # sanitize zero-gradient elements
     if eps > 0:
         vhat = np.maximum(vhat, eps)

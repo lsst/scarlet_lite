@@ -23,7 +23,14 @@ import numpy as np
 from numpy.testing import assert_array_equal
 
 from scarlet_lite import Box
-from scarlet_lite.parameters import parameter, AdaproxParameter, FistaParameter, FixedParameter, Parameter
+from scarlet_lite.parameters import (
+    parameter,
+    phi_psi,
+    AdaproxParameter,
+    FistaParameter,
+    FixedParameter,
+    Parameter
+)
 
 from utils import ScarletTestCase
 
@@ -59,6 +66,9 @@ class TestParameters(ScarletTestCase):
         assert_array_equal(param.copy().x, x)
         self.assertIsNot(param.copy().helpers["y"], y)
         assert_array_equal(param.copy().helpers["y"], y)
+
+        param2 = parameter(param)
+        self.assertIs(param2, param)
 
     def test_growing(self):
         x = np.arange(15, dtype=float).reshape(3, 5)
@@ -115,6 +125,17 @@ class TestParameters(ScarletTestCase):
         truth[truth > 20] = 20
         assert_array_equal(param.prox(x2), truth)
         param.update(10, x, x2)
+
+        schemes = tuple(phi_psi.keys())
+        for scheme in schemes:
+            param = AdaproxParameter(
+                x2,
+                .1,
+                grad,
+                prox_ceiling,
+                scheme=scheme,
+            )
+            param.update(10, x, x2)
 
     def test_fixed_parameter(self):
         x = np.arange(10, dtype=float)
