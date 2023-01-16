@@ -22,7 +22,7 @@
 import os
 
 import numpy as np
-from numpy.testing import assert_array_equal  # , assert_almost_equal
+from numpy.testing import assert_array_equal
 
 from scarlet_lite import Image
 from scarlet_lite.operators import (
@@ -110,6 +110,15 @@ class TestOperators(ScarletTestCase):
         # into account. So we allow for known pixels to be different.
         diff = np.abs(morph - masked)
         self.assertEqual(np.sum(diff > 0), 198)
+
+        # Test that interpolating edge pixels is working
+        _, interpolated, _ = prox_monotonic_mask(
+            morph.copy(),
+            (cy, cx),
+            0,
+            0,
+            3,
+        )
 
         # Remove all of the diagonal weights and check that the
         # weighted monotonic solution agrees with the monotonic mask solution.
@@ -225,3 +234,14 @@ class TestOperators(ScarletTestCase):
         truth[2:, 5:] = symmetric
         symmetric_morph = prox_uncentered_symmetry(morph.copy(), center, 0)
         assert_array_equal(symmetric_morph, truth)
+
+        # Test skipping re-centering if the center of the source
+        # is the center of the image
+        _morph = morph[2:, 5:]
+        symmetric_morph = prox_uncentered_symmetry(_morph.copy(), (1, 2))
+        assert_array_equal(symmetric_morph, symmetric)
+
+        # Test using the default center of the image
+        _morph = morph[2:, 5:]
+        symmetric_morph = prox_uncentered_symmetry(_morph.copy())
+        assert_array_equal(symmetric_morph, _morph)
