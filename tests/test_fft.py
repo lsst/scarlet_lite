@@ -19,15 +19,19 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import operator
+
 import numpy as np
 from numpy.testing import assert_array_equal, assert_almost_equal
+from scipy.signal import convolve as scipy_convolve
 
 import scarlet_lite.fft as fft
 from scarlet_lite import Fourier
-from utils import get_psfs
+from scarlet_lite.utils import integrated_circular_gaussian
+from utils import get_psfs, ScarletTestCase
 
 
-class TestCentering(object):
+class TestFourier(ScarletTestCase):
     """Test the centering and padding algorithms"""
 
     def test_shift(self):
@@ -97,8 +101,43 @@ class TestCentering(object):
         a_final = fft._centered(a_pad, shape)
         assert_array_equal(a_final, a0)
 
+        with self.assertRaises(ValueError):
+            fft._centered(a_final, (20, 20))
 
-class TestFourier(object):
+    def test_pad(self):
+        x = np.arange(40).reshape(2, 4, 5)
+        truth = np.zeros((2, 10, 11), dtype=int)
+        truth[:, 3:7, 3:8] = x.copy()
+        result = fft._pad(x, (10, 11), axes=(1, 2))
+        assert_array_equal(result, truth)
+
+        truth = np.zeros((4, 4, 5))
+        truth[1:3] = x
+        result = fft._pad(x, (4,), axes=0)
+        assert_array_equal(result, truth)
+
+        truth = np.pad(x, 5, mode="edge")
+        result = fft._pad(x, (12, 14, 15), mode="edge")
+        assert_array_equal(result, truth)
+
+    def test_get_fft_shape(self):
+        shape1 = (3, 11)
+        shape2 = (5, 10)
+        shape = tuple(fft.get_fft_shape(shape1, shape2))
+        self.assertTupleEqual(shape, (12, 24))
+
+        shape = fft.get_fft_shape(shape1, shape2, use_max=True)
+        self.assertTupleEqual(shape, (8, 15))
+
+        shape = fft.get_fft_shape(shape1, shape2, axes=1)
+        self.assertTupleEqual(shape, (24,))
+
+        shape = fft.get_fft_shape(shape1, shape2, axes=1, use_max=True)
+        self.assertTupleEqual(shape, (15,))
+
+        with self.assertRaises(ValueError):
+            fft.get_fft_shape((1, 2), (1, 2, 3))
+
     def test_2d_psf_matching(self):
         """Test matching two 2D psfs"""
         # Narrow PSF
@@ -116,6 +155,41 @@ class TestFourier(object):
         img1 = fft.convolve(psf2, kernel_2to1)
         assert_almost_equal(img1.image, psf1.image)
 
+    def test_from_fft(self):
+        x = integrated_circular_gaussian(sigma=1.0)
+        _x = np.pad(x, 3, mode="constant")
+        fft_x = np.fft.rfftn(np.fft.ifftshift(_x))
+        fourier = Fourier.from_fft(fft_x, (21, 21), (15, 15))
+        assert_almost_equal(fourier.image, x)
+        self.assertEqual(len(fourier), 15)
+
+    def test_fourier(self):
+        x = integrated_circular_gaussian(sigma=1.0)
+        fourier = Fourier(x)
+        assert_almost_equal(fourier.image, x)
+        _x = np.pad(x, 3, mode="constant")
+        fft_x = np.fft.rfftn(np.fft.ifftshift(_x))
+        assert_almost_equal(fourier.fft((21, 21), (0, 1)), fft_x)
+        self.assertEqual(len(fourier), 15)
+
+        _x = np.pad(x, ((0, 0), (3, 3)), mode="constant")
+        fft_x = np.fft.rfftn(np.fft.ifftshift(_x, axes=1), axes=(1,))
+        assert_almost_equal(fourier.fft((21,), 1), fft_x)
+
+        with self.assertRaises(ValueError):
+            fourier.fft((3, 4, 5), (2, 3))
+
+    def test_convolutions(self):
+        x = integrated_circular_gaussian(sigma=1.0)
+        y = integrated_circular_gaussian(sigma=1.3)
+
+        with self.assertRaises(ValueError):
+            fft._kspace_operation(Fourier(x), Fourier(y[None, :, :]), 3, operator.mul, (15, 15), (0, 1))
+
+        convolved = fft.convolve(x, y, return_fourier=False)
+        truth = scipy_convolve(x, y, mode="same", method="direct")
+        assert_almost_equal(convolved, truth)
+
     def test_multiband_psf_matching(self):
         """Test matching two PSFs with a spectral dimension"""
         # Narrow PSF
@@ -127,6 +201,9 @@ class TestFourier(object):
         kernel_1to2 = fft.match_psf(psf2, psf1)
         image = fft.convolve(kernel_1to2, psf1)
         assert_almost_equal(psf2.image, image.image)
+
+        kernel_array = fft.match_psf(psf2, psf1, return_fourier=False)
+        assert_almost_equal(kernel_array, kernel_1to2.image)
 
         # Wide to narrow
         kernel_2to1 = fft.match_psf(psf1, psf2)

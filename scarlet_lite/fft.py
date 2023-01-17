@@ -90,17 +90,6 @@ def fast_zero_pad(arr: np.ndarray, pad_width: Sequence[Sequence[int]]) -> np.nda
     return result
 
 
-# noinspection PyUnusedLocal
-def _fast_zero_pad_grad(
-    result: np.ndarray, arr: np.ndarray, pad_width: Sequence[Sequence[int]]
-) -> Callable:
-    """Gradient for fast_zero_pad"""
-    slices = tuple(
-        [slice(start, s - end) for s, (start, end) in zip(result.shape, pad_width)]
-    )
-    return lambda grad_chain: grad_chain[slices]
-
-
 def _pad(
     arr: np.ndarray,
     newshape: Sequence[int],
@@ -147,7 +136,7 @@ def get_fft_shape(
     padding: int = 3,
     axes: int | Sequence[int] = None,
     use_max: bool = False,
-):
+) -> tuple:
     """Return the fast fft shapes for each spatial axis
 
     Calculate the fast fft shape for each dimension in
@@ -170,15 +159,15 @@ def get_fft_shape(
     # Set the combined shape based on the total dimensions
     if axes is None:
         if use_max:
-            shape = np.max([shape1, shape2], axis=1)
+            shape = np.max([shape1, shape2], axis=0)
         else:
             shape = shape1 + shape2
     else:
-        shape = np.zeros(len(axes), dtype="int")
         try:
             len(axes)
         except TypeError:
             axes = [axes]
+        shape = np.zeros(len(axes), dtype="int")
         for n, ax in enumerate(axes):
             shape[n] = shape1[ax] + shape2[ax]
             if use_max:
@@ -187,18 +176,7 @@ def get_fft_shape(
     shape += padding
     # Use the next fastest shape in each dimension
     shape = [fftpack.next_fast_len(s) for s in shape]
-
-    # autograd.numpy.fft does not currently work
-    # if the last dimension is odd
-    while shape[-1] % 2 != 0:
-        shape[-1] += 1
-        shape[-1] = fftpack.next_fast_len(shape[-1])
-    if shape2[-2] % 2 == 0:
-        while shape[-2] % 2 != 0:
-            shape[-2] += 1
-            shape[-2] = fftpack.next_fast_len(shape[-2])
-
-    return shape
+    return tuple(shape)
 
 
 class Fourier(object):
@@ -271,7 +249,7 @@ class Fourier(object):
             A `Fourier` object generated from the FFT.
         """
         if axes is None:
-            axes = range(len(image_fft))
+            axes = range(len(image_shape))
         all_axes = range(len(image_shape))
         image = np.fft.irfftn(image_fft, fft_shape, axes=axes)
         # Shift the center of the image from the bottom left to the center
@@ -370,7 +348,7 @@ def _kspace_operation(
     """
     if len(image1.shape) != len(image2.shape):
         msg = "Both images must have the same number of axes, got {0} and {1}"
-        raise Exception(msg.format(len(image1.shape), len(image2.shape)))
+        raise ValueError(msg.format(len(image1.shape), len(image2.shape)))
 
     fft_shape = get_fft_shape(image1.image, image2.image, padding, axes)
     if (
