@@ -19,7 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-__all__ = ["Blend", "FitPsfBlend"]
+__all__ = ["Blend"]
 
 from typing import cast, Callable, Sequence, TypeVar
 
@@ -28,7 +28,7 @@ import numpy as np
 from .bbox import Box
 from .component import Component, FactorizedComponent
 from .image import Image
-from .observation import Observation, FitPsfObservation
+from .observation import Observation
 from .source import Source
 
 
@@ -267,77 +267,3 @@ class Blend:
         """
         for source in self.sources:
             source.parameterize(parameterization)
-
-
-class FitPsfBlend(Blend):
-    """A blend that attempts to fit the PSF along with the source models."""
-
-    def _grad_log_likelihood(self) -> np.ndarray:
-        """Gradient of the likelihood wrt the unconvolved model"""
-        model = self.get_model(convolve=True)
-        # Update the loss
-        self.loss.append(
-            0.5
-            * -np.sum(self.observation.weights * (self.observation.images - model) ** 2)
-        )
-        # Calculate the gradient wrt the model d(logL)/d(model)
-        result = self.observation.weights * (model - self.observation.images)
-        return result
-
-    def fit(
-        self,
-        max_iter: int,
-        e_rel: float = 1e-4,
-        min_iter: int = 1,
-        resize: int = 10,
-    ) -> tuple[int, float]:
-        """Fit all of the parameters
-
-        Parameters
-        ----------
-        max_iter: int
-            The maximum number of iterations
-        e_rel: float
-            The relative error to use for determining convergence.
-        min_iter: int
-            The minimum number of iterations.
-        resize: int
-            Number of iterations before attempting to resize the
-            resizable components. If `resize` is `None` then
-            no resizing is ever attempted.
-        do_conserve_flux: bool
-            Whether or not to reweight the flux using the source
-            models as templates.
-        """
-        it = self.it
-        while it < max_iter:
-            # Calculate the gradient wrt the on-convolved model
-            grad_log_likelihood = Image(
-                self._grad_log_likelihood(),
-                bands=self.observation.bands,
-                yx0=self.bbox.origin,
-            )
-            _grad_log_likelihood = self.observation.convolve(
-                grad_log_likelihood, grad=True
-            )
-            # Update each component given the current gradient
-            for component in self.components:
-                component.update(it, _grad_log_likelihood.data)
-            # Check to see if any components need to be resized
-            if resize is not None and it > 0 and it % resize == 0:
-                for component in self.components:
-                    if hasattr(component, "resize"):
-                        component.resize()
-
-            # Update the PSF
-            cast(self.observation, FitPsfObservation).update(
-                it, grad_log_likelihood, self.get_model()
-            )
-            # Stopping criteria
-            if it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(
-                self.loss[-1]
-            ):
-                break
-            it += 1
-        self.it = it
-        return it, self.loss[-1]

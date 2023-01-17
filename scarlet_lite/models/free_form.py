@@ -19,7 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-__all__ = ["SpectrumComponent"]
+__all__ = ["FreeFormComponent"]
 
 import numpy as np
 
@@ -30,7 +30,7 @@ from scarlet_lite.parameters import Parameter
 from scarlet_lite.detect import scarlet_footprints_to_image
 
 
-class SpectrumComponent(FactorizedComponent):
+class FreeFormComponent(FactorizedComponent):
     """Implements a free-form component
 
     With no constraints this component is typically either a garbage collector,
