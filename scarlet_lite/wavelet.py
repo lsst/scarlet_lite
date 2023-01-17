@@ -228,9 +228,9 @@ def multiband_starlet_reconstruction(
     remainder of the parameters.
     """
     scales, bands, width, height = starlets.shape
-    result = np.array((bands, width, height), dtype=starlets.dtype)
-    for band in bands:
-        result[:, band] = starlet_reconstruction(
+    result = np.zeros((bands, width, height), dtype=starlets.dtype)
+    for band in range(bands):
+        result[band] = starlet_reconstruction(
             starlets[:, band], generation=generation, convolve2d=convolve2d
         )
     return result
@@ -289,9 +289,8 @@ def get_multiresolution_support(
     if image_type == "space":
         # Calculate sigma_je, the standard deviation at
         # each scale due to gaussian noise
-        shape = (get_scales(image.shape),) + image.shape
         noise_img = np.random.normal(size=image.shape)
-        noise_starlet = starlet_transform(np.array(shape), noise_img, generation=1)
+        noise_starlet = starlet_transform(noise_img, generation=1, scales=len(starlets)-1)
         sigma_je = np.zeros((len(noise_starlet),))
         for j, star in enumerate(noise_starlet):
             sigma_je[j] = np.std(star)

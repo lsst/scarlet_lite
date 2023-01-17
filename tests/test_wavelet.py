@@ -19,29 +19,68 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import numpy as np
-from numpy.testing import assert_almost_equal, assert_equal
+import os
 
-from scarlet_lite.wavelet import starlet_transform, starlet_reconstruction
+import numpy as np
+from numpy.testing import assert_almost_equal
+
+from scarlet_lite.wavelet import (
+    starlet_transform,
+    starlet_reconstruction,
+    multiband_starlet_transform,
+    multiband_starlet_reconstruction,
+    get_multiresolution_support,
+    apply_wavelet_denoising,
+)
 from utils import ScarletTestCase
 
 
 class TestWavelet(ScarletTestCase):
-    def get_image(self) -> np.ndarray:
-        x = np.linspace(-10, 10, 129)
-        y = np.linspace(-10, 10, 129)
-        x, y = np.meshgrid(x, y)
-        return np.exp(-(x**2 + y**2))
-
-    """Test the wavelet object"""
+    def setUp(self) -> None:
+        filename = os.path.join(__file__, "..", "..", "data", "hsc_cosmos_35.npz")
+        filename = os.path.abspath(filename)
+        self.data = np.load(filename)
 
     def test_transform_inverse(self):
-        image = self.get_image()
+        image = np.sum(self.data["images"].astype(float), axis=0)
         starlets = starlet_transform(image, scales=3)
 
         # Test number of levels
-        assert_equal(starlets.shape[0], 4)
+        self.assertTupleEqual(starlets.shape, (4, 58, 48))
 
         # Test inverse
         inverse = starlet_reconstruction(starlets)
         assert_almost_equal(inverse, image)
+
+        # Test using gen1 starlets
+        starlets = starlet_transform(image, scales=3, generation=1)
+
+        # Test number of levels
+        self.assertTupleEqual(starlets.shape, (4, 58, 48))
+
+        # Test inverse
+        inverse = starlet_reconstruction(starlets, generation=1)
+        assert_almost_equal(inverse, image)
+
+    def test_multiband_transform(self):
+        image = self.data["images"].astype(float)
+        starlets = multiband_starlet_transform(image, scales=3)
+
+        # Test number of levels
+        self.assertTupleEqual(starlets.shape, (4, 5, 58, 48))
+
+        # Test inverse
+        inverse = multiband_starlet_reconstruction(starlets)
+        assert_almost_equal(inverse, image)
+
+    def test_extras(self):
+        # This is code that is not used in production,
+        # but that might be used in the future,
+        # so we test to prevent bitrot
+        image = np.sum(self.data["images"].astype(float), axis=0)
+        starlets = starlet_transform(image, scales=3)
+
+        # Execute to ensure that the code runs
+        get_multiresolution_support(image, starlets, 0.1)
+        get_multiresolution_support(image, starlets, 0.1, image_type="space")
+        apply_wavelet_denoising(image)
