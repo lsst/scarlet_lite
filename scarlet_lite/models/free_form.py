@@ -23,11 +23,11 @@ __all__ = ["SpectrumComponent"]
 
 import numpy as np
 
-from ..bbox import Box
-from . import FactorizedComponent
-from ..parameters import Parameter
+from scarlet_lite.bbox import Box
+from scarlet_lite.component import FactorizedComponent
+from scarlet_lite.parameters import Parameter
 
-from ..detect import scarlet_footprints_to_image
+from scarlet_lite.detect import scarlet_footprints_to_image
 
 
 class SpectrumComponent(FactorizedComponent):

@@ -1,6 +1,6 @@
 from .bbox import *
 from .blend import *
-from . import component
+from .component import *
 from . import detect
 
 try:

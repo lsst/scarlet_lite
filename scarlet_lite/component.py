@@ -19,17 +19,124 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-__all__ = ["FactorizedComponent"]
+__all__ = [
+    "Component",
+    "FactorizedComponent",
+    "default_fista_parameterization",
+    "default_adaprox_parameterization",
+]
 
+from abc import ABC, abstractmethod
+from functools import partial
 from typing import Callable
 
 import numpy as np
 
-from ..bbox import Box
-from .base import Component
-from ..image import Image
-from ..operators import Monotonicity
-from ..parameters import parameter, Parameter
+from .bbox import Box
+from .image import Image
+from .operators import Monotonicity
+from .parameters import (
+    parameter,
+    Parameter,
+    FistaParameter,
+    AdaproxParameter,
+    relative_step,
+)
+
+
+class Component(ABC):
+    """A base component in scarlet lite"""
+
+    def __init__(
+        self,
+        bands: tuple,
+        bbox: Box,
+        model_bbox: Box,
+    ):
+        """Initialize a LiteComponent instance
+
+        Parameters
+        ----------
+        bands:
+            The bands used when the component model is created.
+        bbox: Box
+            The bounding box for this component.
+        model_bbox: Box
+            The bounding box for the full blend model.
+        """
+        self._bands = bands
+        self._bbox = bbox
+        self.spectral_box = Box((len(bands),))
+        self.model_bbox = model_bbox
+        self.overlap = model_bbox & bbox
+        self.grad_box = self.spectral_box @ bbox
+        self.grad_slices = (self.spectral_box @ self.model_bbox).overlapped_slices(
+            self.grad_box
+        )
+
+    @property
+    def bbox(self):
+        """The bounding box that contains the component in the full image"""
+        return self._bbox
+
+    @property
+    def bands(self):
+        """The bands in the component model"""
+        return self._bands
+
+    @abstractmethod
+    def resize(self) -> bool:
+        """Test whether or not the component needs to be resized
+
+        This should be overriden in inherited classes and return `True`
+        if the component needs to be resized.
+        """
+        pass
+
+    @abstractmethod
+    def update(self, it: int, input_grad: np.ndarray):
+        """Update the component parameters from an input gradient
+
+        Parameters
+        ----------
+        it:
+            The current iteration of the optimizer.
+        input_grad:
+            Gradient of the likelihood wrt the component model
+        """
+        pass
+
+    @abstractmethod
+    def get_model(self) -> Image:
+        """Generate a model for the component
+
+        This must be implemented in inherited classes.
+
+        Returns
+        -------
+        model: Image
+            The image of the component model.
+        """
+        pass
+
+    @abstractmethod
+    def parameterize(self, parameterization: Callable) -> None:
+        """Convert the component parameter arrays into Parameter instances
+
+        Parameters
+        ----------
+        parameterization: Callable
+            A function to use to convert parameters of a given type into
+            a `Parameter` in place. It should take a single argument that
+            is the `Component` or `Source` that is to be parameterized.
+        """
+        pass
+
+    def __str__(self):
+        return "Component"
+
+    def __repr__(self):
+        return "Component"
 
 
 class FactorizedComponent(Component):
@@ -267,3 +374,31 @@ class FactorizedComponent(Component):
 
     def __repr__(self):
         return "FactorizedComponent"
+
+
+def default_fista_parameterization(component: Component):
+    """Initialize a factorized component to use FISTA PGM for optimization"""
+    if isinstance(component, FactorizedComponent):
+        component._spectrum = FistaParameter(component.spectrum, step=0.5)
+        component._morph = FistaParameter(component.morph, step=0.5)
+    else:
+        raise NotImplementedError(f"Unrecognized component type {component}")
+
+
+def default_adaprox_parameterization(component: Component, noise_rms: float = None):
+    """Initialize a factorized component to use Proximal ADAM
+    for optimization
+    """
+    if noise_rms is None:
+        noise_rms = 1e-16
+    if isinstance(component, FactorizedComponent):
+        component._spectrum = AdaproxParameter(
+            component.spectrum,
+            step=partial(relative_step, factor=1e-2, minimum=noise_rms),
+        )
+        component._morph = AdaproxParameter(
+            component.morph,
+            step=1e-2,
+        )
+    else:
+        raise NotImplementedError(f"Unrecognized component type {component}")
