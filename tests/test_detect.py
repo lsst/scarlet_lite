@@ -37,7 +37,7 @@ from scarlet_lite.detect import (
     bounds_to_bbox,
     scarlet_footprints_to_image,
     get_wavelets,
-    get_detect_wavelets
+    get_detect_wavelets,
 )
 
 from utils import ScarletTestCase
@@ -80,9 +80,15 @@ class TestDetect(ScarletTestCase):
         unchecked = np.ones(self.image.shape, dtype=bool)
         footprint = np.zeros(self.image.shape, dtype=bool)
         y, x = self.centers[0]
-        get_connected_pixels(y, x, image.data, unchecked, footprint,
-                             np.array([y, y, x, x]).astype(np.int32),
-                             0)
+        get_connected_pixels(
+            y,
+            x,
+            image.data,
+            unchecked,
+            footprint,
+            np.array([y, y, x, x]).astype(np.int32),
+            0,
+        )
         assert_array_equal(footprint[bbox.slices], truth)
 
         # Check that only the first 2 footprints are all connected
@@ -94,9 +100,15 @@ class TestDetect(ScarletTestCase):
         unchecked = np.ones(self.image.shape, dtype=bool)
         footprint = np.zeros(self.image.shape, dtype=bool)
         y, x = self.centers[0]
-        get_connected_pixels(y, x, image.data, unchecked, footprint,
-                             np.array([y, y, x, x]).astype(np.int32),
-                             1e-15)
+        get_connected_pixels(
+            y,
+            x,
+            image.data,
+            unchecked,
+            footprint,
+            np.array([y, y, x, x]).astype(np.int32),
+            1e-15,
+        )
         assert_array_equal(footprint[bbox.slices], truth)
 
         # Test finding all peaks
@@ -133,7 +145,11 @@ class TestDetect(ScarletTestCase):
         self.assertEqual(footprints[2].peaks[0].y, self.centers[2][0])
         self.assertEqual(footprints[2].peaks[0].x, self.centers[2][1])
 
-        truth = 1 * self.sources[3] + 2 * (self.sources[0] + self.sources[1]) + 3 * self.sources[2]
+        truth = (
+            1 * self.sources[3]
+            + 2 * (self.sources[0] + self.sources[1])
+            + 3 * self.sources[2]
+        )
         truth.data[truth.data < 1e-15] = 0
         fp_image = scarlet_footprints_to_image(footprints, truth.shape)
         assert_array_equal(fp_image, truth.data)
@@ -153,7 +169,11 @@ class TestDetect(ScarletTestCase):
             self.sources[0].bbox.start[1],
             self.sources[0].bbox.stop[1],
         ]
-        peaks = [Peak(self.centers[0][0], self.centers[0][1], self.image.data[self.centers[0]])]
+        peaks = [
+            Peak(
+                self.centers[0][0], self.centers[0][1], self.image.data[self.centers[0]]
+            )
+        ]
         footprint1 = Footprint(footprint, peaks, bounds)
         footprint = self.sources[1].data
         footprint[footprint < 1e-15] = 0
@@ -163,7 +183,11 @@ class TestDetect(ScarletTestCase):
             self.sources[1].bbox.start[1],
             self.sources[1].bbox.stop[1],
         ]
-        peaks = [Peak(self.centers[1][0], self.centers[1][1], self.image.data[self.centers[1]])]
+        peaks = [
+            Peak(
+                self.centers[1][0], self.centers[1][1], self.image.data[self.centers[1]]
+            )
+        ]
         footprint2 = Footprint(footprint, peaks, bounds)
 
         truth = self.sources[0] + self.sources[1]

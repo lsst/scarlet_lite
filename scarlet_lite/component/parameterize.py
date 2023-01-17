@@ -37,7 +37,8 @@ def default_fista_parameterization(component: Component):
 
 
 def default_adaprox_parameterization(component: Component, noise_rms: float = None):
-    """Initialize a factorized component to use Proximal ADAM for optimization
+    """Initialize a factorized component to use Proximal ADAM
+    for optimization
     """
     if noise_rms is None:
         noise_rms = 1e-16

@@ -34,6 +34,7 @@ from utils import ScarletTestCase
 
 class DummyClass:
     """A class to test the continue_class decorator"""
+
     def __init__(self, x):
         self.x = x
 
@@ -41,6 +42,7 @@ class DummyClass:
 @continue_class
 class DummyClass:  # noqa: F811
     """Update to the DummyClass"""
+
     def square(self):
         return self.x**2
 
@@ -84,7 +86,7 @@ class TestUtils(ScarletTestCase):
             [1, 1, 1, 1, 1, 1],
             [1, 1, 1, 1, 1, 1],
             [1, 1, 1, 1, 1, 1],
-            [0, 1, 1, 1, 1, 0]
+            [0, 1, 1, 1, 1, 0],
         ]
         x = get_circle_mask(6, dtype=int)
         assert_array_equal(x, truth)

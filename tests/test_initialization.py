@@ -103,7 +103,9 @@ class TestInitialization(ScarletTestCase):
         assert_array_equal(morph, truth)
 
         # Test an empty morphology
-        bbox, morph = init_monotonic_morph(np.zeros(self.detect.shape), center, full_box)
+        bbox, morph = init_monotonic_morph(
+            np.zeros(self.detect.shape), center, full_box
+        )
         self.assertBoxEqual(bbox, Box((0, 0)))
         self.assertIsNone(morph)
 
@@ -139,7 +141,9 @@ class TestInitialization(ScarletTestCase):
 
         # Test zero morphologu
         zeros = np.zeros(self.detect.shape)
-        bbox, morph = init_monotonic_morph(zeros, center, full_box, monotonicity=monotonicity)
+        bbox, morph = init_monotonic_morph(
+            zeros, center, full_box, monotonicity=monotonicity
+        )
         self.assertBoxEqual(bbox, Box((0, 0)))
         self.assertIsNone(morph)
 
@@ -207,7 +211,9 @@ class TestInitialization(ScarletTestCase):
         self.assertTupleEqual((init.py, init.px), (7, 7))
         self.assertEqual(len(init.sources), 7)
 
-        centers = tuple(tuple(center.astype(int)) for center in self.centers) + ((0, 4),)
+        centers = tuple(tuple(center.astype(int)) for center in self.centers) + (
+            (0, 4),
+        )
         init = FactorizedChi2Initialization(self.observation, centers)
         self.assertEqual(len(init.sources), 8)
 

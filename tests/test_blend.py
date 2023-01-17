@@ -27,7 +27,11 @@ from numpy.testing import assert_almost_equal
 from scipy.signal import convolve as scipy_convolve
 
 from scarlet_lite import Blend, Box, Image, Observation, Source
-from scarlet_lite.component import default_adaprox_parameterization, Component, FactorizedComponent
+from scarlet_lite.component import (
+    default_adaprox_parameterization,
+    Component,
+    FactorizedComponent,
+)
 from scarlet_lite.initialization import FactorizedChi2Initialization
 from scarlet_lite.operators import Monotonicity
 from scarlet_lite.parameters import Parameter

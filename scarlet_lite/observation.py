@@ -333,9 +333,7 @@ class Observation:
         """Build the slices needed for convolution in real space"""
         if self._convolution_bounds is None:
             coords = get_filter_coords(self.diff_kernel[0])
-            self._convolution_bounds = get_filter_bounds(
-                coords.reshape(-1, 2)
-            )
+            self._convolution_bounds = get_filter_bounds(coords.reshape(-1, 2))
         return self._convolution_bounds
 
 

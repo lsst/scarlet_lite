@@ -47,8 +47,7 @@ class Footprint:  # noqa: F811
 
     @property
     def yx0(self) -> tuple[int, int]:
-        """Origin in y, x of the lower left corner of the footprint
-        """
+        """Origin in y, x of the lower left corner of the footprint"""
         return self.bounds[0], self.bounds[2]
 
     def intersection(self, other: TFootprint) -> Image | None:

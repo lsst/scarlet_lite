@@ -504,9 +504,7 @@ class TestImage(ScarletTestCase):
         )
 
         sub_img = image_2d[Box((10, 5), (37, 87))]
-        self.assertImageEqual(
-            sub_img, Image(data[0, 10:20, 5:10], yx0=(37, 87))
-        )
+        self.assertImageEqual(sub_img, Image(data[0, 10:20, 5:10], yx0=(37, 87)))
 
         sub_img = image[10:20, 5:10]
         self.assertImageEqual(
@@ -616,7 +614,9 @@ class TestImage(ScarletTestCase):
         data = np.arange(60).reshape(3, 4, 5)
         img = Image(data, bands=tuple("gri"))
         result = img.project(tuple("gi"))
-        truth = data[(0, 2), ]
+        truth = data[
+            (0, 2),
+        ]
         self.assertImageEqual(result, Image(truth, bands=tuple("gi")))
 
     def test_repeat(self):

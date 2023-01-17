@@ -29,7 +29,7 @@ from scarlet_lite.parameters import (
     AdaproxParameter,
     FistaParameter,
     FixedParameter,
-    Parameter
+    Parameter,
 )
 
 from utils import ScarletTestCase
@@ -97,13 +97,13 @@ class TestParameters(ScarletTestCase):
         x2 = x**2
         param = FistaParameter(
             x2,
-            .1,
+            0.1,
             grad,
             prox_ceiling,
         )
 
         assert_array_equal(param.x, x2)
-        assert_array_equal(param.grad(np.full(x.shape, 0.1), x), 0.2*x)
+        assert_array_equal(param.grad(np.full(x.shape, 0.1), x), 0.2 * x)
         truth = x2.copy()
         truth[truth > 20] = 20
         assert_array_equal(param.prox(x2), truth)
@@ -114,13 +114,13 @@ class TestParameters(ScarletTestCase):
         x2 = x**2
         param = AdaproxParameter(
             x2,
-            .1,
+            0.1,
             grad,
             prox_ceiling,
         )
 
         assert_array_equal(param.x, x2)
-        assert_array_equal(param.grad(np.full(x.shape, 0.1), x), 0.2*x)
+        assert_array_equal(param.grad(np.full(x.shape, 0.1), x), 0.2 * x)
         truth = x2.copy()
         truth[truth > 20] = 20
         assert_array_equal(param.prox(x2), truth)
@@ -130,7 +130,7 @@ class TestParameters(ScarletTestCase):
         for scheme in schemes:
             param = AdaproxParameter(
                 x2,
-                .1,
+                0.1,
                 grad,
                 prox_ceiling,
                 scheme=scheme,
@@ -140,5 +140,5 @@ class TestParameters(ScarletTestCase):
     def test_fixed_parameter(self):
         x = np.arange(10, dtype=float)
         param = FixedParameter(x)
-        param.update(10, np.arange(10)*2)
+        param.update(10, np.arange(10) * 2)
         assert_array_equal(param.x, x)

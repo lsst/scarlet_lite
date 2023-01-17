@@ -34,11 +34,13 @@ from scarlet_lite.utils import integrated_circular_gaussian
 
 class TestMeasurements(ScarletTestCase):
     def test_snr(self):
-        psfs = np.array([
-            integrated_circular_gaussian(sigma=1.0),
-            integrated_circular_gaussian(sigma=0.85),
-            integrated_circular_gaussian(sigma=1.8)
-        ])
+        psfs = np.array(
+            [
+                integrated_circular_gaussian(sigma=1.0),
+                integrated_circular_gaussian(sigma=0.85),
+                integrated_circular_gaussian(sigma=1.8),
+            ]
+        )
 
         bands = tuple("gri")
         images = np.zeros((3, 51, 51), dtype=float)
@@ -51,8 +53,10 @@ class TestMeasurements(ScarletTestCase):
         variance = Image(variance, bands=bands)
         snr = calculate_snr(images, variance, psfs, (27, 17))
 
-        numerator = np.sum(images.data[:, 20:35, 10:25]*psfs)
-        denominator = np.sqrt(np.sum(psfs**2 * np.array([0.2, 0.1, 0.05])[:, None, None]))
+        numerator = np.sum(images.data[:, 20:35, 10:25] * psfs)
+        denominator = np.sqrt(
+            np.sum(psfs**2 * np.array([0.2, 0.1, 0.05])[:, None, None])
+        )
         truth = numerator / denominator
         self.assertAlmostEqual(snr, truth)
 
@@ -61,7 +65,9 @@ class TestMeasurements(ScarletTestCase):
         filename = os.path.abspath(filename)
         data = np.load(filename)
         model_psf = integrated_circular_gaussian(sigma=0.8)
-        centers = tuple(np.array([data["catalog"]["y"], data["catalog"]["x"]]).T.astype(int))
+        centers = tuple(
+            np.array([data["catalog"]["y"], data["catalog"]["x"]]).T.astype(int)
+        )
         bands = data["filters"]
         observation = Observation(
             Image(data["images"], bands=bands),

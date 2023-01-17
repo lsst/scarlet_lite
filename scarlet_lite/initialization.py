@@ -195,8 +195,8 @@ def multifit_spectra(
 
 
 class FactorizedInitialization:
-    """Common variables and methods for both Factorized Component schems
-    """
+    """Common variables and methods for both Factorized Component schems"""
+
     def __init__(
         self,
         observation: Observation,
@@ -448,9 +448,7 @@ class FactorizedChi2Initialization(FactorizedInitialization):
         # in each iteration.
         # So we create the convolved model in order
         # to correctly set the spectrum.
-        convolved = observation.convolve(
-            detect.repeat(observation.bands), mode="real"
-        )
+        convolved = observation.convolve(detect.repeat(observation.bands), mode="real")
 
         # Set the input parameters
         self.disk_percentile = disk_percentile
@@ -482,9 +480,7 @@ class FactorizedChi2Initialization(FactorizedInitialization):
         component = self.get_single_component(center, detect, thresh, self.padding)
 
         if component is None:
-            components = [
-                self.get_psf_component(center)
-            ]
+            components = [self.get_psf_component(center)]
         elif component_snr < 2:
             components = [component]
         else:
@@ -630,12 +626,16 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
         nbr_components = self.get_snr(center)
         observation = self.observation
 
-        if (nbr_components < 1 and self.use_psf) or self.detectlets[center[0], center[1]] <= 0:
+        if (nbr_components < 1 and self.use_psf) or self.detectlets[
+            center[0], center[1]
+        ] <= 0:
             # Initialize the source as an PSF source
             components = [self.get_psf_component(center)]
         elif nbr_components < 2:
             # Inititialize with a single component
-            components = [self.get_single_component(center, self.detectlets, 0, self.disk_grow)]
+            components = [
+                self.get_single_component(center, self.detectlets, 0, self.disk_grow)
+            ]
         else:
             # Initialize with a 2 component model
             bulge_box, bulge_morph = init_monotonic_morph(
@@ -650,7 +650,11 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                         return None
                 # One of the components was null,
                 # so initialize as a single component
-                components = [self.get_single_component(center, self.detectlets, 0, self.disk_grow)]
+                components = [
+                    self.get_single_component(
+                        center, self.detectlets, 0, self.disk_grow
+                    )
+                ]
             else:
                 bulge_morph = bulge_morph[bulge_box.slices]
                 disk_morph = disk_morph[disk_box.slices]
@@ -673,7 +677,6 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                             bulge_box,
                             observation.bbox,
                             center,
-
                         )
                     )
                 else:

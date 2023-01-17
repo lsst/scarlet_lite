@@ -184,7 +184,9 @@ class TestFourier(ScarletTestCase):
         y = integrated_circular_gaussian(sigma=1.3)
 
         with self.assertRaises(ValueError):
-            fft._kspace_operation(Fourier(x), Fourier(y[None, :, :]), 3, operator.mul, (15, 15), (0, 1))
+            fft._kspace_operation(
+                Fourier(x), Fourier(y[None, :, :]), 3, operator.mul, (15, 15), (0, 1)
+            )
 
         convolved = fft.convolve(x, y, return_fourier=False)
         truth = scipy_convolve(x, y, mode="same", method="direct")

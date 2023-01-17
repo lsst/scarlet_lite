@@ -956,7 +956,8 @@ class EllipticalParametricComponent(ParametricComponent):
 
     @property
     def theta(self) -> float:
-        """The counter-clockwise rotation angle of the model from the x-axis.
+        """The counter-clockwise rotation angle of the model from the
+        x-axis.
         """
         return self._params.x[4]
 

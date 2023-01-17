@@ -155,7 +155,7 @@ class Blend:
         model = Image.from_box(
             self.observation.bbox,
             bands=self.observation.bands,
-            dtype=self.observation.dtype
+            dtype=self.observation.dtype,
         )
         for idx, component in enumerate(self.components):
             if hasattr(component, "morph") and hasattr(component, "spectrum"):
@@ -186,9 +186,9 @@ class Blend:
         for src in self.sources:
             for component in src.components:
                 if (
-                        hasattr(component, "spectrum")
-                        and hasattr(component, "prox_spectrum")
-                        and component.prox_spectrum is not None  # type: ignore
+                    hasattr(component, "spectrum")
+                    and hasattr(component, "prox_spectrum")
+                    and component.prox_spectrum is not None  # type: ignore
                 ):
                     component.prox_spectrum(component.spectrum)
 
@@ -315,7 +315,7 @@ class FitPsfBlend(Blend):
             grad_log_likelihood = Image(
                 self._grad_log_likelihood(),
                 bands=self.observation.bands,
-                yx0=self.bbox.origin
+                yx0=self.bbox.origin,
             )
             _grad_log_likelihood = self.observation.convolve(
                 grad_log_likelihood, grad=True

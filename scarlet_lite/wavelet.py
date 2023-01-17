@@ -290,7 +290,9 @@ def get_multiresolution_support(
         # Calculate sigma_je, the standard deviation at
         # each scale due to gaussian noise
         noise_img = np.random.normal(size=image.shape)
-        noise_starlet = starlet_transform(noise_img, generation=1, scales=len(starlets)-1)
+        noise_starlet = starlet_transform(
+            noise_img, generation=1, scales=len(starlets) - 1
+        )
         sigma_je = np.zeros((len(noise_starlet),))
         for j, star in enumerate(noise_starlet):
             sigma_je[j] = np.std(star)
