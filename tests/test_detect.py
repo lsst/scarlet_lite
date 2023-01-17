@@ -191,7 +191,7 @@ class TestDetect(ScarletTestCase):
 
         self.assertTupleEqual(wavelets.shape, (5, 5, 58, 48))
 
-    def get_detect_wavelets(self):
+    def test_get_detect_wavelets(self):
         filename = os.path.join(__file__, "..", "..", "data", "hsc_cosmos_35.npz")
         filename = os.path.abspath(filename)
         data = np.load(filename)
@@ -199,4 +199,4 @@ class TestDetect(ScarletTestCase):
         variance = data["variance"]
         wavelets = get_detect_wavelets(images, variance)
 
-        self.assertTupleEqual(wavelets.shape, (5, 58, 48))
+        self.assertTupleEqual(wavelets.shape, (4, 58, 48))
