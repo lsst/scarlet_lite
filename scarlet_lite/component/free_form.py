@@ -19,7 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-__all__ = ["SedComponent"]
+__all__ = ["SpectrumComponent"]
 
 import numpy as np
 
@@ -30,7 +30,7 @@ from ..parameters import Parameter
 from ..detect import scarlet_footprints_to_image
 
 
-class SedComponent(FactorizedComponent):
+class SpectrumComponent(FactorizedComponent):
     """Implements a free-form component
 
     With no constraints this component is typically either a garbage collector,
@@ -41,7 +41,7 @@ class SedComponent(FactorizedComponent):
     def __init__(
         self,
         bands: tuple,
-        sed: np.ndarray | Parameter,
+        spectrum: np.ndarray | Parameter,
         morph: np.ndarray | Parameter,
         model_bbox: Box,
         bg_thresh: float = None,
@@ -68,7 +68,7 @@ class SedComponent(FactorizedComponent):
         """
         super().__init__(
             bands=bands,
-            sed=sed,
+            spectrum=spectrum,
             morph=morph,
             bbox=model_bbox,
             model_bbox=model_bbox,
@@ -81,17 +81,17 @@ class SedComponent(FactorizedComponent):
         self.peaks = peaks
         self.min_area = min_area
 
-    def prox_sed(self, sed: np.ndarray) -> np.ndarray:
-        """Apply a prox-like update to the SED
+    def prox_spectrum(self, spectrum: np.ndarray) -> np.ndarray:
+        """Apply a prox-like update to the spectrum
 
         This differs from `FactorizedComponent` because an
-        `SedComponent` has the SED normalized to unity.
+        `SedComponent` has the spectrum normalized to unity.
         """
-        # prevent divergent SED
-        sed[sed < self.floor] = self.floor
-        # Normalize the SED
-        sed = sed / np.sum(sed)
-        return sed
+        # prevent divergent spectrum
+        spectrum[spectrum < self.floor] = self.floor
+        # Normalize the spectrum
+        spectrum = spectrum / np.sum(spectrum)
+        return spectrum
 
     def prox_morph(self, morph: np.ndarray) -> np.ndarray:
         """Apply a prox-like update to the morphology
@@ -104,7 +104,7 @@ class SedComponent(FactorizedComponent):
         if self.bg_thresh is not None:
             bg_thresh = self.bg_rms * self.bg_thresh
             # Enforce background thresholding
-            model = self.sed[:, None, None] * morph[None, :, :]
+            model = self.spectrum[:, None, None] * morph[None, :, :]
             morph[np.all(model < bg_thresh[:, None, None], axis=0)] = 0
         else:
             # enforce positivity

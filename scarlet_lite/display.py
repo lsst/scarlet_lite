@@ -668,11 +668,11 @@ def compare_spectra(
             if sources[k].is_null:
                 continue
             if use_template or not hasattr(sources[k], "flux"):
-                sed = np.sum(sources[k].get_model(), axis=(1, 2))
-                ax[row][column].plot(sed, ".-", label=key + " model")
+                spectrum = np.sum(sources[k].get_model(), axis=(1, 2))
+                ax[row][column].plot(spectrum, ".-", label=key + " model")
             if use_flux and hasattr(sources[k], "flux"):
-                sed = np.sum(sources[k].get_model(use_flux=True), axis=(1, 2))
-                ax[row][column].plot(sed, ".--", label=key + " flux")
+                spectrum = np.sum(sources[k].get_model(use_flux=True), axis=(1, 2))
+                ax[row][column].plot(spectrum, ".--", label=key + " flux")
         panel += 1
     handles, labels = ax[0][0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=4)

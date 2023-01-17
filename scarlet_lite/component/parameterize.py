@@ -30,7 +30,7 @@ from ..parameters import FistaParameter, AdaproxParameter, relative_step
 def default_fista_parameterization(component: Component):
     """Initialize a factorized component to use FISTA PGM for optimization"""
     if isinstance(component, FactorizedComponent):
-        component._sed = FistaParameter(component.sed, step=0.5)
+        component._spectrum = FistaParameter(component.spectrum, step=0.5)
         component._morph = FistaParameter(component.morph, step=0.5)
     else:
         raise NotImplementedError(f"Unrecognized component type {component}")
@@ -42,8 +42,8 @@ def default_adaprox_parameterization(component: Component, noise_rms: float = No
     if noise_rms is None:
         noise_rms = 1e-16
     if isinstance(component, FactorizedComponent):
-        component._sed = AdaproxParameter(
-            component.sed,
+        component._spectrum = AdaproxParameter(
+            component.spectrum,
             step=partial(relative_step, factor=1e-2, minimum=noise_rms),
         )
         component._morph = AdaproxParameter(

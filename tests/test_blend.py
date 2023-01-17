@@ -124,7 +124,7 @@ class TestBlend(ScarletTestCase):
             components.append(
                 FactorizedComponent(
                     bands=bands,
-                    sed=spectrum,
+                    spectrum=spectrum,
                     morph=morph,
                     bbox=data_morph.bbox,
                     model_bbox=self.observation.bbox,
@@ -179,10 +179,10 @@ class TestBlend(ScarletTestCase):
         np.random.seed(0)
         blend = self.blend
 
-        # Change the initial SEDs so that they can be fit later
+        # Change the initial spectra so that they can be fit later
         for component in blend.components:
             c = cast(FactorizedComponent, component)
-            c.sed[:] = np.random.rand(3) * 10
+            c.spectrum[:] = np.random.rand(3) * 10
 
         with assert_raises(AssertionError):
             # Since the spectra have not yet been fit,
@@ -227,10 +227,10 @@ class TestBlend(ScarletTestCase):
         yx0 = blend.sources[0].components[1].bbox.origin
         blend.sources[0].components = blend.sources[0].components[:1]
 
-        # Change the initial SEDs so that they can be fit later
+        # Change the initial spectra so that they can be fit later
         for component in blend.components:
             c = cast(FactorizedComponent, component)
-            c.sed[:] = np.random.rand(3) * 10
+            c.spectrum[:] = np.random.rand(3) * 10
 
         with assert_raises(AssertionError):
             # Since the spectra have not yet been fit,
@@ -255,10 +255,10 @@ class TestBlend(ScarletTestCase):
     def test_clipping(self):
         blend = self.blend
 
-        # Change the initial SEDs so that they can be fit later
+        # Change the initial spectra so that they can be fit later
         for component in blend.components:
             c = cast(FactorizedComponent, component)
-            c.sed[:] = np.random.rand(3) * 10
+            c.spectrum[:] = np.random.rand(3) * 10
 
         with assert_raises(AssertionError):
             # Since the spectra have not yet been fit,

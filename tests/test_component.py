@@ -50,7 +50,7 @@ class DummyComponent(Component):
 
 class TestFactorizedComponent(ScarletTestCase):
     def setUp(self) -> None:
-        sed = np.arange(3)
+        spectrum = np.arange(3)
         morph = np.arange(20).reshape(4, 5)
         bands = ("g", "r", "i")
         bbox = Box((4, 5), (22, 31))
@@ -59,7 +59,7 @@ class TestFactorizedComponent(ScarletTestCase):
 
         self.component = FactorizedComponent(
             bands,
-            sed,
+            spectrum,
             morph,
             bbox,
             model_bbox,
@@ -67,7 +67,7 @@ class TestFactorizedComponent(ScarletTestCase):
         )
 
         self.bands = bands
-        self.sed = sed
+        self.spectrum = spectrum
         self.morph = morph
         self.full_shape = (3, 100, 100)
 
@@ -75,14 +75,14 @@ class TestFactorizedComponent(ScarletTestCase):
         # Test with only required parameters
         component = FactorizedComponent(
             self.bands,
-            self.sed,
+            self.spectrum,
             self.morph,
             self.component.bbox,
             self.component.model_bbox,
         )
 
-        self.assertIsInstance(component._sed, Parameter)
-        assert_array_equal(component.sed, self.sed)
+        self.assertIsInstance(component._spectrum, Parameter)
+        assert_array_equal(component.spectrum, self.spectrum)
         self.assertIsInstance(component._morph, Parameter)
         assert_array_equal(component.morph, self.morph)
         self.assertBoxEqual(component.bbox, self.component.bbox)
@@ -103,7 +103,7 @@ class TestFactorizedComponent(ScarletTestCase):
 
         component = FactorizedComponent(
             self.bands,
-            self.sed,
+            self.spectrum,
             self.morph,
             self.component.bbox,
             self.component.model_bbox,
@@ -121,12 +121,12 @@ class TestFactorizedComponent(ScarletTestCase):
     def test_get_model(self):
         component = self.component
         assert_array_equal(
-            component.get_model(), self.sed[:, None, None] * self.morph[None, :, :]
+            component.get_model(), self.spectrum[:, None, None] * self.morph[None, :, :]
         )
 
         # Insert component into a larger model
         full_model = np.zeros(self.full_shape)
-        full_model[:, 22:26, 31:36] = self.sed[:, None, None] * self.morph[None, :, :]
+        full_model[:, 22:26, 31:36] = self.spectrum[:, None, None] * self.morph[None, :, :]
 
         test_model = Image(np.zeros(self.full_shape), bands=self.bands)
         test_model += component.get_model()
@@ -136,27 +136,27 @@ class TestFactorizedComponent(ScarletTestCase):
     def test_gradients(self):
         component = self.component
         morph = self.morph
-        sed = self.sed
+        spectrum = self.spectrum
 
         input_grad = np.zeros(self.full_shape)
         input_grad[:, 22:26, 31:36] = np.array([morph, 2 * morph, 3 * morph])
-        true_sed_grad = np.array(
+        true_spectrum_grad = np.array(
             [
                 np.sum(morph**2),
                 np.sum(2 * morph**2),
                 np.sum(3 * morph**2),
             ]
         )
-        assert_almost_equal(component.grad_sed(input_grad, sed, morph), true_sed_grad)
+        assert_almost_equal(component.grad_spectrum(input_grad, spectrum, morph), true_spectrum_grad)
 
-        true_morph_grad = np.sum(input_grad * sed[:, None, None], axis=0)[22:26, 31:36]
+        true_morph_grad = np.sum(input_grad * spectrum[:, None, None], axis=0)[22:26, 31:36]
         assert_almost_equal(
-            component.grad_morph(input_grad, morph, sed), true_morph_grad
+            component.grad_morph(input_grad, morph, spectrum), true_morph_grad
         )
 
     def test_proximal_operators(self):
-        # Test SED positivity, morph threshold, and monotonicity
-        sed = np.array([-1, 2, 3], dtype=float)
+        # Test spectrum positivity, morph threshold, and monotonicity
+        spectrum = np.array([-1, 2, 3], dtype=float)
         morph = np.array([[10, 2, 1], [1, 5, 3], [0.1, 4, -1]], dtype=float)
         bbox = Box((3, 3), (10, 10))
         morph_bbox = Box((100, 100))
@@ -165,7 +165,7 @@ class TestFactorizedComponent(ScarletTestCase):
 
         component = FactorizedComponent(
             self.bands,
-            sed.copy(),
+            spectrum.copy(),
             morph.copy(),
             bbox,
             morph_bbox,
@@ -175,39 +175,39 @@ class TestFactorizedComponent(ScarletTestCase):
             monotonicity=monotonicity,
         )
 
-        proxed_sed = np.array([1e-20, 2, 3])
+        proxed_spectrum = np.array([1e-20, 2, 3])
         proxed_morph = np.array([[2.6666666666666667, 2, 1], [1, 5, 3], [0, 4, 0]])
         proxed_morph = proxed_morph / 5
 
-        component.prox_sed(component.sed)
+        component.prox_spectrum(component.spectrum)
         component.prox_morph(component.morph)
 
-        assert_array_equal(component.sed, proxed_sed)
+        assert_array_equal(component.spectrum, proxed_spectrum)
         assert_array_equal(component.morph, proxed_morph)
 
         component = FactorizedComponent(
             self.bands,
-            sed.copy(),
+            spectrum.copy(),
             morph.copy(),
             bbox,
             morph_bbox,
             None,
         )
 
-        proxed_sed = np.array([1e-20, 2, 3])
+        proxed_spectrum = np.array([1e-20, 2, 3])
         proxed_morph = np.array([[10, 2, 1], [1, 5, 3], [0.1, 4, 0]])
         proxed_morph = proxed_morph / 5
 
-        component.prox_sed(component.sed)
+        component.prox_spectrum(component.spectrum)
         component.prox_morph(component.morph)
 
-        assert_array_equal(component.sed, proxed_sed)
+        assert_array_equal(component.spectrum, proxed_spectrum)
         assert_array_equal(component.morph, proxed_morph)
 
         self.assertFalse(component.resize())
 
     def test_resize(self):
-        sed = np.array([1, 2, 3], dtype=float)
+        spectrum = np.array([1, 2, 3], dtype=float)
         morph = np.zeros((10, 10), dtype=float)
         morph[3:6, 5:8] = np.arange(9).reshape(3, 3)
         bbox = Box((10, 10), (3, 5))
@@ -217,7 +217,7 @@ class TestFactorizedComponent(ScarletTestCase):
 
         component = FactorizedComponent(
             self.bands,
-            sed.copy(),
+            spectrum.copy(),
             morph.copy(),
             bbox,
             morph_bbox,
@@ -240,7 +240,7 @@ class TestFactorizedComponent(ScarletTestCase):
     def test_parameterization(self):
         component = self.component
         assert_array_equal(
-            component.get_model(), self.sed[:, None, None] * self.morph[None, :, :]
+            component.get_model(), self.spectrum[:, None, None] * self.morph[None, :, :]
         )
 
         component.parameterize(default_fista_parameterization)

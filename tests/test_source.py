@@ -44,12 +44,12 @@ class TestSource(ScarletTestCase):
         bbox = Box((101, 101))
         center = (27, 32)
         morph1 = integrated_circular_gaussian(sigma=0.8)
-        sed1 = np.arange(5)
+        spectrum1 = np.arange(5)
         component_box1 = Box((15, 15), (20, 25))
         components = [
             FactorizedComponent(
                 bands,
-                sed1,
+                spectrum1,
                 morph1,
                 component_box1,
                 bbox,
@@ -66,7 +66,7 @@ class TestSource(ScarletTestCase):
         self.assertImageEqual(
             source.get_model(),
             Image(
-                sed1[:, None, None] * morph1[None, :, :],
+                spectrum1[:, None, None] * morph1[None, :, :],
                 yx0=component_box1.origin,
                 bands=bands,
             ),
@@ -75,13 +75,13 @@ class TestSource(ScarletTestCase):
 
         # Test a source with multiple components
         morph2 = integrated_circular_gaussian(sigma=2.1)
-        sed2 = np.arange(5)[::-1]
+        spectrum2 = np.arange(5)[::-1]
         component_box2 = Box((15, 15), (10, 35))
 
         components = [
             FactorizedComponent(
                 bands,
-                sed1,
+                spectrum1,
                 morph1,
                 component_box1,
                 bbox,
@@ -89,7 +89,7 @@ class TestSource(ScarletTestCase):
             ),
             FactorizedComponent(
                 bands,
-                sed2,
+                spectrum2,
                 morph2,
                 component_box2,
                 bbox,
@@ -107,8 +107,8 @@ class TestSource(ScarletTestCase):
         self.assertEqual(str(source), "Source<FactorizedComponent,FactorizedComponent>")
 
         model = np.zeros((5, 25, 25), dtype=float)
-        model[:, 10:25, :15] = sed1[:, None, None] * morph1[None, :, :]
-        model[:, :15, 10:25] += sed2[:, None, None] * morph2[None, :, :]
+        model[:, 10:25, :15] = spectrum1[:, None, None] * morph1[None, :, :]
+        model[:, :15, 10:25] += spectrum2[:, None, None] * morph2[None, :, :]
         model = Image(model, yx0=(10, 25), bands=tuple("grizy"))
 
         self.assertImageEqual(

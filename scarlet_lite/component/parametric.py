@@ -351,7 +351,7 @@ def grad_gaussian(
     params: np.ndarray,
     cls: Component,
     morph: np.ndarray,
-    sed: np.ndarray,
+    spectrum: np.ndarray,
     ellipse: EllipseFrame,
 ) -> np.ndarray:
     """Gradient of the the component model wrt the Gaussian
@@ -367,8 +367,8 @@ def grad_gaussian(
         The component of the model that contains the morphology.
     morph: np.ndarray
         The model of the morphology.
-    sed: np.ndarray
-        The model of the SED.
+    spectrum: np.ndarray
+        The model of the spectrum.
     ellipse: EllipseFrame
         The ellipse parameters to scale the radius in all directions.
     """
@@ -376,7 +376,7 @@ def grad_gaussian(
     # wrt the Gaussian e^-r**2
     _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
     _grad[cls.slices[1]] = input_grad[cls.slices[0]]
-    _grad = -morph * np.einsum("i,i...", sed, _grad)
+    _grad = -morph * np.einsum("i,i...", spectrum, _grad)
     d_y0 = ellipse.grad_y0(_grad, True)
     d_x0 = ellipse.grad_x0(_grad, True)
     d_sigma_y = ellipse.grad_major(_grad, True)
@@ -413,7 +413,7 @@ def grad_circular_gaussian(
     params: np.ndarray,
     cls: Component,
     morph: np.ndarray,
-    sed: np.ndarray,
+    spectrum: np.ndarray,
     frame: CartesianFrame,
     sigma: float,
 ) -> np.ndarray:
@@ -430,8 +430,8 @@ def grad_circular_gaussian(
         The component of the model that contains the morphology.
     morph: np.ndarray
         The model of the morphology.
-    sed: np.ndarray
-        The model of the SED.
+    spectrum: np.ndarray
+        The model of the spectrum.
     frame: CartesianFrame
         The frame in which to generate the image of the circular Gaussian.
     sigma: float
@@ -441,7 +441,7 @@ def grad_circular_gaussian(
     # wrt the Gaussian e^-r**2
     _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
     _grad[cls.slices[1]] = input_grad[cls.slices[0]]
-    _grad = -morph * np.einsum("i,i...", sed, _grad)
+    _grad = -morph * np.einsum("i,i...", spectrum, _grad)
 
     y0, x0 = params[:2]
     d_y0 = -2 * np.sum((frame.y_grid - y0) * _grad)
@@ -484,7 +484,7 @@ def grad_integrated_gaussian(
     params: np.ndarray,
     cls: Component,
     morph: np.ndarray,
-    sed: np.ndarray,
+    spectrum: np.ndarray,
     frame: CartesianFrame,
 ) -> np.ndarray:
     """Gradient of the the component model wrt the Gaussian
@@ -500,8 +500,8 @@ def grad_integrated_gaussian(
         The component of the model that contains the morphology.
     morph: np.ndarray
         The model of the morphology.
-    sed: np.ndarray
-        The model of the SED.
+    spectrum: np.ndarray
+        The model of the spectrum.
     frame: CartesianFrame
         The frame in which to generate the image of the circular Gaussian.
     """
@@ -509,7 +509,7 @@ def grad_integrated_gaussian(
     # wrt the Gaussian e^-r**2
     _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
     _grad[cls.slices[1]] = input_grad[cls.slices[0]]
-    _grad = np.einsum("i,i...", sed, _grad)
+    _grad = np.einsum("i,i...", spectrum, _grad)
 
     # Extract the parameters
     y0, x0, sigma = params
@@ -597,7 +597,7 @@ def grad_sersic(
     params: np.ndarray,
     cls: Component,
     morph: np.ndarray,
-    sed: np.ndarray,
+    spectrum: np.ndarray,
     ellipse: EllipseFrame,
 ):
     """Gradient of the component model wrt the Gaussian morphology parameters
@@ -612,8 +612,8 @@ def grad_sersic(
         The component of the model that contains the morphology.
     morph: np.ndarray
         The model of the morphology.
-    sed: np.ndarray
-        The model of the SED.
+    spectrum: np.ndarray
+        The model of the spectrum.
     ellipse: EllipseFrame
         The ellipse parameters to scale the radius in all directions.
     """
@@ -628,7 +628,7 @@ def grad_sersic(
 
     _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
     _grad[cls.slices[1]] = input_grad[cls.slices[0]]
-    _grad = np.einsum("i,i...", sed, _grad)
+    _grad = np.einsum("i,i...", spectrum, _grad)
     d_n = np.sum(
         _grad
         * bn
@@ -656,14 +656,14 @@ class ParametricComponent(Component):
         bands: tuple,
         bbox: Box,
         model_bbox: Box,
-        sed: Parameter | np.ndarray,
+        spectrum: Parameter | np.ndarray,
         morph_params: Parameter | np.ndarray,
         morph_func: Callable,
         morph_grad: Callable,
         morph_prox: Callable,
         morph_step: Callable,
         model_frame: CartesianFrame,
-        prox_sed: Callable = None,
+        prox_spectrum: Callable = None,
         floor: float = 1e-20,
     ):
         """Initialize the component
@@ -676,8 +676,8 @@ class ParametricComponent(Component):
             The bounding box that holds the model.
         model_bbox:
             The bounding box for the full blend model.
-        sed:
-            The SED of the component.
+        spectrum:
+            The spectrum of the component.
         morph_params:
             The parameters of the morphology.
         morph_func:
@@ -691,28 +691,28 @@ class ParametricComponent(Component):
         morph_step:
             The function that calculates the gradient of the
             morphological model.
-        prox_sed:
-            Proximal operator for the SED.
-            If `prox_sed` is `None` then the default proximal
-            operator `self.prox_sed` is used.
+        prox_spectrum:
+            Proximal operator for the spectrum.
+            If `prox_spectrum` is `None` then the default proximal
+            operator `self.prox_spectrum` is used.
         floor:
-            The minimum value of the SED, used to prevent
+            The minimum value of the spectrum, used to prevent
             divergences in the gradients.
         """
         super().__init__(bands=bands, bbox=bbox, model_bbox=model_bbox)
 
-        self._sed = parameter(sed)
+        self._spectrum = parameter(spectrum)
         self._params = parameter(morph_params)
         self._func = morph_func
         self._morph_grad = morph_grad
         self._morph_prox = morph_prox
         self._morph_step = morph_step
-        self._sed = sed
+        self._spectrum = spectrum
         self._bbox = bbox
-        if prox_sed is None:
-            self._prox_sed = self.prox_sed
+        if prox_spectrum is None:
+            self._prox_spectrum = self.prox_spectrum
         else:
-            self._prox_sed = prox_sed
+            self._prox_spectrum = prox_spectrum
         self.slices = model_frame.bbox.overlapped_slices(bbox)
         self.floor = floor
 
@@ -732,9 +732,9 @@ class ParametricComponent(Component):
         return self._params.x[1]
 
     @property
-    def sed(self) -> np.ndarray:
-        """The array of SED values"""
-        return self._sed.x
+    def spectrum(self) -> np.ndarray:
+        """The array of spectrum values"""
+        return self._spectrum.x
 
     @property
     def bbox(self) -> Box:
@@ -798,41 +798,41 @@ class ParametricComponent(Component):
 
     def get_model(self, frame: CartesianFrame = None) -> Image:
         """Generate the full model for this component"""
-        model = self.sed[:, None, None] * self._get_morph(frame)[None, :, :]
+        model = self.spectrum[:, None, None] * self._get_morph(frame)[None, :, :]
         return Image(model, bands=self.bands, yx0=self.bbox.origin[-2:])
 
-    def prox_sed(self, sed: np.ndarray) -> np.ndarray:
-        """Apply a prox-like update to the SED
+    def prox_spectrum(self, spectrum: np.ndarray) -> np.ndarray:
+        """Apply a prox-like update to the spectrum
 
         Parameters
         ----------
-        sed: np.ndarray
-            The SED of the model.
+        spectrum: np.ndarray
+            The spectrum of the model.
         """
-        # prevent divergent SED
-        sed[sed < self.floor] = self.floor
-        return sed
+        # prevent divergent spectrum
+        spectrum[spectrum < self.floor] = self.floor
+        return spectrum
 
-    def grad_sed(
-        self, input_grad: np.ndarray, sed: np.ndarray, morph: np.ndarray
+    def grad_spectrum(
+        self, input_grad: np.ndarray, spectrum: np.ndarray, morph: np.ndarray
     ) -> np.ndarray:
-        """Gradient of the SED wrt. the component model
+        """Gradient of the spectrum wrt. the component model
 
         Parameters
         ----------
         input_grad: np.ndarray
             Gradient of the likelihood wrt the component model
-        sed: np.ndarray
-            The model of the SED.
+        spectrum: np.ndarray
+            The model of the spectrum.
         morph: np.ndarray
             The model of the morphology.
 
         Returns
         -------
         result: np.ndarray
-            The gradient of the likelihood wrt. the SED.
+            The gradient of the likelihood wrt. the spectrum.
         """
-        _grad = np.zeros(self.bbox.shape, dtype=self.sed.dtype)
+        _grad = np.zeros(self.bbox.shape, dtype=self.spectrum.dtype)
         _grad[self.slices[1]] = input_grad[self.slices[0]]
         return np.einsum("...jk,jk", _grad, morph)
 
@@ -846,10 +846,10 @@ class ParametricComponent(Component):
         input_grad: np.ndarray
             Gradient of the likelihood wrt the component model
         """
-        sed = self.sed.copy()
+        spectrum = self.spectrum.copy()
         morph = self.morph
-        self._sed.update(it, input_grad, morph)
-        self._params.update(it, input_grad, self, morph, sed, self.frame)
+        self._spectrum.update(it, input_grad, morph)
+        self._params.update(it, input_grad, self, morph, spectrum, self.frame)
 
     def resize(self) -> bool:
         """Resize the box that contains the model
@@ -862,17 +862,17 @@ class ParametricComponent(Component):
 
     def parameterize(self, parameterization: Callable) -> None:
         """Convert the component parameter arrays into Parameter instances"""
-        # Update the SED and morph in place
+        # Update the spectrum and morph in place
         parameterization(self)
         # update the parameters
-        self._sed.grad = self.grad_sed
-        self._sed.prox = self.prox_sed
+        self._spectrum.grad = self.grad_spectrum
+        self._spectrum.prox = self.prox_spectrum
         self._params.grad = self.grad_morph
         self._params.prox = self.prox_morph
 
     def clear_parameters(self):
         """Convert all of the parameters back into numpy arrays"""
-        self._sed = self.sed
+        self._spectrum = self.spectrum
         self._params = self.radial_params
 
 
@@ -884,14 +884,14 @@ class EllipticalParametricComponent(ParametricComponent):
         bands: tuple,
         bbox: Box,
         model_bbox: Box,
-        sed: np.ndarray | Parameter,
+        spectrum: np.ndarray | Parameter,
         morph_params: np.ndarray | Parameter,
         morph_func: Callable,
         morph_grad: Callable,
         morph_prox: Callable,
         morph_step: Callable,
         model_frame: CartesianFrame,
-        prox_sed: Callable = None,
+        prox_spectrum: Callable = None,
         floor: float = 1e-20,
     ):
         """Initialize the component
@@ -904,8 +904,8 @@ class EllipticalParametricComponent(ParametricComponent):
             The bounding box that holds this component model.
         model_bbox: Box
             The bounding box that holds the entire blend.
-        sed: np.ndarray
-            The SED of the component.
+        spectrum: np.ndarray
+            The spectrum of the component.
         morph_params: np.ndarray
             The parameters passed to `morph_func` to
             generate the morphology in image space.
@@ -921,26 +921,26 @@ class EllipticalParametricComponent(ParametricComponent):
             The coordinates of the model frame,
             used to speed up the creation of the
             polar grid for each source.
-        prox_sed: Callable
-            Proximal operator for the SED.
-            If `prox_sed` is `None` then the default proximal
-            operator `self.prox_sed` is used.
+        prox_spectrum: Callable
+            Proximal operator for the spectrum.
+            If `prox_spectrum` is `None` then the default proximal
+            operator `self.prox_spectrum` is used.
         floor: float
-            The minimum value of the SED, used to prevent
+            The minimum value of the spectrum, used to prevent
             divergences in the gradients.
         """
         super().__init__(
             bands=bands,
             bbox=bbox,
             model_bbox=model_bbox,
-            sed=sed,
+            spectrum=spectrum,
             morph_params=morph_params,
             morph_func=morph_func,
             morph_grad=morph_grad,
             morph_prox=morph_prox,
             morph_step=morph_step,
             model_frame=model_frame,
-            prox_sed=prox_sed,
+            prox_spectrum=prox_spectrum,
             floor=floor,
         )
 
@@ -998,7 +998,7 @@ class EllipticalParametricComponent(ParametricComponent):
             Gradient of the likelihood wrt the component model
         """
         ellipse = self.frame
-        sed = self.sed.copy()
+        spectrum = self.spectrum.copy()
         morph = self._func(self.radial_params, ellipse)
-        self._sed.update(it, input_grad, morph)
-        self._params.update(it, input_grad, self, morph, sed, ellipse)
+        self._spectrum.update(it, input_grad, morph)
+        self._params.update(it, input_grad, self, morph, spectrum, ellipse)

@@ -33,12 +33,14 @@ from ..parameters import parameter, Parameter
 
 
 class FactorizedComponent(Component):
-    """A component that can be factorized into SED and morphology parameters"""
+    """A component that can be factorized into spectrum and morphology
+    parameters
+    """
 
     def __init__(
         self,
         bands: tuple,
-        sed: Parameter | np.ndarray,
+        spectrum: Parameter | np.ndarray,
         morph: Parameter | np.ndarray,
         bbox: Box,
         model_bbox: Box,
@@ -55,8 +57,8 @@ class FactorizedComponent(Component):
         ----------
         bands:
             The bands of the spectral dimension, in order.
-        sed:
-            The parameter to store and update the SED.
+        spectrum:
+            The parameter to store and update the spectrum.
         morph:
             The parameter to store and update the morphology.
         center:
@@ -72,7 +74,7 @@ class FactorizedComponent(Component):
             The RMS of the background used to threshold, grow,
             and shrink the component.
         floor:
-            Minimum value of the SED or center morphology pixel.
+            Minimum value of the spectrum or center morphology pixel.
         monotonicity:
             The monotonicity operator to use for making the source monotonic.
             If this parameter is `None`, the source will not be made monotonic.
@@ -83,7 +85,7 @@ class FactorizedComponent(Component):
             bbox=bbox,
             model_bbox=model_bbox,
         )
-        self._sed = parameter(sed)
+        self._spectrum = parameter(spectrum)
         self._morph = parameter(morph)
         self._center = center
         self.bg_rms = bg_rms
@@ -128,9 +130,9 @@ class FactorizedComponent(Component):
         return center
 
     @property
-    def sed(self) -> np.ndarray:
-        """The array of SED values"""
-        return self._sed.x
+    def spectrum(self) -> np.ndarray:
+        """The array of spectrum values"""
+        return self._spectrum.x
 
     @property
     def morph(self) -> np.ndarray:
@@ -140,34 +142,34 @@ class FactorizedComponent(Component):
     @property
     def shape(self) -> tuple:
         """Shape of the resulting model image"""
-        return self.sed.shape + self.morph.shape
+        return self.spectrum.shape + self.morph.shape
 
     def get_model(self) -> Image:
-        """Build the model from the SED and morphology"""
-        # The sed and morph might be Parameters,
+        """Build the model from the spectrum and morphology"""
+        # The spectrum and morph might be Parameters,
         # so cast them as arrays in the model.
-        sed = self.sed
+        spectrum = self.spectrum
         morph = self.morph
-        model = sed[:, None, None] * morph[None, :, :]
+        model = spectrum[:, None, None] * morph[None, :, :]
         return Image(model, bands=self.bands, yx0=self.bbox.origin)
 
-    def grad_sed(self, input_grad, sed, morph):
-        """Gradient of the SED wrt. the component model"""
+    def grad_spectrum(self, input_grad, spectrum, morph):
+        """Gradient of the spectrum wrt. the component model"""
         _grad = np.zeros(self.grad_box.shape, dtype=self.morph.dtype)
         _grad[self.grad_slices[1]] = input_grad[self.grad_slices[0]]
         return np.einsum("...jk,jk", _grad, morph)
 
-    def grad_morph(self, input_grad, morph, sed):
+    def grad_morph(self, input_grad, morph, spectrum):
         """Gradient of the morph wrt. the component model"""
         _grad = np.zeros(self.grad_box.shape, dtype=self.morph.dtype)
         _grad[self.grad_slices[1]] = input_grad[self.grad_slices[0]]
-        return np.einsum("i,i...", sed, _grad)
+        return np.einsum("i,i...", spectrum, _grad)
 
-    def prox_sed(self, sed: np.ndarray) -> np.ndarray:
-        """Apply a prox-like update to the SED"""
-        # prevent divergent SED
-        sed[sed < self.floor] = self.floor
-        return sed
+    def prox_spectrum(self, spectrum: np.ndarray) -> np.ndarray:
+        """Apply a prox-like update to the spectrum"""
+        # prevent divergent spectrum
+        spectrum[spectrum < self.floor] = self.floor
+        return spectrum
 
     def prox_morph(self, morph: np.ndarray) -> np.ndarray:
         """Apply a prox-like update to the morphology"""
@@ -178,7 +180,7 @@ class FactorizedComponent(Component):
         if self.bg_thresh is not None and self.bg_rms is not None:
             bg_thresh = self.bg_rms * self.bg_thresh
             # Enforce background thresholding
-            model = self.sed[:, None, None] * morph[None, :, :]
+            model = self.spectrum[:, None, None] * morph[None, :, :]
             morph[np.all(model < bg_thresh[:, None, None], axis=0)] = 0
         else:
             # enforce positivity
@@ -208,7 +210,7 @@ class FactorizedComponent(Component):
         if self.bg_thresh is None or self.bg_rms is None:
             return False
 
-        model = self.sed[:, None, None] * self.morph[None, :, :]
+        model = self.spectrum[:, None, None] * self.morph[None, :, :]
         bg_thresh = self.bg_rms * self.bg_thresh
         significant = np.any(model >= bg_thresh[:, None, None], axis=0)
         if np.sum(significant) == 0:
@@ -235,12 +237,12 @@ class FactorizedComponent(Component):
         return True
 
     def update(self, it: int, input_grad: np.ndarray):
-        """Update the SED and morphology parameters"""
-        # Store the input SED so that the morphology can
+        """Update the spectrum and morphology parameters"""
+        # Store the input spectrum so that the morphology can
         # have a consistent update
-        sed = self.sed.copy()
-        self._sed.update(it, input_grad, self.morph)
-        self._morph.update(it, input_grad, sed)
+        spectrum = self.spectrum.copy()
+        self._spectrum.update(it, input_grad, self.morph)
+        self._morph.update(it, input_grad, spectrum)
 
     def parameterize(self, parameterization: Callable) -> None:
         """Convert the component parameter arrays into Parameter instances
@@ -252,11 +254,11 @@ class FactorizedComponent(Component):
             a `Parameter` in place. It should take a single argument that
             is the `Component` or `Source` that is to be parameterized.
         """
-        # Update the SED and morph in place
+        # Update the spectrum and morph in place
         parameterization(self)
         # update the parameters
-        self._sed.grad = self.grad_sed
-        self._sed.prox = self.prox_sed
+        self._spectrum.grad = self.grad_spectrum
+        self._spectrum.prox = self.prox_spectrum
         self._morph.grad = self.grad_morph
         self._morph.prox = self.prox_morph
 

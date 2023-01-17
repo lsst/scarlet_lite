@@ -148,7 +148,7 @@ def multifit_spectra(
     morphs: Sequence[Image],
     model: Image = None,
 ) -> np.ndarray:
-    """Fit the seds of multiple components simultaneously
+    """Fit the spectra of multiple components simultaneously
 
     Parameters
     ----------
@@ -158,14 +158,15 @@ def multifit_spectra(
         The morphology of each component.
     model:
         An optional model for sources that are not factorized,
-        and thus will not have their SEDs fit.
+        and thus will not have their spectra fit.
         This model is subtracted from the data before fittig the other
-        SEDs.
+        spectra.
 
     Returns
     -------
-    seds: np.ndarray
-        The SED for each component, in the same order as `morphs` and `boxes`.
+    spectra:
+        The spectrum for each component,
+        in the same order as `morphs` and `boxes`.
     """
     _bands = observation.bands
     n_bands = len(_bands)
@@ -230,15 +231,16 @@ class FactorizedInitialization:
         self.monotonicity = monotonicity
 
         # Get the model PSF
-        # Convolve the PSF in order to set the SED of a point source correctly.
+        # Convolve the PSF in order to set the spectrum
+        # of a point source correctly.
         model_psf = Image(observation.model_psf[0])
         self.convolved_psf = observation.convolve(
             model_psf.repeat(observation.bands), mode="real"
         ).data
-        # Get the "SED" of the PSF
+        # Get the "spectrum" of the PSF
         self.py = model_psf.shape[0] // 2
         self.px = model_psf.shape[1] // 2
-        self.psf_sed = self.convolved_psf[:, self.py, self.px]
+        self.psf_spectrum = self.convolved_psf[:, self.py, self.px]
 
         # Initalize all of the sources
         sources = []
@@ -285,9 +287,9 @@ class FactorizedInitialization:
         """
         # There wasn't sufficient flux for an extended source,
         # so create a PSF source.
-        sed_center = (slice(None), center[0], center[1])
-        sed = self.observation.images.data[sed_center] / self.psf_sed
-        sed[sed < 0] = 0
+        spectrum_center = (slice(None), center[0], center[1])
+        spectrum = self.observation.images.data[spectrum_center] / self.psf_spectrum
+        spectrum[spectrum < 0] = 0
 
         psf = self.observation.model_psf[0].copy()
         py = psf.shape[0] // 2
@@ -297,7 +299,7 @@ class FactorizedInitialization:
         morph = Image(psf, yx0=bbox.origin)[bbox].data
         component = FactorizedComponent(
             self.observation.bands,
-            sed,
+            spectrum,
             morph,
             bbox,
             self.observation.bbox,
@@ -349,19 +351,19 @@ class FactorizedInitialization:
             return None
         morph = morph[bbox.slices]
 
-        sed_center = (slice(None), center[0], center[1])
+        spectrum_center = (slice(None), center[0], center[1])
         images = self.observation.images
 
         convolved = self.convolved
-        sed = images.data[sed_center] / convolved.data[sed_center]
-        sed[sed < 0] = 0
+        spectrum = images.data[spectrum_center] / convolved.data[spectrum_center]
+        spectrum[spectrum < 0] = 0
         morph_max = np.max(morph)
-        sed *= morph_max
+        spectrum *= morph_max
         morph /= morph_max
 
         return FactorizedComponent(
             self.observation.bands,
-            sed,
+            spectrum,
             morph,
             bbox,
             self.observation.bbox,
@@ -444,7 +446,8 @@ class FactorizedChi2Initialization(FactorizedInitialization):
         # since this is effectively growing the model,
         # but this is exactly what convolution will do to the model
         # in each iteration.
-        # So we create the convolved model in order to correctly set the SED.
+        # So we create the convolved model in order
+        # to correctly set the spectrum.
         convolved = observation.convolve(
             detect.repeat(observation.bands), mode="real"
         )
@@ -472,7 +475,8 @@ class FactorizedChi2Initialization(FactorizedInitialization):
         # Calculate the signal to noise at the center of this source
         component_snr = self.get_snr(center)
 
-        # Initialize the bbox, morph, and sed for a single component source
+        # Initialize the bbox, morph, and spectrum
+        # for a single component source
         detect = prox_uncentered_symmetry(self.detect.copy(), center, fill=0)
         thresh = np.mean(self.observation.noise_rms) * self.thresh
         component = self.get_single_component(center, detect, thresh, self.padding)
@@ -498,7 +502,7 @@ class FactorizedChi2Initialization(FactorizedInitialization):
             bulge_morph /= np.max(bulge_morph)
             disk_morph /= np.max(disk_morph)
 
-            bulge_sed, disk_sed = multifit_spectra(
+            bulge_spectrum, disk_spectrum = multifit_spectra(
                 self.observation,
                 [
                     Image(bulge_morph, yx0=component.bbox.origin),
@@ -509,7 +513,7 @@ class FactorizedChi2Initialization(FactorizedInitialization):
             components = [
                 FactorizedComponent(
                     self.observation.bands,
-                    bulge_sed,
+                    bulge_spectrum,
                     bulge_morph,
                     component.bbox.copy(),
                     self.observation.bbox,
@@ -519,7 +523,7 @@ class FactorizedChi2Initialization(FactorizedInitialization):
                 ),
                 FactorizedComponent(
                     self.observation.bands,
-                    disk_sed,
+                    disk_spectrum,
                     disk_morph,
                     component.bbox.copy(),
                     self.observation.bbox,
@@ -602,7 +606,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
         # The detection coadd for the disk
         disklets = np.sum(wavelets[disk_slice], axis=0)
 
-        # The convolve image, used to initialize the SED
+        # The convolve image, used to initialize the spectrum
         detect = Image(detectlets)
         convolved = observation.convolve(detect.repeat(observation.bands), mode="real")
 
@@ -651,7 +655,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                 bulge_morph = bulge_morph[bulge_box.slices]
                 disk_morph = disk_morph[disk_box.slices]
 
-                bulge_sed, disk_sed = multifit_spectra(
+                bulge_spectrum, disk_spectrum = multifit_spectra(
                     observation,
                     [
                         Image(bulge_morph, yx0=bulge_box.origin),
@@ -660,11 +664,11 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                 )
 
                 components = []
-                if np.sum(bulge_sed != 0):
+                if np.sum(bulge_spectrum != 0):
                     components.append(
                         FactorizedComponent(
                             observation.bands,
-                            bulge_sed,
+                            bulge_spectrum,
                             bulge_morph,
                             bulge_box,
                             observation.bbox,
@@ -674,11 +678,11 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                     )
                 else:
                     logger.debug("cut bulge")
-                if np.sum(disk_sed) != 0:
+                if np.sum(disk_spectrum) != 0:
                     components.append(
                         FactorizedComponent(
                             observation.bands,
-                            disk_sed,
+                            disk_spectrum,
                             disk_morph,
                             disk_box,
                             observation.bbox,

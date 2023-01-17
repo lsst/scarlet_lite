@@ -150,7 +150,7 @@ class Blend:
         from .initialization import multifit_spectra
 
         morphs = []
-        seds = []
+        spectra = []
         factorized_indices = []
         model = Image.from_box(
             self.observation.bbox,
@@ -158,16 +158,16 @@ class Blend:
             dtype=self.observation.dtype
         )
         for idx, component in enumerate(self.components):
-            if hasattr(component, "morph") and hasattr(component, "sed"):
+            if hasattr(component, "morph") and hasattr(component, "spectrum"):
                 morphs.append(component.morph)
-                seds.append(component.sed)
+                spectra.append(component.spectrum)
                 factorized_indices.append(idx)
             else:
                 model[component.overlap] += component.get_model()[component.overlap]
         model = self.observation.convolve(model, mode="real")
 
         boxes = [c.bbox for c in self.components]
-        fit_seds = multifit_spectra(
+        fit_spectra = multifit_spectra(
             self.observation,
             [Image(morph, yx0=bbox.origin) for morph, bbox in zip(morphs, boxes)],
             model,
@@ -176,8 +176,8 @@ class Blend:
             component = cast(
                 FactorizedComponent, self.components[factorized_indices[idx]]
             )
-            component.sed[:] = fit_seds[idx]
-            component.sed[component.sed < 0] = 0
+            component.spectrum[:] = fit_spectra[idx]
+            component.spectrum[component.spectrum < 0] = 0
 
         # Run the proxes for all of the components to make sure that the
         # spectra are consistent with the constraints.
@@ -186,11 +186,11 @@ class Blend:
         for src in self.sources:
             for component in src.components:
                 if (
-                        hasattr(component, "sed")
-                        and hasattr(component, "prox_sed")
-                        and component.prox_sed is not None  # type: ignore
+                        hasattr(component, "spectrum")
+                        and hasattr(component, "prox_spectrum")
+                        and component.prox_spectrum is not None  # type: ignore
                 ):
-                    component.prox_sed(component.sed)
+                    component.prox_spectrum(component.spectrum)
 
         if clip:
             # Remove components with no positive flux
@@ -290,7 +290,6 @@ class FitPsfBlend(Blend):
         e_rel: float = 1e-4,
         min_iter: int = 1,
         resize: int = 10,
-        do_conserve_flux: bool = False,
     ) -> tuple[int, float]:
         """Fit all of the parameters
 
@@ -313,13 +312,17 @@ class FitPsfBlend(Blend):
         it = self.it
         while it < max_iter:
             # Calculate the gradient wrt the on-convolved model
-            grad_log_likelihood = self._grad_log_likelihood()
+            grad_log_likelihood = Image(
+                self._grad_log_likelihood(),
+                bands=self.observation.bands,
+                yx0=self.bbox.origin
+            )
             _grad_log_likelihood = self.observation.convolve(
                 grad_log_likelihood, grad=True
             )
             # Update each component given the current gradient
             for component in self.components:
-                component.update(it, _grad_log_likelihood)
+                component.update(it, _grad_log_likelihood.data)
             # Check to see if any components need to be resized
             if resize is not None and it > 0 and it % resize == 0:
                 for component in self.components:
@@ -337,6 +340,4 @@ class FitPsfBlend(Blend):
                 break
             it += 1
         self.it = it
-        if do_conserve_flux:
-            self.conserve_flux()
         return it, self.loss[-1]
