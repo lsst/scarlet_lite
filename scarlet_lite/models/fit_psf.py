@@ -171,9 +171,6 @@ class FitPsfBlend(Blend):
             Number of iterations before attempting to resize the
             resizable components. If `resize` is `None` then
             no resizing is ever attempted.
-        do_conserve_flux: bool
-            Whether or not to reweight the flux using the source
-            models as templates.
         """
         it = self.it
         while it < max_iter:

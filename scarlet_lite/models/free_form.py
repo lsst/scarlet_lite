@@ -115,7 +115,7 @@ class FreeFormComponent(FactorizedComponent):
 
         if self.min_area > 0:
             footprints = get_footprints(morph > 0, 4.0, self.min_area, 0, False)
-            morph = morph * (scarlet_footprints_to_image(footprints, morph.shape) > 0)
+            morph = morph * (scarlet_footprints_to_image(footprints, morph.shape) > 0).data
 
         if np.all(morph == 0):
             morph[0, 0] = self.floor
@@ -126,7 +126,7 @@ class FreeFormComponent(FactorizedComponent):
         return False
 
     def __str__(self):
-        return "SedComponent"
+        return "FreeFormComponent"
 
     def __repr__(self):
-        return "SedComponent"
+        return "FreeFormComponent"
