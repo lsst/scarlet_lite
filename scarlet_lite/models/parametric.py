@@ -20,6 +20,15 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 __all__ = [
+    "bounded_prox",
+    "gaussian2d",
+    "grad_gaussian2",
+    "circular_gaussian",
+    "grad_circular_gaussian",
+    "integrated_gaussian",
+    "grad_integrated_gaussian",
+    "sersic",
+    "grad_sersic",
     "CartesianFrame",
     "EllipseFrame",
     "ParametricComponent",
@@ -351,7 +360,7 @@ def gaussian2d(params: np.ndarray, ellipse: EllipseFrame) -> np.ndarray:
     return np.exp(-ellipse.r2_grid)
 
 
-def grad_gaussian(
+def grad_gaussian2(
     input_grad: np.ndarray,
     params: np.ndarray,
     cls: Component,
@@ -379,8 +388,8 @@ def grad_gaussian(
     """
     # Calculate the gradient of the likelihod
     # wrt the Gaussian e^-r**2
-    _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
-    _grad[cls.slices[1]] = input_grad[cls.slices[0]]
+    _grad = np.zeros(cls.grad_box.shape, dtype=morph.dtype)
+    _grad[cls.grad_slices[1]] = input_grad[cls.grad_slices[0]]
     _grad = -morph * np.einsum("i,i...", spectrum, _grad)
     d_y0 = ellipse.grad_y0(_grad, True)
     d_x0 = ellipse.grad_x0(_grad, True)
@@ -444,8 +453,9 @@ def grad_circular_gaussian(
     """
     # Calculate the gradient of the likelihod
     # wrt the Gaussian e^-r**2
-    _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
-    _grad[cls.slices[1]] = input_grad[cls.slices[0]]
+
+    _grad = np.zeros(cls.grad_box.shape, dtype=morph.dtype)
+    _grad[cls.grad_slices[1]] = input_grad[cls.grad_slices[0]]
     _grad = -morph * np.einsum("i,i...", spectrum, _grad)
 
     y0, x0 = params[:2]
@@ -512,8 +522,8 @@ def grad_integrated_gaussian(
     """
     # Calculate the gradient of the likelihood
     # wrt the Gaussian e^-r**2
-    _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
-    _grad[cls.slices[1]] = input_grad[cls.slices[0]]
+    _grad = np.zeros(cls.grad_box.shape, dtype=morph.dtype)
+    _grad[cls.grad_slices[1]] = input_grad[cls.grad_slices[0]]
     _grad = np.einsum("i,i...", spectrum, _grad)
 
     # Extract the parameters
@@ -631,8 +641,8 @@ def grad_sersic(
         r = ellipse.r_grid
         d_exp = -bn / n * morph * r ** (1 / n - 1)
 
-    _grad = np.zeros(cls.bbox.shape, dtype=morph.dtype)
-    _grad[cls.slices[1]] = input_grad[cls.slices[0]]
+    _grad = np.zeros(cls.grad_box.shape, dtype=morph.dtype)
+    _grad[cls.grad_slices[1]] = input_grad[cls.grad_slices[0]]
     _grad = np.einsum("i,i...", spectrum, _grad)
     d_n = np.sum(
         _grad
@@ -666,8 +676,7 @@ class ParametricComponent(Component):
         morph_func: Callable,
         morph_grad: Callable,
         morph_prox: Callable,
-        morph_step: Callable,
-        model_frame: CartesianFrame,
+        morph_step: Callable | np.ndarray,
         prox_spectrum: Callable = None,
         floor: float = 1e-20,
     ):
@@ -718,7 +727,6 @@ class ParametricComponent(Component):
             self._prox_spectrum = self.prox_spectrum
         else:
             self._prox_spectrum = prox_spectrum
-        self.slices = model_frame.bbox.overlapped_slices(bbox)
         self.floor = floor
 
     @property
@@ -837,8 +845,8 @@ class ParametricComponent(Component):
         result: np.ndarray
             The gradient of the likelihood wrt. the spectrum.
         """
-        _grad = np.zeros(self.bbox.shape, dtype=self.spectrum.dtype)
-        _grad[self.slices[1]] = input_grad[self.slices[0]]
+        _grad = np.zeros(self.grad_box.shape, dtype=self.spectrum.dtype)
+        _grad[self.grad_slices[1]] = input_grad[self.grad_slices[0]]
         return np.einsum("...jk,jk", _grad, morph)
 
     def update(self, it: int, input_grad: np.ndarray):
@@ -875,11 +883,6 @@ class ParametricComponent(Component):
         self._params.grad = self.grad_morph
         self._params.prox = self.prox_morph
 
-    def clear_parameters(self):
-        """Convert all of the parameters back into numpy arrays"""
-        self._spectrum = self.spectrum
-        self._params = self.radial_params
-
 
 class EllipticalParametricComponent(ParametricComponent):
     """A radial density/surface brightness profile with elliptical symmetry"""
@@ -889,13 +892,12 @@ class EllipticalParametricComponent(ParametricComponent):
         bands: tuple,
         bbox: Box,
         model_bbox: Box,
-        spectrum: np.ndarray | Parameter,
-        morph_params: np.ndarray | Parameter,
+        spectrum: Parameter | np.ndarray,
+        morph_params: Parameter | np.ndarray,
         morph_func: Callable,
         morph_grad: Callable,
         morph_prox: Callable,
-        morph_step: Callable,
-        model_frame: CartesianFrame,
+        morph_step: Callable | np.ndarray,
         prox_spectrum: Callable = None,
         floor: float = 1e-20,
     ):
@@ -922,10 +924,6 @@ class EllipticalParametricComponent(ParametricComponent):
             likelihood wrt the morphological parameters.
         morph_prox: Callable
             The proximal operator for the morphology parameters.
-        model_frame: CartesianFrame
-            The coordinates of the model frame,
-            used to speed up the creation of the
-            polar grid for each source.
         prox_spectrum: Callable
             Proximal operator for the spectrum.
             If `prox_spectrum` is `None` then the default proximal
@@ -944,7 +942,6 @@ class EllipticalParametricComponent(ParametricComponent):
             morph_grad=morph_grad,
             morph_prox=morph_prox,
             morph_step=morph_step,
-            model_frame=model_frame,
             prox_spectrum=prox_spectrum,
             floor=floor,
         )

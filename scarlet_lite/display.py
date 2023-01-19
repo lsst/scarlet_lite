@@ -573,7 +573,7 @@ def show_sources(
         if show_rendered:
             # Center and show the rendered model
             model_ = Image(np.zeros(observation.shape), bands=observation.bands)
-            model_ += src.get_model(use_flux=use_flux)
+            model_.insert(src.get_model(use_flux=use_flux))
             if not use_flux:
                 model_ = observation.convolve(model_)
             ax[k - skipped][panel].imshow(
