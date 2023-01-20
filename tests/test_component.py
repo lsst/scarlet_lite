@@ -203,7 +203,7 @@ class TestFactorizedComponent(ScarletTestCase):
 
         proxed_spectrum = np.array([1e-20, 2, 3])
         proxed_morph = np.array([[10, 2, 1], [1, 5, 3], [0.1, 4, 0]])
-        proxed_morph = proxed_morph / 5
+        proxed_morph = proxed_morph / 10
 
         component.prox_spectrum(component.spectrum)
         component.prox_morph(component.morph)

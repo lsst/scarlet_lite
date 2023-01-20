@@ -26,16 +26,24 @@ from typing import cast
 import numpy as np
 from numpy.testing import assert_array_equal
 
-from scarlet_lite import Blend, Box, Image, Observation, Source
-from scarlet_lite.component import default_adaprox_parameterization, Component
+from scarlet_lite import Blend, Box, Image, Observation, Source, FistaParameter
+from scarlet_lite.component import (
+    default_adaprox_parameterization,
+    default_fista_parameterization,
+    Component,
+)
+from scarlet_lite.initialization import FactorizedChi2Initialization
 from scarlet_lite.models import (
     CartesianFrame,
     EllipseFrame,
     FreeFormComponent,
     ParametricComponent,
-    EllipticalParametricComponent
+    EllipticalParametricComponent,
+    FitPsfBlend,
+    FitPsfObservation,
 )
 import scarlet_lite.models as models
+from scarlet_lite.operators import Monotonicity
 from scarlet_lite.parameters import AdaproxParameter, relative_step, parameter
 from scarlet_lite.utils import integrated_circular_gaussian
 
@@ -142,7 +150,7 @@ class TestParametric(ScarletTestCase):
         filename = os.path.abspath(filename)
         data = np.load(filename)
         self.data = data
-        model_psf = integrated_circular_gaussian(sigma=0.8)
+        self.model_psf = integrated_circular_gaussian(sigma=0.8)
         self.detect = np.sum(data["images"], axis=0)
         self.centers = np.array([data["catalog"]["y"], data["catalog"]["x"]]).T
         bands = data["filters"]
@@ -151,7 +159,7 @@ class TestParametric(ScarletTestCase):
             Image(data["variance"], bands=bands),
             Image(1 / data["variance"], bands=bands),
             data["psfs"],
-            model_psf[None],
+            self.model_psf[None],
             bands=bands,
         )
 
@@ -381,3 +389,28 @@ class TestParametric(ScarletTestCase):
         blend.parameterize(parameterize)
         blend.fit_spectra()
         blend.fit(12)
+
+    def test_psf_fitting(self):
+        # Use flat weights for FISTA optimization
+        weights = np.ones(self.data["images"].shape)
+
+        monotonicity = Monotonicity((101, 101))
+
+        observation = FitPsfObservation(
+            self.data["images"],
+            self.data["variance"],
+            weights,
+            self.data["psfs"],
+            self.model_psf[None],
+            bands=self.data["filters"],
+        )
+
+        def obs_params(cls):
+            if isinstance(cls, FitPsfObservation):
+                cls._fit_kernel = FistaParameter(cls._fit_kernel.x, step=1e-2)
+
+        init = FactorizedChi2Initialization(observation, self.centers, monotonicity=monotonicity)
+        blend = FitPsfBlend(init.sources, observation).fit_spectra()
+        blend.parameterize(default_fista_parameterization)
+        cast(FitPsfObservation, blend.observation).parameterize(obs_params)
+        blend.fit(12, e_rel=1e-4)

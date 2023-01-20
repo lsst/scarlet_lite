@@ -179,9 +179,6 @@ class Observation:
 
         Parameters
         ----------
-        bands:
-            The filters (in order) used for all of the observation's
-            properties.
         images:
             (bands, y, x) array of observed images.
         variance:

@@ -21,16 +21,16 @@
 
 __all__ = ["FitPsfObservation", "FitPsfBlend"]
 
-from typing import Sequence, cast
+from typing import Sequence, cast, Callable
 
 import numpy as np
 
 from ..bbox import Box
 from ..blend import Blend
-from ..fft import Fourier
+from ..fft import Fourier, get_fft_shape
 from ..image import Image
 from ..observation import Observation
-from ..parameters import Parameter, FistaParameter
+from ..parameters import parameter
 
 
 class FitPsfObservation(Observation):
@@ -38,8 +38,6 @@ class FitPsfObservation(Observation):
 
     def __init__(
         self,
-        diff_kernel: np.ndarray | Parameter,
-        fft_shape: tuple[int, int],
         images: np.ndarray | Image,
         variance: np.ndarray | Image,
         weights: np.ndarray | Image,
@@ -49,7 +47,6 @@ class FitPsfObservation(Observation):
         bbox: Box = None,
         bands: Sequence[object] = None,
         padding: int = 3,
-        convolution_mode: str = "fft",
     ):
         """Initialize a `FitPsfObservation`
 
@@ -65,17 +62,15 @@ class FitPsfObservation(Observation):
             bbox,
             bands,
             padding,
-            convolution_mode,
+            "fft",
         )
 
-        self.mode = "fft"
         self.axes = (-2, -1)
-        self.fft_shape = fft_shape
+
+        self.fft_shape = get_fft_shape(images[0], psfs[0], padding, self.axes)
 
         # Make the DFT of the psf a fittable parameter
-        self._fitKernel = FistaParameter(diff_kernel.fft(fft_shape, self.axes), 1e-2)
-        self._fitKernel.grad = self.grad_fit_kernel
-        self._fitKernel.prox = self.prox_kernel
+        self._fit_kernel = parameter(self.diff_kernel.fft(self.fft_shape, self.axes))
 
     def grad_fit_kernel(
         self, input_grad: np.ndarray, kernel: np.ndarray, model_fft: np.ndarray
@@ -91,61 +86,72 @@ class FitPsfObservation(Observation):
 
     @property
     def fit_kernel(self) -> np.ndarray:
-        return self._fitKernel.x
+        return self._fit_kernel.x
 
     @property
-    def chached_kernel(self):
+    def cached_kernel(self):
         return self.fit_kernel.real - self.fit_kernel.imag * 1j
 
-    def convolve(self, image, mode=None, grad=False):
+    def convolve(self, image: Image, mode: str | None = None, grad: bool = False) -> Image:
         """Convolve the model into the observed seeing in each band.
 
         Parameters
         ----------
-        image: `~numpy.array`
+        image:
             The image to convolve
-        mode: `str`
+        mode:
             The convolution mode to use.
             This should be "real" or "fft" or `None`,
             where `None` will use the default `convolution_mode`
             specified during init.
-        grad: `bool`
+        grad:
             Whether this is a backward gradient convolution
             (`grad==True`) or a pure convolution with the PSF.
         """
         if grad:
-            kernel = self.chached_kernel
+            kernel = self.cached_kernel
         else:
             kernel = self.fit_kernel
 
-        if kernel is None:
-            return image
+        if mode != "fft" and mode is not None:
+            return super().convolve(image, mode, grad)
 
-        assert mode is None or mode == "fft"
-
-        image = Fourier(image)
-        fft = image.fft(self.fft_shape, self.axes)
+        fft_image = Fourier(image.data)
+        fft = fft_image.fft(self.fft_shape, self.axes)
 
         result = Fourier.from_fft(fft * kernel, self.fft_shape, image.shape, self.axes)
-        return result.image
+        return Image(result.image, bands=image.bands, yx0=image.yx0)
 
-    def update(self, it, input_grad, model):
-        model = Fourier(model[:, ::-1, ::-1])
+    def update(self, it: int, input_grad: np.ndarray, model: Image):
+        model = Fourier(model[:, ::-1, ::-1].data)
         model_fft = model.fft(self.fft_shape, self.axes)
-        self._fitKernel.update(it, input_grad, model_fft)
+        self._fit_kernel.update(it, input_grad, model_fft)
+
+    def parameterize(self, parameterization: Callable) -> None:
+        """Convert the component parameter arrays into Parameter instances
+
+        Parameters
+        ----------
+        parameterization: Callable
+            A function to use to convert parameters of a given type into
+            a `Parameter` in place. It should take a single argument that
+            is the `Component` or `Source` that is to be parameterized.
+        """
+        # Update the spectrum and morph in place
+        parameterization(self)
+        # update the parameters
+        self._fit_kernel.grad = self.grad_fit_kernel
+        self._fit_kernel.prox = self.prox_kernel
 
 
 class FitPsfBlend(Blend):
     """A blend that attempts to fit the PSF along with the source models."""
 
-    def _grad_log_likelihood(self) -> np.ndarray:
+    def _grad_log_likelihood(self) -> Image:
         """Gradient of the likelihood wrt the unconvolved model"""
         model = self.get_model(convolve=True)
         # Update the loss
-        self.loss.append(
-            0.5
-            * -np.sum(self.observation.weights * (self.observation.images - model) ** 2)
-        )
+        self.loss.append(self.observation.log_likelihood(model))
         # Calculate the gradient wrt the model d(logL)/d(model)
         result = self.observation.weights * (model - self.observation.images)
         return result
@@ -175,11 +181,7 @@ class FitPsfBlend(Blend):
         it = self.it
         while it < max_iter:
             # Calculate the gradient wrt the on-convolved model
-            grad_log_likelihood = Image(
-                self._grad_log_likelihood(),
-                bands=self.observation.bands,
-                yx0=self.bbox.origin,
-            )
+            grad_log_likelihood = self._grad_log_likelihood()
             _grad_log_likelihood = self.observation.convolve(
                 grad_log_likelihood, grad=True
             )
@@ -189,12 +191,11 @@ class FitPsfBlend(Blend):
             # Check to see if any components need to be resized
             if resize is not None and it > 0 and it % resize == 0:
                 for component in self.components:
-                    if hasattr(component, "resize"):
-                        component.resize()
+                    component.resize()
 
             # Update the PSF
-            cast(self.observation, FitPsfObservation).update(
-                it, grad_log_likelihood, self.get_model()
+            cast(FitPsfObservation, self.observation).update(
+                it, grad_log_likelihood.data, self.get_model()
             )
             # Stopping criteria
             if it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(

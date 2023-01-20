@@ -297,9 +297,6 @@ class FactorizedComponent(Component):
         shape = morph.shape
         if self.center is None:
             center = (shape[0] // 2, shape[1] // 2)
-            print("center:", center)
-            print(morph)
-            print(np.max([morph[center], self.floor]))
         else:
             center = (
                 self.center[0] - self.bbox.origin[-2],
@@ -307,7 +304,7 @@ class FactorizedComponent(Component):
             )
         morph[center] = np.max([morph[center], self.floor])
         # Normalize the morphology
-        morph[:] = morph / morph[center]
+        morph[:] = morph / np.max(morph)
         return morph
 
     def resize(self) -> bool:

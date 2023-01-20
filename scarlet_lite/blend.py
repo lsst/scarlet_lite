@@ -244,8 +244,7 @@ class Blend:
             # Check to see if any components need to be resized
             if resize is not None and it > 0 and it % resize == 0:
                 for component in self.components:
-                    if hasattr(component, "resize"):
-                        component.resize()
+                    component.resize()
             # Stopping criteria
             if it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(
                 self.loss[-1]
