@@ -92,7 +92,9 @@ class FitPsfObservation(Observation):
     def cached_kernel(self):
         return self.fit_kernel.real - self.fit_kernel.imag * 1j
 
-    def convolve(self, image: Image, mode: str | None = None, grad: bool = False) -> Image:
+    def convolve(
+        self, image: Image, mode: str | None = None, grad: bool = False
+    ) -> Image:
         """Convolve the model into the observed seeing in each band.
 
         Parameters
