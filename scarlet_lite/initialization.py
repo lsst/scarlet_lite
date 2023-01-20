@@ -19,6 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from abc import ABC, abstractmethod
 import logging
 import numpy as np
 from typing import Sequence
@@ -194,7 +195,7 @@ def multifit_spectra(
     return spectra
 
 
-class FactorizedInitialization:
+class FactorizedInitialization(ABC):
     """Common variables and methods for both Factorized Component schems"""
 
     def __init__(
@@ -372,6 +373,7 @@ class FactorizedInitialization:
             monotonicity=self.monotonicity,
         )
 
+    @abstractmethod
     def init_source(self, center: tuple[int, int]) -> Source | None:
         """Initialize a source
 

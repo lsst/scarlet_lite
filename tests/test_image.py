@@ -135,7 +135,7 @@ class TestImage(ScarletTestCase):
             assert_array_equal(result.data, truth)
             self.assertImageEqual(result, truth_image)
 
-            if op_name not in ("eq", "ne", "ge", "le") and (
+            if op_name not in ("eq", "ne", "ge", "le", "lt", "gt") and (
                 op_name != "pow" or constant == 3.14
             ):
                 truth = op(constant, lower_data)
@@ -155,7 +155,7 @@ class TestImage(ScarletTestCase):
         assert_array_equal(result.data, truth)
         self.assertImageEqual(result, truth_image)
 
-        if op_name not in ("eq", "ne", "ge", "le"):
+        if op_name not in ("eq", "ne", "ge", "le", "gt", "lt"):
             result = getattr(higher, f"__r{op_name}__")(lower)
             assert_array_equal(result.data, truth)
             self.assertImageEqual(result, truth_image)
@@ -201,6 +201,8 @@ class TestImage(ScarletTestCase):
             "ne",
             "ge",
             "le",
+            "gt",
+            "lt",
             "rshift",
             "lshift",
         )
