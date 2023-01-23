@@ -71,7 +71,6 @@ class FreeFormComponent(FactorizedComponent):
             spectrum=spectrum,
             morph=morph,
             bbox=model_bbox,
-            model_bbox=model_bbox,
             center=None,
             bg_rms=bg_rms,
             bg_thresh=bg_thresh,
@@ -124,7 +123,7 @@ class FreeFormComponent(FactorizedComponent):
 
         return morph
 
-    def resize(self) -> bool:
+    def resize(self, model_box: Box) -> bool:
         return False
 
     def __str__(self):

@@ -41,7 +41,6 @@ class TestSource(ScarletTestCase):
 
         # Test a source with a single component
         bands = tuple("grizy")
-        bbox = Box((101, 101))
         center = (27, 32)
         morph1 = integrated_circular_gaussian(sigma=0.8)
         spectrum1 = np.arange(5)
@@ -52,7 +51,6 @@ class TestSource(ScarletTestCase):
                 spectrum1,
                 morph1,
                 component_box1,
-                bbox,
                 center,
             ),
         ]
@@ -84,7 +82,6 @@ class TestSource(ScarletTestCase):
                 spectrum1,
                 morph1,
                 component_box1,
-                bbox,
                 center,
             ),
             FactorizedComponent(
@@ -92,7 +89,6 @@ class TestSource(ScarletTestCase):
                 spectrum2,
                 morph2,
                 component_box2,
-                bbox,
                 center,
             ),
         ]

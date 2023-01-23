@@ -51,7 +51,6 @@ class Component(ABC):
         self,
         bands: tuple,
         bbox: Box,
-        model_bbox: Box,
     ):
         """Initialize a LiteComponent instance
 
@@ -61,18 +60,9 @@ class Component(ABC):
             The bands used when the component model is created.
         bbox: Box
             The bounding box for this component.
-        model_bbox: Box
-            The bounding box for the full blend model.
         """
         self._bands = bands
         self._bbox = bbox
-        self.spectral_box = Box((len(bands),))
-        self.model_bbox = model_bbox
-        self.overlap = model_bbox & bbox
-        self.grad_box = self.spectral_box @ bbox
-        self.grad_slices = (self.spectral_box @ self.model_bbox).overlapped_slices(
-            self.grad_box
-        )
 
     @property
     def bbox(self):
@@ -85,7 +75,7 @@ class Component(ABC):
         return self._bands
 
     @abstractmethod
-    def resize(self) -> bool:
+    def resize(self, model_box: Box) -> bool:
         """Test whether or not the component needs to be resized
 
         This should be overriden in inherited classes and return `True`
@@ -150,7 +140,6 @@ class FactorizedComponent(Component):
         spectrum: Parameter | np.ndarray,
         morph: Parameter | np.ndarray,
         bbox: Box,
-        model_bbox: Box,
         center: tuple[int, int] | None = None,
         bg_rms: np.ndarray | None = None,
         bg_thresh: float | None = 0.25,
@@ -172,11 +161,6 @@ class FactorizedComponent(Component):
             Center of the source.
         bbox:
             The `Box` in the `model_bbox` that contains the source.
-        model_bbox:
-            The `Box` that contains the model.
-            This is simplified from the main scarlet, where the model exists
-            in a `frame`, which primarily exists because not all
-            observations in main scarlet will use the same set of bands.
         bg_rms:
             The RMS of the background used to threshold, grow,
             and shrink the component.
@@ -190,7 +174,6 @@ class FactorizedComponent(Component):
         super().__init__(
             bands=bands,
             bbox=bbox,
-            model_bbox=model_bbox,
         )
         self._spectrum = parameter(spectrum)
         self._morph = parameter(morph)
@@ -260,17 +243,13 @@ class FactorizedComponent(Component):
         model = spectrum[:, None, None] * morph[None, :, :]
         return Image(model, bands=self.bands, yx0=self.bbox.origin)
 
-    def grad_spectrum(self, input_grad, spectrum, morph):
+    def grad_spectrum(self, input_grad: np.ndarray, spectrum: np.ndarray, morph: np.ndarray):
         """Gradient of the spectrum wrt. the component model"""
-        _grad = np.zeros(self.grad_box.shape, dtype=self.morph.dtype)
-        _grad[self.grad_slices[1]] = input_grad[self.grad_slices[0]]
-        return np.einsum("...jk,jk", _grad, morph)
+        return np.einsum("...jk,jk", input_grad, morph)
 
-    def grad_morph(self, input_grad, morph, spectrum):
+    def grad_morph(self, input_grad: np.ndarray, morph: np.ndarray, spectrum: np.ndarray):
         """Gradient of the morph wrt. the component model"""
-        _grad = np.zeros(self.grad_box.shape, dtype=self.morph.dtype)
-        _grad[self.grad_slices[1]] = input_grad[self.grad_slices[0]]
-        return np.einsum("i,i...", spectrum, _grad)
+        return np.einsum("i,i...", spectrum, input_grad)
 
     def prox_spectrum(self, spectrum: np.ndarray) -> np.ndarray:
         """Apply a prox-like update to the spectrum"""
@@ -307,7 +286,7 @@ class FactorizedComponent(Component):
         morph[:] = morph / np.max(morph)
         return morph
 
-    def resize(self) -> bool:
+    def resize(self, model_box: Box) -> bool:
         """Test whether or not the component needs to be resized"""
         # No need to resize if there is no size threshold.
         # To allow box sizing but no thresholding use `bg_thresh=0`.
@@ -325,19 +304,13 @@ class FactorizedComponent(Component):
             new_box = (
                 Box.from_data(significant, min_value=0).grow(self.padding)
                 + self.bbox.origin
-            ) & self.model_bbox
+            ) & model_box
         if new_box == self.bbox:
             return False
 
         old_box = self.bbox
         self._bbox = new_box
         self._morph.grow(old_box, new_box)
-
-        self.overlap = self.model_bbox & new_box
-        self.grad_box = self.spectral_box @ new_box
-        self.grad_slices = (self.spectral_box @ self.model_bbox).overlapped_slices(
-            self.grad_box
-        )
         return True
 
     def update(self, it: int, input_grad: np.ndarray):

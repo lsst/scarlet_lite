@@ -363,7 +363,6 @@ def gaussian2d(params: np.ndarray, ellipse: EllipseFrame) -> np.ndarray:
 def grad_gaussian2(
     input_grad: np.ndarray,
     params: np.ndarray,
-    cls: Component,
     morph: np.ndarray,
     spectrum: np.ndarray,
     ellipse: EllipseFrame,
@@ -377,8 +376,6 @@ def grad_gaussian2(
         Gradient of the likelihood wrt the component model
     params: np.ndarray
         The parameters of the morphology.
-    cls: Component
-        The component of the model that contains the morphology.
     morph: np.ndarray
         The model of the morphology.
     spectrum: np.ndarray
@@ -388,9 +385,7 @@ def grad_gaussian2(
     """
     # Calculate the gradient of the likelihod
     # wrt the Gaussian e^-r**2
-    _grad = np.zeros(cls.grad_box.shape, dtype=morph.dtype)
-    _grad[cls.grad_slices[1]] = input_grad[cls.grad_slices[0]]
-    _grad = -morph * np.einsum("i,i...", spectrum, _grad)
+    _grad = -morph * np.einsum("i,i...", spectrum, input_grad)
     d_y0 = ellipse.grad_y0(_grad, True)
     d_x0 = ellipse.grad_x0(_grad, True)
     d_sigma_y = ellipse.grad_major(_grad, True)
@@ -425,7 +420,6 @@ def circular_gaussian(center: Sequence[int], frame: CartesianFrame, sigma: float
 def grad_circular_gaussian(
     input_grad: np.ndarray,
     params: np.ndarray,
-    cls: Component,
     morph: np.ndarray,
     spectrum: np.ndarray,
     frame: CartesianFrame,
@@ -440,8 +434,6 @@ def grad_circular_gaussian(
         Gradient of the likelihood wrt the component model
     params: np.ndarray
         The parameters of the morphology.
-    cls: Component
-        The component of the model that contains the morphology.
     morph: np.ndarray
         The model of the morphology.
     spectrum: np.ndarray
@@ -454,9 +446,7 @@ def grad_circular_gaussian(
     # Calculate the gradient of the likelihod
     # wrt the Gaussian e^-r**2
 
-    _grad = np.zeros(cls.grad_box.shape, dtype=morph.dtype)
-    _grad[cls.grad_slices[1]] = input_grad[cls.grad_slices[0]]
-    _grad = -morph * np.einsum("i,i...", spectrum, _grad)
+    _grad = -morph * np.einsum("i,i...", spectrum, input_grad)
 
     y0, x0 = params[:2]
     d_y0 = -2 * np.sum((frame.y_grid - y0) * _grad)
@@ -497,7 +487,6 @@ def integrated_gaussian(params: np.ndarray, frame: CartesianFrame):
 def grad_integrated_gaussian(
     input_grad: np.ndarray,
     params: np.ndarray,
-    cls: Component,
     morph: np.ndarray,
     spectrum: np.ndarray,
     frame: CartesianFrame,
@@ -511,8 +500,6 @@ def grad_integrated_gaussian(
         Gradient of the likelihood wrt the component model
     params: np.ndarray
         The parameters of the morphology.
-    cls: Component
-        The component of the model that contains the morphology.
     morph: np.ndarray
         The model of the morphology.
     spectrum: np.ndarray
@@ -522,9 +509,7 @@ def grad_integrated_gaussian(
     """
     # Calculate the gradient of the likelihood
     # wrt the Gaussian e^-r**2
-    _grad = np.zeros(cls.grad_box.shape, dtype=morph.dtype)
-    _grad[cls.grad_slices[1]] = input_grad[cls.grad_slices[0]]
-    _grad = np.einsum("i,i...", spectrum, _grad)
+    _grad = np.einsum("i,i...", spectrum, input_grad)
 
     # Extract the parameters
     y0, x0, sigma = params
@@ -610,7 +595,6 @@ def sersic(params: np.ndarray, ellipse: EllipseFrame):
 def grad_sersic(
     input_grad: np.ndarray,
     params: np.ndarray,
-    cls: Component,
     morph: np.ndarray,
     spectrum: np.ndarray,
     ellipse: EllipseFrame,
@@ -623,8 +607,6 @@ def grad_sersic(
         Gradient of the likelihood wrt the component model
     params: np.ndarray
         The parameters of the morphology.
-    cls: Component
-        The component of the model that contains the morphology.
     morph: np.ndarray
         The model of the morphology.
     spectrum: np.ndarray
@@ -641,9 +623,7 @@ def grad_sersic(
         r = ellipse.r_grid
         d_exp = -bn / n * morph * r ** (1 / n - 1)
 
-    _grad = np.zeros(cls.grad_box.shape, dtype=morph.dtype)
-    _grad[cls.grad_slices[1]] = input_grad[cls.grad_slices[0]]
-    _grad = np.einsum("i,i...", spectrum, _grad)
+    _grad = np.einsum("i,i...", spectrum, input_grad)
     d_n = np.sum(
         _grad
         * bn
@@ -670,7 +650,6 @@ class ParametricComponent(Component):
         self,
         bands: tuple,
         bbox: Box,
-        model_bbox: Box,
         spectrum: Parameter | np.ndarray,
         morph_params: Parameter | np.ndarray,
         morph_func: Callable,
@@ -688,8 +667,6 @@ class ParametricComponent(Component):
             The bands used in the model.
         bbox:
             The bounding box that holds the model.
-        model_bbox:
-            The bounding box for the full blend model.
         spectrum:
             The spectrum of the component.
         morph_params:
@@ -713,7 +690,7 @@ class ParametricComponent(Component):
             The minimum value of the spectrum, used to prevent
             divergences in the gradients.
         """
-        super().__init__(bands=bands, bbox=bbox, model_bbox=model_bbox)
+        super().__init__(bands=bands, bbox=bbox)
 
         self._spectrum = parameter(spectrum)
         self._params = parameter(morph_params)
@@ -845,9 +822,7 @@ class ParametricComponent(Component):
         result: np.ndarray
             The gradient of the likelihood wrt. the spectrum.
         """
-        _grad = np.zeros(self.grad_box.shape, dtype=self.spectrum.dtype)
-        _grad[self.grad_slices[1]] = input_grad[self.grad_slices[0]]
-        return np.einsum("...jk,jk", _grad, morph)
+        return np.einsum("...jk,jk", input_grad, morph)
 
     def update(self, it: int, input_grad: np.ndarray):
         """Update the component parameters from an input gradient
@@ -862,9 +837,9 @@ class ParametricComponent(Component):
         spectrum = self.spectrum.copy()
         morph = self.morph
         self._spectrum.update(it, input_grad, morph)
-        self._params.update(it, input_grad, self, morph, spectrum, self.frame)
+        self._params.update(it, input_grad, morph, spectrum, self.frame)
 
-    def resize(self) -> bool:
+    def resize(self, model_box: Box) -> bool:
         """Resize the box that contains the model
 
         Not yet implemented, so for now the model box
@@ -891,7 +866,6 @@ class EllipticalParametricComponent(ParametricComponent):
         self,
         bands: tuple,
         bbox: Box,
-        model_bbox: Box,
         spectrum: Parameter | np.ndarray,
         morph_params: Parameter | np.ndarray,
         morph_func: Callable,
@@ -909,8 +883,6 @@ class EllipticalParametricComponent(ParametricComponent):
             The bands used in the model.
         bbox: Box
             The bounding box that holds this component model.
-        model_bbox: Box
-            The bounding box that holds the entire blend.
         spectrum: np.ndarray
             The spectrum of the component.
         morph_params: np.ndarray
@@ -935,7 +907,6 @@ class EllipticalParametricComponent(ParametricComponent):
         super().__init__(
             bands=bands,
             bbox=bbox,
-            model_bbox=model_bbox,
             spectrum=spectrum,
             morph_params=morph_params,
             morph_func=morph_func,
@@ -1004,4 +975,4 @@ class EllipticalParametricComponent(ParametricComponent):
         spectrum = self.spectrum.copy()
         morph = self._func(self.radial_params, ellipse)
         self._spectrum.update(it, input_grad, morph)
-        self._params.update(it, input_grad, self, morph, spectrum, ellipse)
+        self._params.update(it, input_grad, morph, spectrum, ellipse)

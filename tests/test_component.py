@@ -55,7 +55,7 @@ class TestFactorizedComponent(ScarletTestCase):
         morph = np.arange(20).reshape(4, 5)
         bands = ("g", "r", "i")
         bbox = Box((4, 5), (22, 31))
-        model_bbox = Box((100, 100))
+        self.model_box = Box((100, 100))
         center = (24, 33)
 
         self.component = FactorizedComponent(
@@ -63,7 +63,6 @@ class TestFactorizedComponent(ScarletTestCase):
             spectrum,
             morph,
             bbox,
-            model_bbox,
             center,
         )
 
@@ -79,7 +78,6 @@ class TestFactorizedComponent(ScarletTestCase):
             self.spectrum,
             self.morph,
             self.component.bbox,
-            self.component.model_bbox,
         )
 
         self.assertIsInstance(component._spectrum, Parameter)
@@ -87,7 +85,6 @@ class TestFactorizedComponent(ScarletTestCase):
         self.assertIsInstance(component._morph, Parameter)
         assert_array_equal(component.morph, self.morph)
         self.assertBoxEqual(component.bbox, self.component.bbox)
-        self.assertBoxEqual(component.model_bbox, self.component.model_bbox)
         self.assertIsNone(component.center)
         self.assertIsNone(component.bg_rms)
         self.assertEqual(component.bg_thresh, 0.25)
@@ -107,7 +104,6 @@ class TestFactorizedComponent(ScarletTestCase):
             self.spectrum,
             self.morph,
             self.component.bbox,
-            self.component.model_bbox,
             center,
             bg_rms,
             bg_thresh,
@@ -141,8 +137,7 @@ class TestFactorizedComponent(ScarletTestCase):
         morph = self.morph
         spectrum = self.spectrum
 
-        input_grad = np.zeros(self.full_shape)
-        input_grad[:, 22:26, 31:36] = np.array([morph, 2 * morph, 3 * morph])
+        input_grad = np.array([morph, 2 * morph, 3 * morph])
         true_spectrum_grad = np.array(
             [
                 np.sum(morph**2),
@@ -154,9 +149,7 @@ class TestFactorizedComponent(ScarletTestCase):
             component.grad_spectrum(input_grad, spectrum, morph), true_spectrum_grad
         )
 
-        true_morph_grad = np.sum(input_grad * spectrum[:, None, None], axis=0)[
-            22:26, 31:36
-        ]
+        true_morph_grad = np.sum(input_grad * spectrum[:, None, None], axis=0)
         assert_almost_equal(
             component.grad_morph(input_grad, morph, spectrum), true_morph_grad
         )
@@ -175,7 +168,6 @@ class TestFactorizedComponent(ScarletTestCase):
             spectrum.copy(),
             morph.copy(),
             bbox,
-            morph_bbox,
             center,
             bg_rms=np.array([1, 1, 1]),
             bg_thresh=0.5,
@@ -197,7 +189,6 @@ class TestFactorizedComponent(ScarletTestCase):
             spectrum.copy(),
             morph.copy(),
             bbox,
-            morph_bbox,
             None,
         )
 
@@ -211,7 +202,7 @@ class TestFactorizedComponent(ScarletTestCase):
         assert_array_equal(component.spectrum, proxed_spectrum)
         assert_array_equal(component.morph, proxed_morph)
 
-        self.assertFalse(component.resize())
+        self.assertFalse(component.resize(morph_bbox))
 
     def test_resize(self):
         spectrum = np.array([1, 2, 3], dtype=float)
@@ -227,7 +218,6 @@ class TestFactorizedComponent(ScarletTestCase):
             spectrum.copy(),
             morph.copy(),
             bbox,
-            morph_bbox,
             None,
             bg_rms=np.array([1, 1, 1]),
             bg_thresh=0.5,
@@ -238,7 +228,7 @@ class TestFactorizedComponent(ScarletTestCase):
         self.assertTupleEqual(component.morph.shape, (10, 10))
         self.assertIsNone(component.component_center)
 
-        component.resize()
+        component.resize(morph_bbox)
         self.assertTupleEqual(component.morph.shape, (5, 5))
         self.assertTupleEqual(component.bbox.origin, (5, 9))
         self.assertTupleEqual(component.bbox.shape, (5, 5))
@@ -257,7 +247,7 @@ class TestFactorizedComponent(ScarletTestCase):
         helpers = set(component._morph.helpers.keys())
         self.assertSetEqual(helpers, {"m", "v", "vhat"})
 
-        params = (tuple("grizy"), Box((5, 5)), Box((10, 10)))
+        params = (tuple("grizy"), Box((5, 5)))
         with self.assertRaises(NotImplementedError):
             default_fista_parameterization(DummyComponent(*params))
 

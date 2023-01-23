@@ -70,6 +70,8 @@ class Blend:
         # Initialzie the iteration count and loss function
         self.it = 0
         self.loss = []
+        for component in self.components:
+            component.overlap = component.bbox & self.bbox
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -163,6 +165,8 @@ class Blend:
                 spectra.append(component.spectrum)
                 factorized_indices.append(idx)
             else:
+                if not hasattr(component, "overlap"):
+                    component.overlap = component.bbox & self.bbox
                 model[component.overlap] += component.get_model()[component.overlap]
         model = self.observation.convolve(model, mode="real")
 
@@ -240,11 +244,14 @@ class Blend:
             grad_log_likelihood = self._grad_log_likelihood()
             # Update each component given the current gradient
             for component in self.components:
-                component.update(it, grad_log_likelihood.data)
+                if not hasattr(component, "overlap"):
+                    component.overlap = component.bbox & self.bbox
+                component.update(it, grad_log_likelihood[component.overlap].data)
             # Check to see if any components need to be resized
             if resize is not None and it > 0 and it % resize == 0:
                 for component in self.components:
-                    component.resize()
+                    if component.resize(self.bbox):
+                        component.overlap = component.bbox & self.bbox
             # Stopping criteria
             if it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(
                 self.loss[-1]

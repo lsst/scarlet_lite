@@ -189,11 +189,14 @@ class FitPsfBlend(Blend):
             )
             # Update each component given the current gradient
             for component in self.components:
-                component.update(it, _grad_log_likelihood.data)
+                if not hasattr(component, "overlap"):
+                    component.overlap = component.bbox & self.bbox
+                component.update(it, _grad_log_likelihood[component.overlap].data)
             # Check to see if any components need to be resized
             if resize is not None and it > 0 and it % resize == 0:
                 for component in self.components:
-                    component.resize()
+                    if component.resize(self.bbox):
+                        component.overlap = component.bbox & self.bbox
 
             # Update the PSF
             cast(FitPsfObservation, self.observation).update(

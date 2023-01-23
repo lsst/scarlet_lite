@@ -141,7 +141,7 @@ class TestFreeForm(ScarletTestCase):
         # Tests for code blocks that are difficult to reach,
         # to complete test coverage
         component = blend.sources[-1].components[0]
-        self.assertFalse(component.resize())
+        self.assertFalse(component.resize(self.observation.bbox))
         self.assertEqual(str(component), "FreeFormComponent")
         self.assertEqual(repr(component), "FreeFormComponent")
         component.morph[:] = 0
@@ -253,7 +253,7 @@ class TestParametric(ScarletTestCase):
             cy, cx = int(np.round(center[0])), int(np.round(center[1]))
             # For now we use a fixed bounding box that is the size of
             # the observed PSF image
-            bbox = Box((41, 41), origin=(cy - 20, cx - 20))
+            bbox = Box((41, 41), origin=(cy - 20, cx - 20)) & observation.bbox
             # Keep track of the initial positions
             yi, xi = cy, cx
             # Restrict the values of the parameters
@@ -270,7 +270,6 @@ class TestParametric(ScarletTestCase):
             component = ParametricComponent(
                 bands,
                 bbox,
-                observation.bbox,
                 spectrum=parameter(spectrum.copy()),
                 morph_params=parameter(np.array([center[0], center[1], 0.8])),
                 morph_func=models.integrated_gaussian,
@@ -288,7 +287,6 @@ class TestParametric(ScarletTestCase):
             component = EllipticalParametricComponent(
                 bands,
                 bbox,
-                observation.bbox,
                 spectrum=parameter(spectrum.copy()),
                 morph_params=parameter(
                     np.array([center[0], center[1], 2 * 1.2**2, 2 * 1.2**2, 0.0, 1])
@@ -306,7 +304,6 @@ class TestParametric(ScarletTestCase):
             component = EllipticalParametricComponent(
                 bands,
                 bbox,
-                observation.bbox,
                 spectrum=parameter(spectrum.copy()),
                 morph_params=parameter(
                     np.array([center[0], center[1], 2 * 1.2**2, 2 * 1.2**2, 0.0, 1])
@@ -357,7 +354,7 @@ class TestParametric(ScarletTestCase):
             cy, cx = int(np.round(center[0])), int(np.round(center[1]))
             # For now we use a fixed bounding box that is the size of
             # the observed PSF image
-            bbox = Box((41, 41), origin=(cy - 20, cx - 20))
+            bbox = Box((41, 41), origin=(cy - 20, cx - 20)) & observation.bbox
             # Keep track of the initial positions
             yi, xi = cy, cx
             # Restrict the values of the parameters
@@ -374,7 +371,6 @@ class TestParametric(ScarletTestCase):
             component = ParametricComponent(
                 bands,
                 bbox,
-                observation.bbox,
                 spectrum=parameter(spectrum.copy()),
                 morph_params=parameter(np.array([center[0], center[1]])),
                 morph_func=partial(models.circular_gaussian, sigma=0.8),
@@ -391,7 +387,6 @@ class TestParametric(ScarletTestCase):
             component = EllipticalParametricComponent(
                 bands,
                 bbox,
-                observation.bbox,
                 spectrum=parameter(spectrum.copy()),
                 morph_params=parameter(
                     np.array([center[0], center[1], 2 * 1.2**2, 2 * 1.2**2, 0.0])

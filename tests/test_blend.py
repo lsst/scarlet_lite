@@ -40,15 +40,15 @@ from utils import ObservationData, ScarletTestCase
 
 
 class DummyCubeComponent(Component):
-    def __init__(self, model: Image, model_box: Box):
-        super().__init__(model.bands, model.bbox, model_box)
+    def __init__(self, model: Image):
+        super().__init__(model.bands, model.bbox)
         self._model = Parameter(model.data, {})
 
     @property
     def data(self) -> np.ndarray:
         return self._model.x
 
-    def resize(self) -> bool:
+    def resize(self, model_box: Box) -> bool:
         pass
 
     def update(self, it: int, input_grad: np.ndarray):
@@ -131,7 +131,6 @@ class TestBlend(ScarletTestCase):
                     spectrum=spectrum,
                     morph=morph,
                     bbox=data_morph.bbox,
-                    model_bbox=self.observation.bbox,
                     center=center,
                 )
             )
@@ -244,10 +243,7 @@ class TestBlend(ScarletTestCase):
         # Remove the disk component from the first source
         blend.sources[0].components = blend.sources[0].components[:1]
         # Create a new source for the disk with a non-factorized component
-        component = DummyCubeComponent(
-            Image(model, bands=self.blend.observation.bands, yx0=yx0),
-            self.observation.bbox,
-        )
+        component = DummyCubeComponent(Image(model, bands=self.blend.observation.bands, yx0=yx0))
         blend.sources.append(Source([component]))
 
         blend.fit_spectra()
@@ -271,7 +267,7 @@ class TestBlend(ScarletTestCase):
 
         # Add an empty source
         zero_model = Image.from_box(Box((5, 5), (30, 0)), bands=blend.observation.bands)
-        component = DummyCubeComponent(zero_model, self.observation.bbox)
+        component = DummyCubeComponent(zero_model)
         blend.sources.append(Source([component]))
 
         blend.fit_spectra(clip=True)

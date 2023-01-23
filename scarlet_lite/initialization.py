@@ -303,7 +303,6 @@ class FactorizedInitialization(ABC):
             spectrum,
             morph,
             bbox,
-            self.observation.bbox,
             center,
             self.observation.noise_rms,
             monotonicity=self.monotonicity,
@@ -367,7 +366,6 @@ class FactorizedInitialization(ABC):
             spectrum,
             morph,
             bbox,
-            self.observation.bbox,
             center,
             self.observation.noise_rms,
             monotonicity=self.monotonicity,
@@ -514,7 +512,6 @@ class FactorizedChi2Initialization(FactorizedInitialization):
                     bulge_spectrum,
                     bulge_morph,
                     component.bbox.copy(),
-                    self.observation.bbox,
                     center,
                     self.observation.noise_rms,
                     monotonicity=self.monotonicity,
@@ -524,7 +521,6 @@ class FactorizedChi2Initialization(FactorizedInitialization):
                     disk_spectrum,
                     disk_morph,
                     component.bbox.copy(),
-                    self.observation.bbox,
                     center,
                     self.observation.noise_rms,
                     monotonicity=self.monotonicity,
@@ -677,7 +673,6 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                             bulge_spectrum,
                             bulge_morph,
                             bulge_box,
-                            observation.bbox,
                             center,
                         )
                     )
@@ -690,7 +685,6 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                             disk_spectrum,
                             disk_morph,
                             disk_box,
-                            observation.bbox,
                             center,
                         )
                     )
