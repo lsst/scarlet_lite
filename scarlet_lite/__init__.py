@@ -13,6 +13,7 @@ from .fft import *
 from .image import *
 from . import initialization
 from . import measure
+from . import models
 from .observation import *
 from . import operators
 from .parameters import *
