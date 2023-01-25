@@ -243,7 +243,9 @@ class TestBlend(ScarletTestCase):
         # Remove the disk component from the first source
         blend.sources[0].components = blend.sources[0].components[:1]
         # Create a new source for the disk with a non-factorized component
-        component = DummyCubeComponent(Image(model, bands=self.blend.observation.bands, yx0=yx0))
+        component = DummyCubeComponent(
+            Image(model, bands=self.blend.observation.bands, yx0=yx0)
+        )
         blend.sources.append(Source([component]))
 
         blend.fit_spectra()

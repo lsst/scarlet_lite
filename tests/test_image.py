@@ -469,10 +469,13 @@ class TestImage(ScarletTestCase):
         sub_img = image["g"]
         self.assertImageEqual(sub_img, Image(data[0], yx0=yx0))
 
-        sub_img = image["g":"i"]
+        sub_img = image[:"g"]
+        self.assertImageEqual(sub_img, Image(data[:1], bands=("g",), yx0=yx0))
+
+        sub_img = image["g":"r"]
         self.assertImageEqual(sub_img, Image(data[0:2], bands=("g", "r"), yx0=yx0))
 
-        sub_img = image["r":"y"]
+        sub_img = image["r":"z"]
         self.assertImageEqual(sub_img, Image(data[1:4], bands=("r", "i", "z"), yx0=yx0))
 
         sub_img = image["z":]
