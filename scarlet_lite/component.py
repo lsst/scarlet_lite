@@ -243,11 +243,15 @@ class FactorizedComponent(Component):
         model = spectrum[:, None, None] * morph[None, :, :]
         return Image(model, bands=self.bands, yx0=self.bbox.origin)
 
-    def grad_spectrum(self, input_grad: np.ndarray, spectrum: np.ndarray, morph: np.ndarray):
+    def grad_spectrum(
+        self, input_grad: np.ndarray, spectrum: np.ndarray, morph: np.ndarray
+    ):
         """Gradient of the spectrum wrt. the component model"""
         return np.einsum("...jk,jk", input_grad, morph)
 
-    def grad_morph(self, input_grad: np.ndarray, morph: np.ndarray, spectrum: np.ndarray):
+    def grad_morph(
+        self, input_grad: np.ndarray, morph: np.ndarray, spectrum: np.ndarray
+    ):
         """Gradient of the morph wrt. the component model"""
         return np.einsum("i,i...", spectrum, input_grad)
 
@@ -299,7 +303,7 @@ class FactorizedComponent(Component):
         if np.sum(significant) == 0:
             # There are no significant pixels,
             # so make a small box around the center
-            new_box = Box((1, 1), self.center).grow(self.padding)
+            new_box = Box((1, 1), self.center).grow(self.padding) & model_box
         else:
             new_box = (
                 Box.from_data(significant, min_value=0).grow(self.padding)
