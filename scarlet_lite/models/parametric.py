@@ -727,11 +727,6 @@ class ParametricComponent(Component):
         return self._spectrum.x
 
     @property
-    def bbox(self) -> Box:
-        """The bounding box that contains the component"""
-        return self._bbox
-
-    @property
     def frame(self) -> CartesianFrame:
         """The coordinate system that contains the model"""
         return CartesianFrame(self._bbox)
