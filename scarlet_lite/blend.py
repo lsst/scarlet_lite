@@ -238,28 +238,26 @@ class Blend:
         loss: float
             Loss for the last solution
         """
-        it = self.it
-        while it < max_iter:
+        while self.it < max_iter:
             # Calculate the gradient wrt the on-convolved model
             grad_log_likelihood = self._grad_log_likelihood()
             # Update each component given the current gradient
             for component in self.components:
                 if not hasattr(component, "overlap"):
                     component.overlap = component.bbox & self.bbox
-                component.update(it, grad_log_likelihood[component.overlap].data)
+                component.update(self.it, grad_log_likelihood[component.overlap].data)
             # Check to see if any components need to be resized
-            if resize is not None and it > 0 and it % resize == 0:
+            if resize is not None and self.it > 0 and self.it % resize == 0:
                 for component in self.components:
                     if component.resize(self.bbox):
                         component.overlap = component.bbox & self.bbox
             # Stopping criteria
-            if it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(
-                self.loss[-1]
-            ):
+            if self.it > min_iter and np.abs(
+                self.loss[-1] - self.loss[-2]
+            ) < e_rel * np.abs(self.loss[-1]):
                 break
-            it += 1
-        self.it = it
-        return it, self.loss[-1]
+            self.it += 1
+        return self.it, self.loss[-1]
 
     def parameterize(self, parameterization: Callable):
         """Convert the component parameter arrays into Parameter instances
