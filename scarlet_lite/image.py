@@ -238,8 +238,11 @@ class Image:
             if bands.stop is None:
                 stop = None
             else:
-                stop = self.bands.index(bands.stop)
+                stop = self.bands.index(bands.stop) + 1
             return slice(start, stop, bands.step)
+
+        if isinstance(bands, str):
+            return (self.bands.index(bands),)
 
         band_indices = tuple(
             self.bands.index(band) for band in bands if band in self.bands
@@ -286,9 +289,7 @@ class Image:
         matched_bands = tuple(self.bands[bidx] for bidx in self_indices)
         other_indices = other.spectral_indices(matched_bands)
         if save:
-            print("saving")
             self.indices[other.bands] = (other_indices, self_indices)
-            print(self.indices)
         return other_indices, self_indices
 
     def matched_slices(
