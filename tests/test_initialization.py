@@ -225,5 +225,5 @@ class TestInitialization(ScarletTestCase):
         self.assertIsNone(init.monotonicity)
         self.assertTupleEqual((init.py, init.px), (7, 7))
         self.assertEqual(len(init.sources), 7)
-        components = np.sum(len(src.components) for src in init.sources)
+        components = np.sum([len(src.components) for src in init.sources])
         self.assertEqual(components, 8)

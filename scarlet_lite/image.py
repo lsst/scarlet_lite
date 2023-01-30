@@ -779,19 +779,6 @@ class Image:
         x_index = slice(x_start, x_stop)
         return y_index, x_index
 
-    def _get_spatial_slices(self, indices):
-        if isinstance(indices[0], Box):
-            y_index, x_index = self._get_box_slices(indices[0])
-        else:
-            y_index = indices[0]
-            if len(indices) > 1:
-                if len(indices) > 2:
-                    raise IndexError(f"Unable to parse indices {indices}")
-                x_index = indices[1]
-            else:
-                x_index = slice(None)
-        return y_index, x_index
-
     def _get_sliced(self, indices, value: TImage = None) -> TImage:
         """Select a subset of an image
 
@@ -815,53 +802,55 @@ class Image:
             indices = (indices,)
 
         if self.is_multiband:
-            if len(indices) > 1 and indices[1] in self.bands:
-                # The indices are all band names,
-                # so use them all as a spectral
-                spectral_index = self.spectral_indices(indices)
-                y_index = x_index = slice(None)
-            else:
-                if self._is_spectral_index(indices[0]):
-                    spectral_index = self.spectral_indices(indices[0])
-                    indices = indices[1:]
-                else:
-                    spectral_index = slice(None)
-
-                if len(indices) > 0:
-                    y_index, x_index = self._get_spatial_slices(indices)
-                else:
+            if self._is_spectral_index(indices[0]):
+                if len(indices) > 1 and indices[1] in self.bands:
+                    # The indices are all band names,
+                    # so use them all as a spectral indices
+                    bands = indices
+                    spectral_index = self.spectral_indices(bands)
                     y_index = x_index = slice(None)
-
-            if isinstance(spectral_index, slice):
-                bands = self.bands[spectral_index]
+                elif self._is_spectral_index(indices[0]):
+                    # The first index is a spectral index
+                    spectral_index = self.spectral_indices(indices[0])
+                    if isinstance(spectral_index, slice):
+                        bands = self.bands[spectral_index]
+                    elif len(spectral_index) == 1:
+                        bands = ()
+                        spectral_index = spectral_index[0]
+                    else:
+                        bands = tuple(self.bands[idx] for idx in spectral_index)
+                    indices = indices[1:]
+                    if len(indices) == 1:
+                        # The spatial index must be a bounding box
+                        if not isinstance(indices[0], Box):
+                            raise IndexError(f"Expected a Box for the spatial index but got {indices[1]}")
+                        y_index, x_index = self._get_box_slices(indices[0])
+                    elif len(indices) == 0:
+                        y_index = x_index = slice(None)
+                    else:
+                        raise IndexError(f"Too many spatial indices, expeected a Box bot got {indices}")
                 full_index = (spectral_index, y_index, x_index)
-            elif len(spectral_index) == 1:
-                bands = ()
-                full_index = (spectral_index[0], y_index, x_index)
+            elif isinstance(indices[0], Box):
+                bands = self.bands
+                y_index, x_index = self._get_box_slices(indices[0])
+                full_index = (slice(None), y_index, x_index)
             else:
-                bands = tuple(self.bands[idx] for idx in spectral_index)
-                full_index = (spectral_index, y_index, x_index)
+                error = f"3D images can only be indexed by spectral indices or bounding boxes, got {indices}"
+                raise IndexError(error)
         else:
-            y_index, x_index = self._get_spatial_slices(indices)
-            bands = None
+            if len(indices) != 1 or not isinstance(indices[0], Box):
+                raise IndexError(f"2D images can only be sliced by bounding box, got {indices}")
+            bands = ()
+            y_index, x_index = self._get_box_slices(indices[0])
             full_index = (y_index, x_index)
 
-        if not isinstance(y_index, slice):
-            raise IndexError(
-                f"Images can only be sliced over the spatial dimensions, got {y_index} for the y-dimension"
-            )
-        else:
-            y0 = y_index.start
-            if y0 is None:
-                y0 = 0
-        if not isinstance(x_index, slice):
-            raise IndexError(
-                f"Images can only be sliced over the spatial dimensions, got {x_index} for the x-dimension"
-            )
-        else:
-            x0 = x_index.start
-            if x0 is None:
-                x0 = 0
+        y0 = y_index.start
+        if y0 is None:
+            y0 = 0
+
+        x0 = x_index.start
+        if x0 is None:
+            x0 = 0
 
         if value is None:
             # This is a getter,

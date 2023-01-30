@@ -219,12 +219,12 @@ class TestObservation(ScarletTestCase):
         truth = Image(
             np.arange(12, 24).reshape(3, 4),
         )
-        self.assertImageEqual(observation.images[bands, :, :], truth)
+        self.assertImageEqual(observation.images[bands], truth)
 
         bands = ("g", "r", "i")
         indices = observation.images.spectral_indices(bands)
         assert_array_equal(indices, (0, 2, 1))
         self.assertImageEqual(
-            observation.images[bands, :, :],
+            observation.images[bands],
             Image(np.array([image_g, image_r, image_i]), bands=("g", "r", "i")),
         )

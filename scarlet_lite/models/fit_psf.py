@@ -125,7 +125,7 @@ class FitPsfObservation(Observation):
         return Image(result.image, bands=image.bands, yx0=image.yx0)
 
     def update(self, it: int, input_grad: np.ndarray, model: Image):
-        model = Fourier(model[:, ::-1, ::-1].data)
+        model = Fourier(model.data[:, ::-1, ::-1])
         model_fft = model.fft(self.fft_shape, self.axes)
         self._fit_kernel.update(it, input_grad, model_fft)
 

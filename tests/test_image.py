@@ -488,15 +488,6 @@ class TestImage(ScarletTestCase):
 
         self.assertImageEqual(image[:], image)
 
-        # test spatial slicing
-        sub_img = image[:, :10, :10]
-        self.assertImageEqual(sub_img, Image(data[:, :10, :10], bands=bands, yx0=yx0))
-
-        sub_img = image[:, 10:20, 5:10]
-        self.assertImageEqual(
-            sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
-        )
-
         # Test bounding box slicing
         sub_img = image[:, Box((10, 5), (37, 87))]
         self.assertImageEqual(
@@ -510,16 +501,6 @@ class TestImage(ScarletTestCase):
 
         sub_img = image_2d[Box((10, 5), (37, 87))]
         self.assertImageEqual(sub_img, Image(data[0, 10:20, 5:10], yx0=(37, 87)))
-
-        sub_img = image[10:20, 5:10]
-        self.assertImageEqual(
-            sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
-        )
-
-        sub_img = image[10:20, 5:10]
-        self.assertImageEqual(
-            sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
-        )
 
         with self.assertRaises(IndexError):
             # Cannot index a single row, since it would not return an image
