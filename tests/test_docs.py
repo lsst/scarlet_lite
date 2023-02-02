@@ -19,32 +19,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import doctest
+
+from scarlet_lite import image
+
 from utils import ScarletTestCase
 
 
-class TestImage(ScarletTestCase):
+class TestDocs(ScarletTestCase):
     """Test code blocks in the scarlet lite Image docs"""
 
-    def test_constructors(self):
-        # Block 1
-        import numpy as np
-        from scarlet_lite import Image
-
-        x = np.arange(12).reshape(3, 4)
-        image = Image(x)
-        print(image)
-
-        # Block 2
-        x = np.arange(24).reshape(2, 3, 4)
-        image = Image(x, bands=("i", "z"))
-        print(image)
-
-        # Block 3
-        from scarlet_lite import Box
-
-        image = Image.from_box(Box((4, 5), (100, 120)))
-        print(image)
-
-        # Block 4
-        image = Image.from_box(Box((3, 4)), bands=("r", "i"))
-        print(image)
+    def test_modules(self):
+        doctest.testmod(image, raise_on_error=True)

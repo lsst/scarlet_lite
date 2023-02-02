@@ -314,7 +314,7 @@ class FactorizedComponent(Component):
 
         old_box = self.bbox
         self._bbox = new_box
-        self._morph.grow(old_box, new_box)
+        self._morph.resize(old_box, new_box)
         return True
 
     def update(self, it: int, input_grad: np.ndarray):

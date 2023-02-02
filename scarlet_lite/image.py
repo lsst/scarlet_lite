@@ -67,7 +67,154 @@ def get_combined_dtype(*arrays: np.ndarray) -> DTypeLike:
 
 
 class Image:
-    """A numpy array with an origin and (optional) bands"""
+    """A numpy array with an origin and (optional) bands
+
+    One of the main limitations of using numpy arrays to store image data
+    is the lack of an ``origin`` attribute that allows an array to retain
+    knowledge of it's location in a larger scene.
+    For example, if a numpy array ``x`` is sliced, eg. ``x[10:20, 30:40]``
+    the result will be a new ``10x10`` numpy array that has no meta
+    data to inform the ueser that it was sliced from a larger image.
+    In addition, astrophysical images are also multi-band data cubes,
+    with a 2D image in each band (in fact this is the simplifying
+    assumption that distinguishes scarlet lite from scarlet main).
+    However, the ordering of the bands during processing might differ from
+    the ordering of the bands to display multiband data.
+    So a mechanism was also desired to simplify the sorting and index of
+    an image by band name.
+    Thus, scarlet lite creates a numpy-array like class with the additional
+    ``bands`` and ``yx0`` attributes to keep track of the bands contained
+    in an array and the origin of that array (we specify ``yx0`` as opposed
+    to ``xy0`` to be consistent with the numpy/C++ ``(y, x)`` ordering of
+    arrays as opposed to the traditional cartesian ``(x, y)`` ordering used
+    in astronomy and other modules in the science pipelines.
+    While this may be a small source of confusion for the user,
+    it is consistent with the ordering in the original scarlet package and
+    ensures the consistency of scarlet lite images and python index slicing.
+
+    Constructors
+    ============
+
+    The easiest way to create a new image is to use ``Image(numpy_array)``,
+    for example
+
+    >>> import numpy as np
+    >>> from scarlet_lite import Image
+    <BLANKLINE>
+    >>> x = np.arange(12).reshape(3, 4)
+    >>> image = Image(x)
+    >>> print(image)
+
+    This will create a single band :py:class:`~scarlet_lite.Image` with
+    origin ``(0, 0)``.
+    To create a multi-band image the input array must have 3 dimensions and
+    the ``bands`` property must be specified:
+
+    >>> x = np.arange(24).reshape(2, 3, 4)
+    >>> image = Image(x, bands=("i", "z"))
+    >>> print(image)
+
+    It is also possible to create an empty single-band image using the
+    ``from_box`` static method:
+
+    >>> from scarlet_lite import Box
+    >>> image = Image.from_box(Box((3, 4), (100, 120)))
+    >>> print(image)
+
+    Similarly, an empty multi-band image can be created by passing a tuple
+    of ``bands``:
+
+    >>> image = Image.from_box(Box((3, 4)), bands=("r", "i"))
+    >>> print(image)
+
+    Slicing and Indexing
+    ====================
+
+    To select a sub-image use a ``Box`` to select a spatial region in either a
+    single-band or multi-band image:
+
+    >>> x = np.arange(60).reshape(3, 4, 5)
+    >>> image = Image(x, bands=("g", "r", "i"), yx0=(20, 30))
+    >>> bbox = Box((2, 2), (21, 32))
+    >>> print(image[bbox])
+
+    To select a single-band image from a muli-band image,
+    pass the name of the band as an index:
+
+    >>> print(image["r"])
+
+    Multi-band images can also be slcied in the spatial dimension, for example
+
+    >>> print(image["g":"r"])
+
+    and
+
+    >>> print(image["r":"r"])
+
+    both extract a slice of a multi-band image.
+
+    .. warning::
+        Unlike numerical indices, where ``slice(x, y)`` will select the
+        subset of an array from ``x`` to ``y-1`` (excluding ``y``),
+        a spectral slice of an ``Image`` will return the image slice
+        including band ``y``.
+
+    It is also possible to change the order or index a subset of bands
+    in an image. For example:
+
+    >>> print(image[("r", "g", "i")])
+
+    will return a new image with the bands re-ordered.
+
+    Arithmetic
+    ==========
+
+    Images can be combined using the standard arithmetic operations similar to
+    numpy arrays, including ``+, -, *, /, **`` etc, however, if two images are
+    combined with different bounding boxes, the _union_ of the two
+    boxes is used for the result. For example:
+
+    >>> image1 = Image(np.ones((2, 3, 4)), bands=tuple("gr"))
+    >>> image2 = Image(np.ones((2, 3, 4)), bands=tuple("gr"), yx0=(2, 3))
+    >>> result = image1 + image2
+    >>> print(result)
+
+    If instead you want to additively ``insert`` image 1 into image 2,
+    so that they have the same bounding box as image 2, use
+
+    >>> image2.insert(image1)
+    >>> print(image2)
+
+    To insert an image using a different operation use
+
+    >>> from operator import truediv
+    >>> image2.insert(image1, truediv)
+    >>> print(image2)
+
+    However, depending on te operation you may get unexpected results
+    since now there could be ``NaN`` and ``inf`` values due to the zeros
+    in the non-overlaping regions.
+    Instead, to select only the overlap region one can use
+
+    >>> result = image1 / image2
+    >>> print(result[image1.bbox & image2.bbox])
+
+    Parameters
+    ----------
+    data:
+        The array data for the image.
+    bands:
+        The bands coving the image.
+    yx0:
+        The (y, x) offset for the lower left of the image.
+    indices:
+        Dictionary of cached indices with the bands to project this image
+        into as the key, and the slices for the projected image and this
+        image as the values.
+    slices:
+        Dictionary of cached slices to insert this image into another
+        image.
+    """
 
     def __init__(
         self,
@@ -80,24 +227,6 @@ class Image:
             tuple[tuple[slice, ...], tuple[slice, ...]],
         ] = None,
     ):
-        """Create a new image
-
-        Parameters
-        ----------
-        data:
-            The array data for the image.
-        bands:
-            The bands coving the image.
-        yx0:
-            The (y, x) offset for the lower left of the image.
-        indices:
-            Dictionary of cached indices with the bands to project this image
-            into as the key, and the slices for the projected image and this
-            image as the values.
-        slices:
-            Dictionary of cached slices to insert this image into another
-            image.
-        """
         if bands is None or len(bands) == 0:
             # Using an empty tuple for the bands will result in a 2D image
             bands = ()
@@ -935,7 +1064,14 @@ def _operate_on_images(
         return image1.copy_with(data=op(image1.data, image2))
     if image1.bands == image2.bands and image1.bbox == image2.bbox:
         # The images perfectly overlap, so just combine their results
-        return Image(op(image1.data, image2.data), bands=image1.bands, yx0=image1.yx0)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            result = op(image1.data, image2.data)
+        return Image(result, bands=image1.bands, yx0=image1.yx0)
+
+    if op != operator.add and op != operator.sub and image1.bands != image2.bands:
+        msg = f"Images with different bands can only be combined "\
+              f"using addition and subtraction, got {op}"
+        raise ValueError(msg)
 
     # Use all of the bands in the first image
     bands = image1.bands
@@ -948,12 +1084,19 @@ def _operate_on_images(
         shape = (len(bands),) + bbox.shape
     else:
         shape = bbox.shape
-    dtype = get_combined_dtype(image1, image2)
-    result = Image(np.zeros(shape, dtype=dtype), bands=bands, yx0=bbox.origin)
-    # Add the first image in place
-    image1.insert_into(result, operator.add)
-    # Use the operator to insert the second image
-    image2.insert_into(result, op)
+
+    if op == operator.add or op == operator.sub:
+        dtype = get_combined_dtype(image1, image2)
+        result = Image(np.zeros(shape, dtype=dtype), bands=bands, yx0=bbox.origin)
+        # Add the first image in place
+        image1.insert_into(result, operator.add)
+        # Use the operator to insert the second image
+        image2.insert_into(result, op)
+    else:
+        # Project both images into the full bbox
+        image1 = image1.project(bbox=bbox)
+        image2 = image2.project(bbox=bbox)
+        result = op(image1, image2)
     return result
 
 

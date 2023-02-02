@@ -85,7 +85,7 @@ def conserve_flux(blend: Blend, mask_footprint: bool = True):
         src_model = src.get_model()
 
         # Grow the model to include the wings of the PSF
-        src_box = src.bbox.grow((py, px))
+        src_box = src.bbox.resize((py, px))
         overlap = observation.bbox & src_box
         src_model = src_model.project(bbox=overlap)
         src_model = observation.convolve(src_model, mode="real")

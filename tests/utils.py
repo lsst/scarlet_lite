@@ -20,6 +20,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from unittest import TestCase
+import sys
+import traceback
 from typing import Sequence
 
 import numpy as np
@@ -43,6 +45,61 @@ def get_psfs(sigmas: float | Sequence[float]) -> np.ndarray:
         sigmas = (sigmas,)
     psf = [integrated_circular_gaussian(sigma=sigma) for sigma in sigmas]
     return np.array(psf)
+
+
+def execute_doc_scripts(filename: str):
+    """Test python code in docstrings and document files.
+
+    Any lines not containing code are replaced with a newline character,
+    that way if any of the code blocks fail, the line with the error will
+    match the linenumber in the .rst file or python file with the docstring.
+
+    Parameters
+    ----------
+    filename:
+        The name of the file to test.
+    """
+    with open(filename) as file:
+        lines = file.readlines()
+
+    full_script = ""
+    script = ""
+    whitespace = 0
+    code_block_start = None
+    for n, line in enumerate(lines):
+        if ".. code-block:: python" in line:
+            if code_block_start is not None:
+                message = f"End of the previous code block starting at {code_block_start}"\
+                          f"was not detected by the new code block starting at {n}"
+                raise ValueError(message)
+            code_block_start = n
+            tab, directive = line.split("..")
+            whitespace = len(tab) + 4
+            full_script += f"# {n+1}: " + line
+        elif code_block_start is not None:
+            indent = len(line) - len(line.lstrip())
+            if indent < whitespace and indent != 1:
+                code_block_start = None
+                whitespace = 0
+                full_script += script + "\n"
+                script = ""
+            elif indent == 1:
+                script += "\n"
+            else:
+                script += line[whitespace:]
+        else:
+            full_script += f"# {n+1}: " + line
+
+    try:
+        exec(full_script)
+    except Exception:
+        exc_info = sys.exc_info()
+        try:
+            msg = f"Error encountered in a docstring for the file {filename}."
+            raise RuntimeError(msg)
+        finally:
+            traceback.print_exception(*exc_info)
+            del exc_info
 
 
 class ObservationData:

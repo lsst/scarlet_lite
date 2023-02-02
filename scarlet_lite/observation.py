@@ -184,7 +184,7 @@ class Observation:
         variance:
             (bands, y, x) array of variance for each image pixel.
         weights:
-            (bands, y, x) array of weights to use when calculatint the
+            (bands, y, x) array of weights to use when calculate the
             likelihood of each pixel.
         psfs:
             (bands, y, x) array of the PSF image in each band.

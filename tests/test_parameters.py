@@ -79,7 +79,7 @@ class TestParameters(ScarletTestCase):
         # Test growing in all dimensions
         old_box = Box((3, 5), (21, 15))
         new_box = Box((11, 20), (19, 10))
-        param.grow(old_box, new_box)
+        param.resize(old_box, new_box)
         truth = np.zeros((11, 20), dtype=float)
         truth[2:5, 5:10] = x
         assert_array_equal(param.x, truth)
@@ -88,7 +88,7 @@ class TestParameters(ScarletTestCase):
         param = Parameter(x, {"y": y})
         old_box = Box((3, 5), (21, 15))
         new_box = Box((1, 3), (22, 16))
-        param.grow(old_box, new_box)
+        param.resize(old_box, new_box)
         truth = x[1:2, 1:4]
         assert_array_equal(param.x, truth)
 

@@ -81,7 +81,7 @@ class Parameter:
         """
         raise NotImplementedError("Base Parameters cannot be updated")
 
-    def grow(self, old_box: Box, new_box: Box):
+    def resize(self, old_box: Box, new_box: Box):
         """Grow the parameter and all of the meta parameters
 
         Parameters

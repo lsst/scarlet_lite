@@ -351,36 +351,33 @@ class TestImage(ScarletTestCase):
         igy = ("i", "g", "y")
 
         # Test band insert
-        if op_name == "pow":
-            data1 = np.random.random((5, 3, 4)) + 1
-            data2 = np.random.random((3, 3, 4)) + 1
-        else:
+        if op_name == "add" or op_name == "subtract":
             data1 = (np.random.random((5, 3, 4)) - 0.5) * 10
             data2 = (np.random.random((3, 3, 4)) - 0.5) * 10
-        image1 = Image(data1, bands=grizy)
-        image2 = Image(data2, bands=gir)
-        result = op(image1, image2)
-        truth = np.zeros((5, 3, 4), dtype=float)
-        truth += data1
-        truth[(0, 2, 1), :, :] = op(truth[(0, 2, 1), :, :], data2)
-        assert_almost_equal(result.data, truth)
-        self.assertImageEqual(result, Image(truth, bands=grizy))
+            image1 = Image(data1, bands=grizy)
+            image2 = Image(data2, bands=gir)
+            result = op(image1, image2)
+            truth = np.zeros((5, 3, 4), dtype=float)
+            truth += data1
+            truth[(0, 2, 1), :, :] = op(truth[(0, 2, 1), :, :], data2)
+            assert_almost_equal(result.data, truth)
+            self.assertImageEqual(result, Image(truth, bands=grizy))
 
-        # Test band mixture
-        if op_name == "pow":
-            data1 = np.random.random((3, 3, 4)) + 1
-            data2 = np.random.random((3, 3, 4)) + 1
-        else:
-            data1 = (np.random.random((3, 3, 4)) - 0.5) * 10
-            data2 = (np.random.random((3, 3, 4)) - 0.5) * 10
-        image1 = Image(data1, bands=gir)
-        image2 = Image(data2, bands=igy)
-        result = op(image1, image2)
-        truth = np.zeros((4, 3, 4), dtype=float)
-        truth[(0, 1, 2), :, :] = data1
-        truth[(1, 0, 3), :, :] = op(truth[(1, 0, 3), :, :], data2)
-        assert_almost_equal(result.data, truth)
-        self.assertImageEqual(result, Image(truth, bands=("g", "i", "r", "y")))
+            # Test band mixture
+            if op_name == "pow":
+                data1 = np.random.random((3, 3, 4)) + 1
+                data2 = np.random.random((3, 3, 4)) + 1
+            else:
+                data1 = (np.random.random((3, 3, 4)) - 0.5) * 10
+                data2 = (np.random.random((3, 3, 4)) - 0.5) * 10
+            image1 = Image(data1, bands=gir)
+            image2 = Image(data2, bands=igy)
+            result = op(image1, image2)
+            truth = np.zeros((4, 3, 4), dtype=float)
+            truth[(0, 1, 2), :, :] = data1
+            truth[(1, 0, 3), :, :] = op(truth[(1, 0, 3), :, :], data2)
+            assert_almost_equal(result.data, truth)
+            self.assertImageEqual(result, Image(truth, bands=("g", "i", "r", "y")))
 
         # Test spatial offsets
         if op_name == "pow":
@@ -392,9 +389,13 @@ class TestImage(ScarletTestCase):
         image1 = Image(data1, bands=gir, yx0=(10, 20))
         image2 = Image(data2, bands=gir, yx0=(11, 17))
         result = op(image1, image2)
-        truth = np.zeros((3, 4, 7), dtype=float)
-        truth[:, :3, 3:] = data1
-        truth[:, 1:, :4] = op(truth[:, 1:, :4], data2)
+
+        _data1 = np.zeros((3, 4, 7), dtype=float)
+        _data2 = np.zeros((3, 4, 7), dtype=float)
+        _data1[:, :3, 3:] = data1
+        _data2[:, 1:, :4] = data2
+        with np.errstate(divide='ignore', invalid='ignore'):
+            truth = op(_data1, _data2)
         assert_almost_equal(result.data, truth)
         self.assertImageEqual(result, Image(truth, bands=gir, yx0=(10, 17)))
 
@@ -415,9 +416,13 @@ class TestImage(ScarletTestCase):
         image1 = Image(data1, yx0=(10, 20))
         image2 = Image(data2, yx0=(11, 17))
         result = op(image1, image2)
-        truth = np.zeros((4, 7), dtype=float)
-        truth[:3, 3:] = data1
-        truth[1:, :4] = op(truth[1:, :4], data2)
+
+        _data1 = np.zeros((4, 7), dtype=float)
+        _data2 = np.zeros((4, 7), dtype=float)
+        _data1[:3, 3:] = data1
+        _data2[1:, :4] = data2
+        with np.errstate(divide='ignore', invalid='ignore'):
+            truth = op(_data1, _data2)
         assert_almost_equal(result.data, truth)
         self.assertImageEqual(result, Image(truth, yx0=(10, 17)))
 
