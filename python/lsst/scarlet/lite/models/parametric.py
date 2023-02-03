@@ -41,11 +41,11 @@ import numpy as np
 from scipy.special import erf
 from scipy.stats import gamma
 
-from scarlet_lite.bbox import Box
-from scarlet_lite.component import Component
-from scarlet_lite.image import Image
+from ..bbox import Box
+from ..component import Component
+from ..image import Image
 
-from scarlet_lite.parameters import parameter, Parameter
+from ..parameters import parameter, Parameter
 
 
 # Some operations fail at the origin in radial coordinates,

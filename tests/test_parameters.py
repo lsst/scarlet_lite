@@ -1,4 +1,4 @@
-# This file is part of scarlet_lite.
+# This file is part of lsst.scarlet.lite.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -22,8 +22,8 @@
 import numpy as np
 from numpy.testing import assert_array_equal
 
-from scarlet_lite import Box
-from scarlet_lite.parameters import (
+from lsst.scarlet.lite import Box
+from lsst.scarlet.lite.parameters import (
     parameter,
     phi_psi,
     AdaproxParameter,

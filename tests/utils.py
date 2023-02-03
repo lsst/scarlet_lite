@@ -1,4 +1,4 @@
-# This file is part of scarlet_lite.
+# This file is part of lsst.scarlet.lite.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -28,11 +28,11 @@ import numpy as np
 from numpy.testing import assert_array_equal, assert_almost_equal
 from scipy.signal import convolve as scipy_convolve
 
-from scarlet_lite.bbox import Box
-from scarlet_lite.fft import match_psf
-from scarlet_lite.image import Image
-from scarlet_lite.observation import Observation
-from scarlet_lite.utils import integrated_circular_gaussian
+from lsst.scarlet.lite.bbox import Box
+from lsst.scarlet.lite.fft import match_psf
+from lsst.scarlet.lite.image import Image
+from lsst.scarlet.lite.observation import Observation
+from lsst.scarlet.lite.utils import integrated_circular_gaussian
 
 
 __all__ = ["get_psfs", "ObservationData", "ScarletTestCase"]
@@ -177,11 +177,11 @@ class ScarletTestCase(TestCase):
     def assertImageAlmostEqual(self, image: Image, truth: Image, decimal: int = 7):
         if not isinstance(image, Image):
             raise AssertionError(
-                f"image is a {type(image)}, not a scarlet_lite `Image`"
+                f"image is a {type(image)}, not a lsst.scarlet.lite `Image`"
             )
         if not isinstance(truth, Image):
             raise AssertionError(
-                f"truth is a {type(truth)}, not a scarlet_lite `Image`"
+                f"truth is a {type(truth)}, not a lsst.scarlet.lite `Image`"
             )
 
         try:

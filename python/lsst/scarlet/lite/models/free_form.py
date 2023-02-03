@@ -23,11 +23,11 @@ __all__ = ["FreeFormComponent"]
 
 import numpy as np
 
-from scarlet_lite.bbox import Box
-from scarlet_lite.component import FactorizedComponent
-from scarlet_lite.parameters import Parameter
+from ..bbox import Box
+from ..component import FactorizedComponent
+from ..parameters import Parameter
 
-from scarlet_lite.detect import scarlet_footprints_to_image
+from ..detect import scarlet_footprints_to_image
 
 
 class FreeFormComponent(FactorizedComponent):
@@ -98,7 +98,7 @@ class FreeFormComponent(FactorizedComponent):
         This is the main difference between an `SedComponent` and a
         `FactorizedComponent`, since this component has fewer constraints.
         """
-        from scarlet_lite.detect_pybind11 import get_connected_multipeak, get_footprints
+        from lsst.scarlet.lite.detect_pybind11 import get_connected_multipeak, get_footprints
 
         if self.bg_thresh is not None:
             bg_thresh = self.bg_rms * self.bg_thresh

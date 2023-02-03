@@ -36,7 +36,8 @@ eigen_path = None
 if "EIGEN_DIR" in os.environ:
     eigen_path = os.environ["EIGEN_DIR"]
 
-packages = find_packages()
+packages = ["lsst.scarlet.lite", "lsst.scarlet.lite.models"]
+package_path = os.path.join("python", "lsst", "scarlet", "lite")
 
 
 class GetPybindInclude(object):
@@ -82,8 +83,8 @@ class GetEigenInclude(object):
 
 ext_modules = [
     Extension(
-        "scarlet_lite.operators_pybind11",
-        ["scarlet_lite/operators_pybind11.cc"],
+        "lsst.scarlet.lite.operators_pybind11",
+        [os.path.join(package_path, "operators_pybind11.cc")],
         include_dirs=[
             GetPybindInclude(),
             GetPybindInclude(user=True),
@@ -92,8 +93,8 @@ ext_modules = [
         language="c++",
     ),
     Extension(
-        "scarlet_lite.detect_pybind11",
-        ["scarlet_lite/detect_pybind11.cc"],
+        "lsst.scarlet.lite.detect_pybind11",
+        [os.path.join(package_path, "detect_pybind11.cc")],
         include_dirs=[
             GetPybindInclude(),
             GetPybindInclude(user=True),
@@ -172,7 +173,8 @@ if eigen_path is None:
 print(f"\n\ninstall requires: {install_requires} \n\n")
 
 setup(
-    name="scarlet_lite",
+    name="lsst.scarlet.lite",
+    package_dir={"": "python"},
     packages=packages,
     extras_require={"plotting": ["astropy", "matplotlib"]},
     include_package_data=True,

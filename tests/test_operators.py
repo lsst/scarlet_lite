@@ -1,4 +1,4 @@
-# This file is part of scarlet_lite.
+# This file is part of lsst.scarlet.lite.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -24,8 +24,8 @@ import os
 import numpy as np
 from numpy.testing import assert_array_equal
 
-from scarlet_lite import Image
-from scarlet_lite.operators import (
+from lsst.scarlet.lite import Image
+from lsst.scarlet.lite.operators import (
     prox_connected,
     Monotonicity,
     prox_monotonic_mask,

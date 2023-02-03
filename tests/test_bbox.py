@@ -21,7 +21,7 @@
 
 import numpy as np
 
-from scarlet_lite import Box
+from lsst.scarlet.lite import Box
 from utils import ScarletTestCase
 
 

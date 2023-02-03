@@ -1,4 +1,4 @@
-# This file is part of scarlet_lite.
+# This file is part of lsst.scarlet.lite.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -24,7 +24,7 @@ import os
 import numpy as np
 from numpy.testing import assert_almost_equal
 
-from scarlet_lite.wavelet import (
+from lsst.scarlet.lite.wavelet import (
     starlet_transform,
     starlet_reconstruction,
     multiband_starlet_transform,

@@ -1,4 +1,4 @@
-# This file is part of scarlet_lite.
+# This file is part of lsst.scarlet.lite.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -24,8 +24,8 @@ import operator
 import numpy as np
 from numpy.testing import assert_array_equal, assert_almost_equal
 
-from scarlet_lite import Image, Box
-from scarlet_lite.image import MismatchedBoxError, MismatchedBandsError
+from lsst.scarlet.lite import Image, Box
+from lsst.scarlet.lite.image import MismatchedBoxError, MismatchedBandsError
 
 from utils import ScarletTestCase
 

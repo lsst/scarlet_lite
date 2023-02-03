@@ -1,4 +1,4 @@
-# This file is part of scarlet_lite.
+# This file is part of lsst.scarlet.lite.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -26,14 +26,14 @@ from typing import cast
 import numpy as np
 from numpy.testing import assert_array_equal
 
-from scarlet_lite import Blend, Box, Image, Observation, Source, FistaParameter
-from scarlet_lite.component import (
+from lsst.scarlet.lite import Blend, Box, Image, Observation, Source, FistaParameter
+from lsst.scarlet.lite.component import (
     default_adaprox_parameterization,
     default_fista_parameterization,
     Component,
 )
-from scarlet_lite.initialization import FactorizedChi2Initialization
-from scarlet_lite.models import (
+from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
+from lsst.scarlet.lite.models import (
     CartesianFrame,
     EllipseFrame,
     FreeFormComponent,
@@ -42,10 +42,10 @@ from scarlet_lite.models import (
     FitPsfBlend,
     FitPsfObservation,
 )
-import scarlet_lite.models as models
-from scarlet_lite.operators import Monotonicity
-from scarlet_lite.parameters import AdaproxParameter, relative_step, parameter
-from scarlet_lite.utils import integrated_circular_gaussian
+import lsst.scarlet.lite.models as models
+from lsst.scarlet.lite.operators import Monotonicity
+from lsst.scarlet.lite.parameters import AdaproxParameter, relative_step, parameter
+from lsst.scarlet.lite.utils import integrated_circular_gaussian
 
 from utils import ScarletTestCase
 

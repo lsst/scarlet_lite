@@ -24,14 +24,14 @@ from typing import Callable
 import numpy as np
 from numpy.testing import assert_almost_equal, assert_array_equal
 
-from scarlet_lite import Box, Image, Parameter
-from scarlet_lite.component import (
+from lsst.scarlet.lite import Box, Image, Parameter
+from lsst.scarlet.lite.component import (
     Component,
     FactorizedComponent,
     default_fista_parameterization,
     default_adaprox_parameterization,
 )
-from scarlet_lite.operators import Monotonicity
+from lsst.scarlet.lite.operators import Monotonicity
 from utils import ScarletTestCase
 
 

@@ -1,4 +1,4 @@
-# This file is part of scarlet_lite.
+# This file is part of lsst.scarlet.lite.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -25,16 +25,16 @@ import numpy as np
 from numpy.testing import assert_array_equal, assert_almost_equal
 from scipy.signal import convolve as scipy_convolve
 
-from scarlet_lite import Box, Image, Observation
-from scarlet_lite.initialization import (
+from lsst.scarlet.lite import Box, Image, Observation
+from lsst.scarlet.lite.initialization import (
     trim_morphology,
     init_monotonic_morph,
     multifit_spectra,
     FactorizedChi2Initialization,
     FactorizedWaveletInitialization,
 )
-from scarlet_lite.operators import prox_monotonic_mask, Monotonicity
-from scarlet_lite.utils import integrated_circular_gaussian
+from lsst.scarlet.lite.operators import prox_monotonic_mask, Monotonicity
+from lsst.scarlet.lite.utils import integrated_circular_gaussian
 
 from utils import ObservationData, ScarletTestCase
 

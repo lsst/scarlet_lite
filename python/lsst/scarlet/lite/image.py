@@ -99,13 +99,13 @@ class Image:
     for example
 
     >>> import numpy as np
-    >>> from scarlet_lite import Image
+    >>> from lsst.scarlet.lite import Image
     <BLANKLINE>
     >>> x = np.arange(12).reshape(3, 4)
     >>> image = Image(x)
     >>> print(image)
 
-    This will create a single band :py:class:`~scarlet_lite.Image` with
+    This will create a single band :py:class:`~lsst.scarlet.lite.Image` with
     origin ``(0, 0)``.
     To create a multi-band image the input array must have 3 dimensions and
     the ``bands`` property must be specified:
@@ -117,7 +117,7 @@ class Image:
     It is also possible to create an empty single-band image using the
     ``from_box`` static method:
 
-    >>> from scarlet_lite import Box
+    >>> from lsst.scarlet.lite import Box
     >>> image = Image.from_box(Box((3, 4), (100, 120)))
     >>> print(image)
 

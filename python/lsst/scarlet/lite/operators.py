@@ -24,7 +24,7 @@ def prox_connected(morph: np.ndarray, centers: Sequence[Sequence[int]]) -> np.nd
         to zero.
     """
     # Import here to avoid circular dependency
-    from scarlet_lite.detect_pybind11 import get_connected_pixels
+    from lsst.scarlet.lite.detect_pybind11 import get_connected_pixels
 
     result = np.zeros(morph.shape, dtype=bool)
 
@@ -220,7 +220,7 @@ class Monotonicity:
             The input image is updated in place, but also returned from this
             method.
         """
-        from scarlet_lite.operators_pybind11 import new_monotonicity
+        from lsst.scarlet.lite.operators_pybind11 import new_monotonicity
 
         # Check for a better center
         center = get_center(image, center, self.fit_radius)
@@ -317,7 +317,7 @@ def prox_monotonic_mask(
             - model: the model with invalid pixels masked out
             - bounds: the bounds of the valid monotonic pixels
     """
-    from scarlet_lite.operators_pybind11 import (
+    from lsst.scarlet.lite.operators_pybind11 import (
         get_valid_monotonic_pixels,
         linear_interpolate_invalid_pixels,
     )

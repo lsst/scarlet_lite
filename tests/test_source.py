@@ -1,4 +1,4 @@
-# This file is part of scarlet_lite.
+# This file is part of lsst.scarlet.lite.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -20,9 +20,9 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import numpy as np
-from scarlet_lite import Box, Image, Source
-from scarlet_lite.component import FactorizedComponent
-from scarlet_lite.utils import integrated_circular_gaussian
+from lsst.scarlet.lite import Box, Image, Source
+from lsst.scarlet.lite.component import FactorizedComponent
+from lsst.scarlet.lite.utils import integrated_circular_gaussian
 
 from utils import ScarletTestCase
 

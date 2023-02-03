@@ -1,4 +1,4 @@
-# This file is part of scarlet_lite.
+# This file is part of lsst.scarlet.lite.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -24,16 +24,16 @@ import os
 import numpy as np
 from numpy.testing import assert_array_equal
 
-from scarlet_lite import Box, Image
-from scarlet_lite.utils import integrated_circular_gaussian
-from scarlet_lite.detect_pybind11 import (
+from lsst.scarlet.lite import Box, Image
+from lsst.scarlet.lite.utils import integrated_circular_gaussian
+from lsst.scarlet.lite.detect_pybind11 import (
     get_connected_pixels,
     get_connected_multipeak,
     get_footprints,
     Footprint,
     Peak,
 )
-from scarlet_lite.detect import (
+from lsst.scarlet.lite.detect import (
     bounds_to_bbox,
     scarlet_footprints_to_image,
     get_wavelets,

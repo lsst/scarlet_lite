@@ -21,7 +21,7 @@
 
 import doctest
 
-from scarlet_lite import image
+from lsst.scarlet.lite import image
 
 from utils import ScarletTestCase
 

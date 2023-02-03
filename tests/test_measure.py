@@ -1,4 +1,4 @@
-# This file is part of scarlet_lite.
+# This file is part of lsst.scarlet.lite.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -24,12 +24,12 @@ from utils import ScarletTestCase
 
 import numpy as np
 
-from scarlet_lite import Blend, Image, Observation, Source
-from scarlet_lite.component import default_adaprox_parameterization
-from scarlet_lite.initialization import FactorizedChi2Initialization
-from scarlet_lite.measure import calculate_snr, conserve_flux
-from scarlet_lite.operators import Monotonicity
-from scarlet_lite.utils import integrated_circular_gaussian
+from lsst.scarlet.lite import Blend, Image, Observation, Source
+from lsst.scarlet.lite.component import default_adaprox_parameterization
+from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
+from lsst.scarlet.lite.measure import calculate_snr, conserve_flux
+from lsst.scarlet.lite.operators import Monotonicity
+from lsst.scarlet.lite.utils import integrated_circular_gaussian
 
 
 class TestMeasurements(ScarletTestCase):

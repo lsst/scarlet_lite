@@ -1,4 +1,4 @@
-# This file is part of scarlet_lite.
+# This file is part of lsst.scarlet.lite.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -23,10 +23,10 @@ import numpy as np
 from numpy.testing import assert_almost_equal, assert_array_equal
 from scipy.signal import convolve as scipy_convolve
 
-from scarlet_lite import Observation, Box, Image
-from scarlet_lite.observation import convolve as scarlet_convolve
-from scarlet_lite.observation import get_filter_coords, get_filter_bounds
-from scarlet_lite.utils import integrated_circular_gaussian
+from lsst.scarlet.lite import Observation, Box, Image
+from lsst.scarlet.lite.observation import convolve as scarlet_convolve
+from lsst.scarlet.lite.observation import get_filter_coords, get_filter_bounds
+from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from utils import ObservationData, ScarletTestCase
 
 

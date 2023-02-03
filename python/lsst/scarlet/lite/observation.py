@@ -98,7 +98,7 @@ def get_filter_bounds(coords: np.ndarray) -> tuple[int, int, int, int]:
 
 def convolve(image, psf, bounds):
     """Convolve an image with a PSF in real space"""
-    from scarlet_lite.operators_pybind11 import apply_filter
+    from lsst.scarlet.lite.operators_pybind11 import apply_filter
 
     result = np.empty(image.shape, dtype=image.dtype)
     for band in range(len(image)):
