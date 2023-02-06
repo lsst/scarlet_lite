@@ -166,17 +166,16 @@ class Box:
     [[ 7  9  2  3]
      [ 4  5  6  7]
      [ 8  9 10 11]]
+
+    Parameters
+    ----------
+    shape:
+        Size of the box
+    origin:
+        Minimum corner coordinate of the box
     """
 
     def __init__(self, shape: tuple[int, ...], origin: tuple[int, ...] = None):
-        """
-        Parameters
-        ----------
-        shape:
-            Size of the box
-        origin:
-            Minimum corner coordinate of the box
-        """
         self.shape = shape
         if origin is None:
             origin = (0,) * len(shape)
@@ -194,7 +193,7 @@ class Box:
 
         Returns
         -------
-        bbox: Box
+        bbox:
             A new box bounded by the input bounds.
         """
         shape = tuple(max(0, cmax - cmin) for cmin, cmax in bounds)
@@ -214,7 +213,7 @@ class Box:
 
         Returns
         -------
-        bbox: Box
+        bbox:
             Bounding box for the thresholded `x`
         """
         sel = x > min_value
@@ -280,12 +279,12 @@ class Box:
 
         Parameters
         ----------
-        shift: tuple[int]
+        shift:
             The amount to shift each axis to create the new box
 
         Returns
         -------
-        result: `Box`
+        result:
             The resulting bounding box.
         """
         origin = tuple(o + shift[i] for i, o in enumerate(self.origin))
@@ -296,12 +295,12 @@ class Box:
 
         Parameters
         ----------
-        other: Box
+        other:
             The boxes to check for overlap
 
         Returns
         -------
-        result: bool
+        result:
             True when the two boxes overlap.
         """
         overlap = self & other
@@ -315,11 +314,11 @@ class Box:
 
         Parameters
         ----------
-        other: Box
+        other:
 
         Returns
         -------
-        slices: tuple[tuple[slice], tuple[slice]]
+        slices:
             The slice of an array bounded by `self` and
             the slice of an array bounded by `other` in the
             overlapping region.
@@ -331,12 +330,12 @@ class Box:
 
         Parameters
         ----------
-        other: Box
+        other:
             The other bounding box in the union
 
         Returns
         -------
-        result: Box
+        result:
             The smallest rectangular box that contains *both* boxes.
         """
         if other.dimensions != self.dimensions:
@@ -356,12 +355,12 @@ class Box:
 
         Parameters
         ----------
-        other: Box
+        other:
             The other bounding box in the intersection
 
         Returns
         -------
-        result: Box
+        result:
             The rectangular box that is in the overlap region
             of both boxes.
         """
@@ -404,7 +403,7 @@ class Box:
 
         Returns
         -------
-        offset: Sequence[int]
+        offset:
             The offset as a tuple.
         """
         if not hasattr(offset, "__iter__"):
@@ -421,7 +420,7 @@ class Box:
 
         Returns
         -------
-        result: Box
+        result:
             The shifted box.
         """
         return self.shifted_by(self._offset_to_tuple(offset))
@@ -436,7 +435,7 @@ class Box:
 
         Returns
         -------
-        result: Box
+        result:
             The shifted box.
         """
         offset = self._offset_to_tuple(offset)
@@ -453,7 +452,7 @@ class Box:
 
         Returns
         -------
-        result: Box
+        result:
             The combined Box.
         """
         bounds = self.bounds + bbox.bounds
@@ -469,6 +468,10 @@ class Box:
         return self.__copy__()
 
     def __eq__(self, other: TBox) -> bool:
+        """Check for equality.
+
+        Two boxes are equal when they have the same shape and origin.
+        """
         if not hasattr(other, "shape") and not hasattr(other, "origin"):
             return False
         return self.shape == other.shape and self.origin == other.origin
