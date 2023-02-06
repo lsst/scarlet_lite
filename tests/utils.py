@@ -69,8 +69,10 @@ def execute_doc_scripts(filename: str):
     for n, line in enumerate(lines):
         if ".. code-block:: python" in line:
             if code_block_start is not None:
-                message = f"End of the previous code block starting at {code_block_start}"\
-                          f"was not detected by the new code block starting at {n}"
+                message = (
+                    f"End of the previous code block starting at {code_block_start}"
+                    f"was not detected by the new code block starting at {n}"
+                )
                 raise ValueError(message)
             code_block_start = n
             tab, directive = line.split("..")

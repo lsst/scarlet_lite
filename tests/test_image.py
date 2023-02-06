@@ -394,7 +394,7 @@ class TestImage(ScarletTestCase):
         _data2 = np.zeros((3, 4, 7), dtype=float)
         _data1[:, :3, 3:] = data1
         _data2[:, 1:, :4] = data2
-        with np.errstate(divide='ignore', invalid='ignore'):
+        with np.errstate(divide="ignore", invalid="ignore"):
             truth = op(_data1, _data2)
         assert_almost_equal(result.data, truth)
         self.assertImageEqual(result, Image(truth, bands=gir, yx0=(10, 17)))
@@ -421,7 +421,7 @@ class TestImage(ScarletTestCase):
         _data2 = np.zeros((4, 7), dtype=float)
         _data1[:3, 3:] = data1
         _data2[1:, :4] = data2
-        with np.errstate(divide='ignore', invalid='ignore'):
+        with np.errstate(divide="ignore", invalid="ignore"):
             truth = op(_data1, _data2)
         assert_almost_equal(result.data, truth)
         self.assertImageEqual(result, Image(truth, yx0=(10, 17)))
