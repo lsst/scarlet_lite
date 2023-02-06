@@ -45,32 +45,31 @@ from .parameters import (
 
 
 class Component(ABC):
-    """A base component in scarlet lite"""
+    """A base component in scarlet lite.
+
+    Parameters
+    ----------
+    bands:
+        The bands used when the component model is created.
+    bbox: Box
+        The bounding box for this component.
+    """
 
     def __init__(
         self,
         bands: tuple,
         bbox: Box,
     ):
-        """Initialize a LiteComponent instance
-
-        Parameters
-        ----------
-        bands:
-            The bands used when the component model is created.
-        bbox: Box
-            The bounding box for this component.
-        """
         self._bands = bands
         self._bbox = bbox
 
     @property
-    def bbox(self):
+    def bbox(self) -> Box:
         """The bounding box that contains the component in the full image"""
         return self._bbox
 
     @property
-    def bands(self):
+    def bands(self) -> tuple:
         """The bands in the component model"""
         return self._bands
 
@@ -84,7 +83,7 @@ class Component(ABC):
         pass
 
     @abstractmethod
-    def update(self, it: int, input_grad: np.ndarray):
+    def update(self, it: int, input_grad: np.ndarray) -> None:
         """Update the component parameters from an input gradient
 
         Parameters
@@ -131,7 +130,28 @@ class Component(ABC):
 
 class FactorizedComponent(Component):
     """A component that can be factorized into spectrum and morphology
-    parameters
+    parameters.
+
+    Parameters
+    ----------
+    bands:
+        The bands of the spectral dimension, in order.
+    spectrum:
+        The parameter to store and update the spectrum.
+    morph:
+        The parameter to store and update the morphology.
+    center:
+        Center of the source.
+    bbox:
+        The `Box` in the `model_bbox` that contains the source.
+    bg_rms:
+        The RMS of the background used to threshold, grow,
+        and shrink the component.
+    floor:
+        Minimum value of the spectrum or center morphology pixel.
+    monotonicity:
+        The monotonicity operator to use for making the source monotonic.
+        If this parameter is `None`, the source will not be made monotonic.
     """
 
     def __init__(
@@ -147,29 +167,6 @@ class FactorizedComponent(Component):
         monotonicity: Monotonicity | None = None,
         padding: int = 5,
     ):
-        """Initialize the component.
-
-        Parameters
-        ----------
-        bands:
-            The bands of the spectral dimension, in order.
-        spectrum:
-            The parameter to store and update the spectrum.
-        morph:
-            The parameter to store and update the morphology.
-        center:
-            Center of the source.
-        bbox:
-            The `Box` in the `model_bbox` that contains the source.
-        bg_rms:
-            The RMS of the background used to threshold, grow,
-            and shrink the component.
-        floor:
-            Minimum value of the spectrum or center morphology pixel.
-        monotonicity:
-            The monotonicity operator to use for making the source monotonic.
-            If this parameter is `None`, the source will not be made monotonic.
-        """
         # Initialize all of the base attributes
         super().__init__(
             bands=bands,
