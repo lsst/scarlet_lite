@@ -23,7 +23,7 @@ import operator
 from typing import Any, Callable, Sequence, TypeVar
 
 import numpy as np
-from numpy.typing import DTypeLike, ArrayLike
+from numpy.typing import DTypeLike
 
 from .bbox import Box
 from .utils import ScalarLike, ScalarTypes
@@ -45,13 +45,13 @@ class MismatchedBoxError(Exception):
     pass
 
 
-def get_combined_dtype(*arrays: np.ndarray) -> DTypeLike:
+def get_combined_dtype(*data: np.ndarray | TImage) -> DTypeLike:
     """Get the combined dtype for a collection of arrays to prevent loss
     of precesion.
 
     Parameters
     ----------
-    arrays:
+    data:
         The arrays to use for calculating the dtype
 
     Returns
@@ -59,8 +59,8 @@ def get_combined_dtype(*arrays: np.ndarray) -> DTypeLike:
     result: DTypeLike
         The resulting dtype.
     """
-    dtype = arrays[0].dtype
-    for array in arrays[1:]:
+    dtype = data[0].dtype
+    for array in data[1:]:
         if array.dtype > dtype:
             dtype = array.dtype
     return dtype
@@ -100,10 +100,16 @@ class Image:
 
     >>> import numpy as np
     >>> from lsst.scarlet.lite import Image
-    <BLANKLINE>
+    >>>
     >>> x = np.arange(12).reshape(3, 4)
     >>> image = Image(x)
     >>> print(image)
+    Image:
+     [[ 0  1  2  3]
+     [ 4  5  6  7]
+     [ 8  9 10 11]]
+      bands=()
+      bbox=<Box shape=(3, 4), origin=(0, 0)>
 
     This will create a single band :py:class:`~lsst.scarlet.lite.Image` with
     origin ``(0, 0)``.
@@ -113,6 +119,16 @@ class Image:
     >>> x = np.arange(24).reshape(2, 3, 4)
     >>> image = Image(x, bands=("i", "z"))
     >>> print(image)
+    Image:
+     [[[ 0  1  2  3]
+      [ 4  5  6  7]
+      [ 8  9 10 11]]
+    <BLANKLINE>
+     [[12 13 14 15]
+      [16 17 18 19]
+      [20 21 22 23]]]
+      bands=('i', 'z')
+      bbox=<Box shape=(3, 4), origin=(0, 0)>
 
     It is also possible to create an empty single-band image using the
     ``from_box`` static method:
@@ -120,12 +136,28 @@ class Image:
     >>> from lsst.scarlet.lite import Box
     >>> image = Image.from_box(Box((3, 4), (100, 120)))
     >>> print(image)
+    Image:
+     [[0. 0. 0. 0.]
+     [0. 0. 0. 0.]
+     [0. 0. 0. 0.]]
+      bands=()
+      bbox=<Box shape=(3, 4), origin=(100, 120)>
 
     Similarly, an empty multi-band image can be created by passing a tuple
     of ``bands``:
 
     >>> image = Image.from_box(Box((3, 4)), bands=("r", "i"))
     >>> print(image)
+    Image:
+     [[[0. 0. 0. 0.]
+      [0. 0. 0. 0.]
+      [0. 0. 0. 0.]]
+    <BLANKLINE>
+     [[0. 0. 0. 0.]
+      [0. 0. 0. 0.]
+      [0. 0. 0. 0.]]]
+      bands=('r', 'i')
+      bbox=<Box shape=(3, 4), origin=(0, 0)>
 
     Slicing and Indexing
     ====================
@@ -137,19 +169,57 @@ class Image:
     >>> image = Image(x, bands=("g", "r", "i"), yx0=(20, 30))
     >>> bbox = Box((2, 2), (21, 32))
     >>> print(image[bbox])
+    Image:
+     [[[ 7  8]
+      [12 13]]
+    <BLANKLINE>
+     [[27 28]
+      [32 33]]
+    <BLANKLINE>
+     [[47 48]
+      [52 53]]]
+      bands=('g', 'r', 'i')
+      bbox=<Box shape=(2, 2), origin=(21, 32)>
+
 
     To select a single-band image from a muli-band image,
     pass the name of the band as an index:
 
     >>> print(image["r"])
+    Image:
+     [[20 21 22 23 24]
+     [25 26 27 28 29]
+     [30 31 32 33 34]
+     [35 36 37 38 39]]
+      bands=()
+      bbox=<Box shape=(4, 5), origin=(20, 30)>
 
     Multi-band images can also be slcied in the spatial dimension, for example
 
     >>> print(image["g":"r"])
+    Image:
+     [[[ 0  1  2  3  4]
+      [ 5  6  7  8  9]
+      [10 11 12 13 14]
+      [15 16 17 18 19]]
+    <BLANKLINE>
+     [[20 21 22 23 24]
+      [25 26 27 28 29]
+      [30 31 32 33 34]
+      [35 36 37 38 39]]]
+      bands=('g', 'r')
+      bbox=<Box shape=(4, 5), origin=(20, 30)>
 
     and
 
     >>> print(image["r":"r"])
+    Image:
+     [[[20 21 22 23 24]
+      [25 26 27 28 29]
+      [30 31 32 33 34]
+      [35 36 37 38 39]]]
+      bands=('r',)
+      bbox=<Box shape=(4, 5), origin=(20, 30)>
 
     both extract a slice of a multi-band image.
 
@@ -163,6 +233,24 @@ class Image:
     in an image. For example:
 
     >>> print(image[("r", "g", "i")])
+    Image:
+     [[[20 21 22 23 24]
+      [25 26 27 28 29]
+      [30 31 32 33 34]
+      [35 36 37 38 39]]
+    <BLANKLINE>
+     [[ 0  1  2  3  4]
+      [ 5  6  7  8  9]
+      [10 11 12 13 14]
+      [15 16 17 18 19]]
+    <BLANKLINE>
+     [[40 41 42 43 44]
+      [45 46 47 48 49]
+      [50 51 52 53 54]
+      [55 56 57 58 59]]]
+      bands=('r', 'g', 'i')
+      bbox=<Box shape=(4, 5), origin=(20, 30)>
+
 
     will return a new image with the bands re-ordered.
 
@@ -178,18 +266,53 @@ class Image:
     >>> image2 = Image(np.ones((2, 3, 4)), bands=tuple("gr"), yx0=(2, 3))
     >>> result = image1 + image2
     >>> print(result)
+    Image:
+     [[[1. 1. 1. 1. 0. 0. 0.]
+      [1. 1. 1. 1. 0. 0. 0.]
+      [1. 1. 1. 2. 1. 1. 1.]
+      [0. 0. 0. 1. 1. 1. 1.]
+      [0. 0. 0. 1. 1. 1. 1.]]
+    <BLANKLINE>
+     [[1. 1. 1. 1. 0. 0. 0.]
+      [1. 1. 1. 1. 0. 0. 0.]
+      [1. 1. 1. 2. 1. 1. 1.]
+      [0. 0. 0. 1. 1. 1. 1.]
+      [0. 0. 0. 1. 1. 1. 1.]]]
+      bands=('g', 'r')
+      bbox=<Box shape=(5, 7), origin=(0, 0)>
 
     If instead you want to additively ``insert`` image 1 into image 2,
     so that they have the same bounding box as image 2, use
 
-    >>> image2.insert(image1)
+    >>> _ = image2.insert(image1)
     >>> print(image2)
+    Image:
+     [[[2. 1. 1. 1.]
+      [1. 1. 1. 1.]
+      [1. 1. 1. 1.]]
+    <BLANKLINE>
+     [[2. 1. 1. 1.]
+      [1. 1. 1. 1.]
+      [1. 1. 1. 1.]]]
+      bands=('g', 'r')
+      bbox=<Box shape=(3, 4), origin=(2, 3)>
 
     To insert an image using a different operation use
 
     >>> from operator import truediv
-    >>> image2.insert(image1, truediv)
+    >>> _ = image2.insert(image1, truediv)
     >>> print(image2)
+    Image:
+     [[[2. 1. 1. 1.]
+      [1. 1. 1. 1.]
+      [1. 1. 1. 1.]]
+    <BLANKLINE>
+     [[2. 1. 1. 1.]
+      [1. 1. 1. 1.]
+      [1. 1. 1. 1.]]]
+      bands=('g', 'r')
+      bbox=<Box shape=(3, 4), origin=(2, 3)>
+
 
     However, depending on te operation you may get unexpected results
     since now there could be ``NaN`` and ``inf`` values due to the zeros
@@ -198,6 +321,13 @@ class Image:
 
     >>> result = image1 / image2
     >>> print(result[image1.bbox & image2.bbox])
+    Image:
+     [[[0.5]]
+    <BLANKLINE>
+     [[0.5]]]
+      bands=('g', 'r')
+      bbox=<Box shape=(1, 1), origin=(2, 3)>
+
 
     Parameters
     ----------
@@ -251,7 +381,24 @@ class Image:
         self._slices = slices
 
     @staticmethod
-    def from_box(bbox: Box, bands: tuple = None, dtype: DTypeLike = float):
+    def from_box(bbox: Box, bands: tuple | None = None, dtype: DTypeLike = float) -> TImage:
+        """Initialize an empty image from a bounding Box and optional bands
+
+        Parameters
+        ----------
+        bbox:
+            The bounding box that contains the image.
+        bands:
+            The bands for the image.
+            If bands is `None` then a 2D image is created.
+        dtype:
+            The numpy dtype of the image.
+
+        Returns
+        -------
+        image:
+            An empty image contained in ``bbox`` with ``bands`` bands.
+        """
         if bands is not None and len(bands) > 0:
             shape = (len(bands),) + bbox.shape
         else:
@@ -260,20 +407,26 @@ class Image:
         return Image(data, bands=bands, yx0=bbox.origin)
 
     @property
-    def shape(self):
+    def shape(self) -> tuple[int, ...]:
+        """The shape of the image.
+
+        This includes the spectral dimension, if there is one.
+        """
         return self._data.shape
 
     @property
-    def dtype(self):
+    def dtype(self) -> DTypeLike:
+        """The numpy dtype of the image."""
         return self._data.dtype
 
     @property
-    def bands(self):
+    def bands(self) -> tuple:
+        """The bands used in the image."""
         return self._bands
 
     @property
     def n_bands(self) -> int:
-        """Number of bands in the image
+        """Number of bands in the image.
 
         If `n_bands == 0` then the image is 2D and does not have a spectral
         dimension.
@@ -281,46 +434,48 @@ class Image:
         return len(self._bands)
 
     @property
-    def is_multiband(self):
+    def is_multiband(self) -> bool:
+        """Whether or not the image has a spectral dimension."""
         return self.n_bands > 0
 
     @property
     def height(self) -> int:
-        """Height of the image"""
+        """Height of the image."""
         return self.shape[-2]
 
     @property
     def width(self) -> int:
-        """Width of the image"""
+        """Width of the image."""
         return self.shape[-1]
 
     @property
     def yx0(self) -> tuple[int, int]:
+        """Origin of the image, in numpy/C++ y,x ordering."""
         return self._yx0
 
     @property
     def y0(self) -> int:
-        """location of the y-offset"""
+        """location of the y-offset."""
         return self._yx0[0]
 
     @property
     def x0(self) -> int:
-        """Location of the x-offset"""
+        """Location of the x-offset."""
         return self._yx0[1]
 
     @property
     def bbox(self) -> Box:
-        """Bounding box for the special dimensions in the image"""
+        """Bounding box for the special dimensions in the image."""
         return Box(self.shape[-2:], self._yx0)
 
     @property
     def data(self) -> np.ndarray:
-        """The image viewed as a numpy array"""
+        """The image viewed as a numpy array."""
         return self._data
 
     @property
     def indices(self) -> dict[tuple, tuple[tuple, tuple]]:
-        """Dictionary of cached indices
+        """Dictionary of cached indices.
 
         The bands to project this image into are the keys,
         and the slices for the projected image and this image are the values.
@@ -354,7 +509,7 @@ class Image:
 
         Returns
         -------
-        band_indices: tuple[int, ...]
+        band_indices:
             Tuple of indices for each band in this image.
         """
         if isinstance(bands, slice):
@@ -394,7 +549,7 @@ class Image:
 
         Returns
         -------
-        result: tuple[tuple[int, ...] | slice, tuple[int, ...] | slice]
+        result:
             A tuple with a tuple of indices/slices for each dimension,
             including the spectral dimension.
         """
@@ -436,7 +591,7 @@ class Image:
 
         Returns
         -------
-        result: tuple[tuple[slice, ...], tuple[slice, ...]]
+        result:
             Tuple of indices/slices to match this image to the given bbox.
         """
         key = (bbox.shape, bbox.origin)
@@ -470,7 +625,7 @@ class Image:
 
         Results
         -------
-        image: Image
+        image:
             The resulting image.
         """
         if bands is None:
@@ -499,23 +654,48 @@ class Image:
         return Image(image, bands=bands, yx0=bbox.origin)
 
     @property
-    def multiband_slices(self) -> tuple[tuple | slice, slice, slice]:
-        """Return the
-
-        :return:
+    def multiband_slices(self) -> tuple[tuple[int, ...] | slice, slice, slice]:
+        """Return the slices required to
         """
-        return (self.spectral_indices(self.bands),) + self.bbox.slices
+        return (self.spectral_indices(self.bands),) + self.bbox.slices  # type: ignore
 
     def insert_into(
         self,
         image: TImage,
         op: Callable = operator.add,
-        save: bool = False,
-    ):
-        return insert_image(image, self, op, save)
+    ) -> TImage:
+        """Insert this image into another image in place.
 
-    def insert(self, image: TImage, op: Callable = operator.add, save: bool = False):
-        return insert_image(self, image, op, save)
+        Parameters
+        ----------
+        image:
+            The image to insert this image into.
+        op:
+            The operator to use when combining the images.
+
+        Returns
+        -------
+        result:
+            `image` updated by inserting this instance.
+        """
+        return insert_image(image, self, op)
+
+    def insert(self, image: TImage, op: Callable = operator.add) -> TImage:
+        """Insert another image into this image in place.
+
+        Parameters
+        ----------
+        image:
+            The image to insert this image into.
+        op:
+            The operator to use when combining the images.
+
+        Returns
+        -------
+        result:
+            This instance with `image` inserted.
+        """
+        return insert_image(self, image, op)
 
     def repeat(self, bands: tuple) -> TImage:
         """Project a 2D image into the spectral dimension
@@ -539,7 +719,7 @@ class Image:
         )
 
     def copy(self, order=None) -> TImage:
-        """Make a copy of this image
+        """Make a copy of this image.
 
         Parameters
         ----------
@@ -550,7 +730,7 @@ class Image:
 
         Returns
         -------
-        iamge: Image
+        image: Image
             The copy of this image.
         """
         return self.copy_with(order=order)
@@ -596,7 +776,7 @@ class Image:
         return Image(data, bands, yx0)
 
     def _i_update(self, op: Callable, other: TImage) -> TImage:
-        """Update the data array in place
+        """Update the data array in place.
 
         This is typically implemented by `__i<op>__` methods,
         like `__iadd__`, to apply an operator and update this image
@@ -626,7 +806,7 @@ class Image:
         return self
 
     def _check_equality(self, other: TImage, op: Callable) -> TImage:
-        """Compare this array to another
+        """Compare this array to another.
 
         This performs an element by element equality check and will raise
         a `TypeError` if `other` is not an `Image`, a `MismatchedBandsError`,
@@ -667,217 +847,251 @@ class Image:
         )
 
     def __eq__(self, other: TImage | ScalarLike) -> TImage:
-        """Check if this image is equal to another"""
+        """Check if this image is equal to another."""
         return self._check_equality(other, operator.eq)
 
     def __ne__(self, other: TImage | ScalarLike) -> TImage:
-        """Check if this image is not equal to another"""
+        """Check if this image is not equal to another."""
         return ~self.__eq__(other)
 
     def __ge__(self, other: TImage | ScalarLike) -> TImage:
-        """Check if this image is greater than or equal to another"""
+        """Check if this image is greater than or equal to another."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=self.data >= other)
         return self._check_equality(other, operator.ge)
 
     def __le__(self, other: TImage | ScalarLike) -> TImage:
-        """Check if this image is less than or equal to another"""
+        """Check if this image is less than or equal to another."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=self.data <= other)
         return self._check_equality(other, operator.le)
 
     def __gt__(self, other: TImage | ScalarLike) -> TImage:
-        """Check if this image is greater than or equal to another"""
+        """Check if this image is greater than or equal to another."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=self.data > other)
         return self._check_equality(other, operator.ge)
 
     def __lt__(self, other: TImage | ScalarLike) -> TImage:
-        """Check if this image is less than or equal to another"""
+        """Check if this image is less than or equal to another."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=self.data < other)
         return self._check_equality(other, operator.le)
 
     def __neg__(self):
-        """Take the negative of the image"""
+        """Take the negative of the image."""
         return self.copy_with(data=-self._data)
 
     def __pos__(self):
-        """Make a copy using of the image"""
+        """Make a copy using of the image."""
         return self.copy()
 
     def __invert__(self):
-        """Take the inverse (~) of the image"""
+        """Take the inverse (~) of the image."""
         return self.copy_with(data=~self._data)
 
     def __add__(self, other: TImage | ScalarLike) -> TImage:
-        """Combine this image and another image using addition"""
+        """Combine this image and another image using addition."""
         return _operate_on_images(self, other, operator.add)
 
     def __iadd__(self, other: TImage | ScalarLike) -> TImage:
         """Combine this image and another image using addition and update
-        in place
+        in place.
         """
         return self._i_update(self.__add__, other)
 
     def __radd__(self, other: TImage | ScalarLike) -> TImage:
         """Combine this image and another image using addition,
-        with this image on the right
+        with this image on the right.
         """
         if type(other) in ScalarTypes:
             return self.copy_with(data=other + self.data)
         return other.__add__(self)
 
     def __sub__(self, other: TImage | ScalarLike) -> TImage:
-        """Combine this image and another image using subtraction"""
+        """Combine this image and another image using subtraction."""
         return _operate_on_images(self, other, operator.sub)
 
     def __isub__(self, other: TImage | ScalarLike) -> TImage:
         """Combine this image and another image using subtraction,
-        with this image on the right
+        with this image on the right.
         """
         return self._i_update(self.__sub__, other)
 
     def __rsub__(self, other: TImage | ScalarLike) -> TImage:
         """Combine this image and another image using subtraction,
-        with this image on the right
+        with this image on the right.
         """
         if type(other) in ScalarTypes:
             return self.copy_with(data=other - self.data)
         return other.__sub__(self)
 
     def __mul__(self, other: TImage | ScalarLike) -> TImage:
-        """Combine this image and another image using multiplication"""
+        """Combine this image and another image using multiplication."""
         return _operate_on_images(self, other, operator.mul)
 
     def __imul__(self, other: TImage | ScalarLike) -> TImage:
         """Combine this image and another image using multiplication,
-        with this image on the right
+        with this image on the right.
         """
         return self._i_update(self.__mul__, other)
 
     def __rmul__(self, other: TImage | ScalarLike) -> TImage:
         """Combine this image and another image using multiplication,
-        with this image on the right
+        with this image on the right.
         """
         if type(other) in ScalarTypes:
             return self.copy_with(data=other * self.data)
         return other.__mul__(self)
 
     def __truediv__(self, other: TImage | ScalarLike) -> TImage:
+        """Divide this image by `other`."""
         return _operate_on_images(self, other, operator.truediv)
 
     def __itruediv__(self, other: TImage | ScalarLike) -> TImage:
+        """Divide this image by `other` in place."""
         return self._i_update(self.__truediv__, other)
 
     def __rtruediv__(self, other: TImage | ScalarLike) -> TImage:
+        """Divide this image by `other` with this on the right."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=other / self.data)
         return other.__truediv__(self)
 
     def __floordiv__(self, other: TImage | ScalarLike) -> TImage:
+        """Floor divide this image by `other` in place."""
         return _operate_on_images(self, other, operator.floordiv)
 
     def __ifloordiv__(self, other: TImage | ScalarLike) -> TImage:
+        """Floor divide this image by `other` in place."""
         return self._i_update(self.__floordiv__, other)
 
     def __rfloordiv__(self, other: TImage | ScalarLike) -> TImage:
+        """Floor divide this image by `other` with this on the right."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=other // self.data)
         return other.__floordiv__(self)
 
     def __pow__(self, other: TImage | ScalarLike) -> TImage:
+        """Raise this image to the `other` power."""
         return _operate_on_images(self, other, operator.pow)
 
     def __ipow__(self, other: TImage | ScalarLike) -> TImage:
+        """Raise this image to the `other` power in place."""
         return self._i_update(self.__pow__, other)
 
     def __rpow__(self, other: TImage | ScalarLike) -> TImage:
+        """Raise this other to the power of this image."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=other**self.data)
         return other.__pow__(self)
 
     def __mod__(self, other: TImage | ScalarLike) -> TImage:
+        """Take the modulus of this % other."""
         return _operate_on_images(self, other, operator.mod)
 
     def __imod__(self, other: TImage | ScalarLike) -> TImage:
+        """Take the modulus of this % other in place."""
         return self._i_update(self.__mod__, other)
 
     def __rmod__(self, other: TImage | ScalarLike) -> TImage:
+        """Take the modulus of other % this."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=other % self.data)
         return other.__mod__(self)
 
     def __and__(self, other: TImage | ScalarLike) -> TImage:
+        """Take the bitwise and of this and other."""
         return _operate_on_images(self, other, operator.and_)
 
     def __iand__(self, other: TImage | ScalarLike) -> TImage:
+        """Take the bitwise and of this and other in place."""
         return self._i_update(self.__and__, other)
 
     def __rand__(self, other: TImage | ScalarLike) -> TImage:
+        """Take the bitwise and of other and this."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=other & self.data)
         return other.__and__(self)
 
     def __or__(self, other: TImage | ScalarLike) -> TImage:
+        """Take the binary or of this or other."""
         return _operate_on_images(self, other, operator.or_)
 
     def __ior__(self, other: TImage | ScalarLike) -> TImage:
+        """Take the binary or of this or other in place."""
         return self._i_update(self.__or__, other)
 
     def __ror__(self, other: TImage | ScalarLike) -> TImage:
+        """Take the binary or of other or this."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=other | self.data)
         return other.__or__(self)
 
     def __xor__(self, other: TImage | ScalarLike) -> TImage:
+        """Take the binary xor of this xor other."""
         return _operate_on_images(self, other, operator.xor)
 
     def __ixor__(self, other: TImage | ScalarLike) -> TImage:
+        """Take the binary xor of this xor other in place."""
         return self._i_update(self.__xor__, other)
 
     def __rxor__(self, other: TImage | ScalarLike) -> TImage:
+        """Take the binary xor of other xor this."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=other ^ self.data)
         return other.__xor__(self)
 
     def __lshift__(self, other: ScalarLike) -> TImage:
+        """Shift this image to the left by other bits."""
         if not issubclass(np.dtype(type(other)).type, np.integer):
             raise TypeError("Bit shifting an image can only be done with integers")
         return self.copy_with(data=self.data << other)
 
     def __ilshift__(self, other: ScalarLike) -> TImage:
+        """Shift this image to the left by other bits in place."""
         self[:] = self.__lshift__(other)
         return self
 
     def __rlshift__(self, other: ScalarLike) -> TImage:
+        """Shift other to the left by this image bits."""
         return self.copy_with(data=other << self.data)
 
     def __rshift__(self, other: ScalarLike) -> TImage:
+        """Shift this image to the right by other bits."""
         if not issubclass(np.dtype(type(other)).type, np.integer):
             raise TypeError("Bit shifting an image can only be done with integers")
         return self.copy_with(data=self.data >> other)
 
     def __irshift__(self, other: ScalarLike) -> TImage:
+        """Shift this image to the right by other bits in place."""
         self[:] = self.__rshift__(other)
         return self
 
     def __rrshift__(self, other: ScalarLike) -> TImage:
+        """Shift other to the right by this image bits."""
         return self.copy_with(data=other >> self.data)
 
     def __matmul__(self, other: TImage | ScalarLike) -> TImage:
+        """Matrix multiplication is not supported using images."""
         raise TypeError("Images do not support matrix mutliplication")
 
     def __str__(self):
+        """Display the image array, bands, and bounding box."""
         return f"Image:\n {str(self.data)}\n  bands={self.bands}\n  bbox={self.bbox}"
 
-    def _is_spectral_index(self, index: Any):
+    def _is_spectral_index(self, index: Any) -> bool:
         """Check to see if an index is a spectral index.
 
         Parameters
         ----------
         index:
             Either a slice, a tuple, or an element in `Image.bands`.
+
+        Returns
+        -------
+        result:
+            ``True`` if `index` is band or tuple of bands.
         """
         bands = self.bands
         if isinstance(index, slice):
@@ -894,12 +1108,14 @@ class Image:
             return True
         return False
 
-    def _get_box_slices(self, index):
-        overlap = self.bbox & index
-        if overlap != index:
+    def _get_box_slices(self, bbox: Box) -> tuple[slice, slice]:
+        """Get the slices of the image to insert it into the overlapping
+        region with `bbox`."""
+        overlap = self.bbox & bbox
+        if overlap != bbox:
             raise IndexError("Bounding box is outside of the image")
-        origin = index.origin
-        shape = index.shape
+        origin = bbox.origin
+        shape = bbox.shape
         y_start = origin[0] - self.yx0[0]
         y_stop = origin[0] + shape[0] - self.yx0[0]
         x_start = origin[1] - self.yx0[1]
@@ -908,7 +1124,7 @@ class Image:
         x_index = slice(x_start, x_stop)
         return y_index, x_index
 
-    def _get_sliced(self, indices, value: TImage = None) -> TImage:
+    def _get_sliced(self, indices: Any, value: TImage = None) -> TImage:
         """Select a subset of an image
 
         Parameters
@@ -1000,12 +1216,26 @@ class Image:
     def overlapped_slices(
         self, bbox: Box
     ) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
+        """Get the slices needed to insert this image into a bounding box.
+
+        Parameters
+        ----------
+        bbox:
+            The region to insert this image into.
+
+        Returns
+        -------
+        overlap:
+            The slice of this image and the slice of the `bbox` required to
+            insert the overlapping portion of this image.
+
+        """
         overlap = self.bbox.overlapped_slices(bbox)
         if self.is_multiband:
             overlap = (slice(None),) + overlap[0], (slice(None),) + overlap[1]
         return overlap
 
-    def __getitem__(self, indices) -> TImage:
+    def __getitem__(self, indices: Any) -> TImage:
         """Get the subset of an image
 
         Parameters
@@ -1015,13 +1245,13 @@ class Image:
 
         Returns
         -------
-        result: Image | np.ndarray
+        result:
             The resulting image obtained by selecting subsets of the iamge
             based on the `indices`.
         """
         return self._get_sliced(indices)
 
-    def __setitem__(self, indices, value: ArrayLike) -> TImage:
+    def __setitem__(self, indices, value: TImage) -> TImage:
         """Set a subset of an image to a given value
 
         Parameters
@@ -1033,7 +1263,7 @@ class Image:
 
         Returns
         -------
-        result: Image | np.ndarray
+        result:
             The resulting image obtained by selecting subsets of the iamge
             based on the `indices`.
         """

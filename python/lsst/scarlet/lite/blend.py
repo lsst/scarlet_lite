@@ -110,10 +110,10 @@ class Blend:
 
         if use_flux:
             for src in self.sources:
-                src.flux.insert_into(model, save=True)
+                src.flux.insert_into(model)
         else:
             for component in self.components:
-                component.get_model().insert_into(model, save=True)
+                component.get_model().insert_into(model)
             if convolve:
                 return self.observation.convolve(model)
         return model

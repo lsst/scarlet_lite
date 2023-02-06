@@ -566,18 +566,12 @@ class TestImage(ScarletTestCase):
         img1 = Image.from_box(Box((20, 20)), bands=tuple("gri"))
         img2 = Image.from_box(Box((5, 5), (11, 12)), bands=tuple("gi"))
         img2.data[:] = np.arange(1, 3)[:, None, None]
-        img1.insert(img2, save=True)
+        img1.insert(img2)
 
         truth = img1.copy()
         truth.data[0, 11:16, 12:17] = 1
         truth.data[2, 11:16, 12:17] = 2
         self.assertImageEqual(img1, truth)
-
-        # Test that the index was saved for fast slicing in the future
-        img1.insert(img2)
-        truth.data[:] = truth.data[:] * 2
-        self.assertImageEqual(img1, truth)
-        self.assertTrue(img1.bands in img2.indices)
 
     def test_matched_spectral_indices(self):
         img1 = Image.from_box(Box((5, 5)))

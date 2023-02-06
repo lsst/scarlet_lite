@@ -25,7 +25,7 @@
 
 import os
 import setuptools
-from setuptools import setup, Extension, find_packages
+from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 import sys
 
