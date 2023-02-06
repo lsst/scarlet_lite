@@ -91,31 +91,6 @@ class TestBox(ScarletTestCase):
         with self.assertRaises(ValueError):
             bbox.contains((1, 2))
 
-    def test_extract_from(self):
-        image = np.zeros((3, 5, 5))
-        image[1, 1, 1] = 1
-
-        # simple one pixel box extraction
-        bbox = Box.from_data(image)
-        extracted = bbox.extract_from(image)
-        self.assertTupleEqual(extracted.shape, (1, 1, 1))
-        self.assertEqual(extracted[0, 0, 0], 1)
-
-        # offset box extraction past boundary of image
-        bbox = Box.from_bounds((0, 3), (-2, 3), (-3, 2))
-        extracted = bbox.extract_from(image)
-        self.assertTupleEqual(extracted.shape, (3, 5, 5))
-        self.assertEqual(extracted[1, 3, 4], 1)
-
-    def test_insert_into(self):
-        image = np.zeros((3, 5, 5))
-        sub = np.zeros((3, 5, 5))
-        sub[1, 3, 4] = 1
-        bbox = Box.from_bounds((0, 3), (-2, 3), (-3, 2))
-        image = bbox.insert_into(image, sub)
-        self.assertTupleEqual(image.shape, (3, 5, 5))
-        self.assertEqual(image[1, 1, 1], 1)
-
     def test_properties(self):
         shape = (10, 3, 8)
         origin = (2, 7, 5)

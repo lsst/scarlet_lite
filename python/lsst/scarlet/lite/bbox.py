@@ -33,15 +33,139 @@ class Box:
     """Bounding Box for an object
 
     A Bounding box describes the location of a data unit in the
-    global/model coordinate system.
-    It is used to identify spatial and channel overlap and to map from model
-    to observed frames and back.
+    global/model coordinate system, using the numpy/C++ ordering convention.
+    So, for example, a 2D image will have shape ``(height, width)``,
+    however the bounding `Box` code is agnostic as to number of dimensions
+    or the meaning of those dimensions.
 
-    The `BBox` code is agnostic about the meaning of the dimensions.
-    We generally use this convention:
+    Constructors
+    ============
+    At a minimum a new `Box` can be initialized using the ``shape`` of the
+    region it describes:
 
-    - 2D shapes denote (Height, Width)
-    - 3D shapes denote (Channels, Height, Width)
+    >>> from lsst.scarlet.lite import Box
+    >>> bbox = Box((3, 4, 5, 6))
+    >>> print(bbox)
+    <Box shape=(3, 4, 5, 6), origin=(0, 0, 0, 0)>
+
+    If the region described by the `Box` is offset from the zero origin,
+    a new ``origin`` can be passed to the constructor
+
+    >>> bbox = Box((3, 4, 5, 6), (2, 4, 7, 9))
+    >>> print(bbox)
+    <Box shape=(3, 4, 5, 6), origin=(2, 4, 7, 9)>
+
+    It is also possible to initialize a `Box` from a collection of tuples,
+    where tuple is a pair of integers representing the
+    first and last index in each dimension. For example:
+
+    >>> bbox = Box.from_bounds((3, 6), (11, 21))
+    >>> print(bbox)
+    <Box shape=(3, 10), origin=(3, 11)>
+
+    It is also possible to initialize a `Box` by thresholding a numpy array
+    and including only the region of the image above the threshold in the
+    resulting `Box`. For example
+
+    >>> from lsst.scarlet.lite.utils import integrated_circular_gaussian
+    >>> data = integrated_circular_gaussian(sigma=1.0)
+    >>> bbox = Box.from_data(data, 1e-2)
+    >>> print(bbox)
+    <Box shape=(5, 5), origin=(5, 5)>
+
+    Convenience Methods
+    -------------------
+
+    The `Box` class contains a number of convenience methods that can be used
+    to extract subsets of an array, combine bounding boxes, etc.
+
+    For example, using the ``data`` and ``bbox`` from the end of the previous
+    section, the portion of the data array that is contained in the bounding
+    box can be extraced usng the `Box.slices` method:
+
+    >>> subset = data[bbox.slices]
+
+    The intersection of two boxes can be calcualted using the ``&`` operator,
+    for example
+
+    >>> bbox = Box((5, 5)) & Box((5, 5), (2, 2))
+    >>> print(bbox)
+    <Box shape=(3, 3), origin=(2, 2)>
+
+    Similarly, the union of two boxes can be calculated using the ``|``
+    operator:
+
+    >>> bbox = Box((5, 5)) | Box((5, 5), (2, 2))
+    >>> print(bbox)
+    <Box shape=(7, 7), origin=(0, 0)>
+
+    To find out of a point is located in a `Box` use
+
+    >>> contains = bbox.contains((3, 3))
+    >>> print(contains)
+    True
+
+    To find out if two boxes intersect (in other words ``box1 & box2`` has a
+    non-zero size) use
+
+    >>> intersects = bbox.intersects(Box((10, 10), (100, 100)))
+    >>> print(intersects)
+    False
+
+    It is also possible to shift a box by a vector (sequence):
+
+    >>> bbox = bbox + (50, 60)
+    >>> print(bbox)
+    <Box shape=(7, 7), origin=(50, 60)>
+
+    which can also be negative
+
+    >>> bbox = bbox - (5, -5)
+    >>> print(bbox)
+    <Box shape=(7, 7), origin=(45, 65)>
+
+    Boxes can also be converted into higher dimensions using the
+    ``@`` operator:
+
+    >>> bbox1 = Box((10,), (3, ))
+    >>> bbox2 = Box((101, 201), (18, 21))
+    >>> bbox = bbox1 @ bbox2
+    >>> print(bbox)
+    <Box shape=(10, 101, 201), origin=(3, 18, 21)>
+
+    Boxes are equal when they have the same shape and the same origin, so
+
+    >>> print(Box((10, 10), (5, 5)) == Box((10, 10), (5, 5)))
+    True
+
+    >>> print(Box((10, 10), (5, 5)) == Box((10, 10), (4, 4)))
+    False
+
+    Finally, it is common to insert one array into another when their bounding
+    boxes only partially overlap.
+    In order to correctly insert the overlapping portion of the array it is
+    convenient to calculate the slices from each array that overlap.
+    For example
+
+    >>> import numpy as np
+    >>> x = np.arange(12).reshape(3, 4)
+    >>> y = np.arange(9).reshape(3, 3)
+    >>> print(x)
+    [[ 0  1  2  3]
+     [ 4  5  6  7]
+     [ 8  9 10 11]]
+    >>> print(y)
+    [[0 1 2]
+     [3 4 5]
+     [6 7 8]]
+    >>> x_box = Box.from_data(x) + (3, 4)
+    >>> y_box = Box.from_data(y) + (1, 3)
+    >>> slices = x_box.overlapped_slices(y_box)
+    >>> x[slices[0]] += y[slices[1]]
+    >>> print(x)
+    [[ 7  9  2  3]
+     [ 4  5  6  7]
+     [ 8  9 10 11]]
     """
 
     def __init__(self, shape: tuple[int, ...], origin: tuple[int, ...] = None):
@@ -112,51 +236,6 @@ class Box:
             if p[d] < self.origin[d] or p[d] >= self.origin[d] + self.shape[d]:
                 return False
         return True
-
-    def extract_from(self, image: np.ndarray, sub: np.ndarray = None) -> np.ndarray:
-        """Extract sub-image described by this bbox from image
-
-        Parameters
-        ----------
-        image:
-            Full image
-        sub:
-            Extracted image
-
-        Returns
-        -------
-        sub: np.ndarray
-        """
-        imbox = Box(image.shape)
-
-        if sub is None:
-            sub = np.zeros(self.shape, dtype=image.dtype)
-
-        im_slices, sub_slices = overlapped_slices(imbox, self)
-        sub[sub_slices] = image[im_slices]
-        return sub
-
-    def insert_into(self, image: np.ndarray, sub: np.ndarray) -> np.ndarray:
-        """Insert `sub` into `image` according to this bbox
-
-        Inverse operation to :func:`~scarlet.bbox.Box.extract_from`.
-
-        Parameters
-        ----------
-        image:
-            Full image
-        sub:
-            Extracted sub-image
-
-        Returns
-        -------
-        image: np.ndarray
-        """
-        imbox = Box(image.shape)
-
-        im_slices, sub_slices = overlapped_slices(imbox, self)
-        image[im_slices] = sub[sub_slices]
-        return image
 
     @property
     def dimensions(self) -> int:
