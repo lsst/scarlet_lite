@@ -381,7 +381,9 @@ class Image:
         self._slices = slices
 
     @staticmethod
-    def from_box(bbox: Box, bands: tuple | None = None, dtype: DTypeLike = float) -> TImage:
+    def from_box(
+        bbox: Box, bands: tuple | None = None, dtype: DTypeLike = float
+    ) -> TImage:
         """Initialize an empty image from a bounding Box and optional bands
 
         Parameters
@@ -655,8 +657,7 @@ class Image:
 
     @property
     def multiband_slices(self) -> tuple[tuple[int, ...] | slice, slice, slice]:
-        """Return the slices required to
-        """
+        """Return the slices required to"""
         return (self.spectral_indices(self.bands),) + self.bbox.slices  # type: ignore
 
     def insert_into(
@@ -1168,12 +1169,16 @@ class Image:
                     if len(indices) == 1:
                         # The spatial index must be a bounding box
                         if not isinstance(indices[0], Box):
-                            raise IndexError(f"Expected a Box for the spatial index but got {indices[1]}")
+                            raise IndexError(
+                                f"Expected a Box for the spatial index but got {indices[1]}"
+                            )
                         y_index, x_index = self._get_box_slices(indices[0])
                     elif len(indices) == 0:
                         y_index = x_index = slice(None)
                     else:
-                        raise IndexError(f"Too many spatial indices, expeected a Box bot got {indices}")
+                        raise IndexError(
+                            f"Too many spatial indices, expeected a Box bot got {indices}"
+                        )
                 full_index = (spectral_index, y_index, x_index)
             elif isinstance(indices[0], Box):
                 bands = self.bands
@@ -1184,7 +1189,9 @@ class Image:
                 raise IndexError(error)
         else:
             if len(indices) != 1 or not isinstance(indices[0], Box):
-                raise IndexError(f"2D images can only be sliced by bounding box, got {indices}")
+                raise IndexError(
+                    f"2D images can only be sliced by bounding box, got {indices}"
+                )
             bands = ()
             y_index, x_index = self._get_box_slices(indices[0])
             full_index = (y_index, x_index)
@@ -1294,13 +1301,15 @@ def _operate_on_images(
         return image1.copy_with(data=op(image1.data, image2))
     if image1.bands == image2.bands and image1.bbox == image2.bbox:
         # The images perfectly overlap, so just combine their results
-        with np.errstate(divide='ignore', invalid='ignore'):
+        with np.errstate(divide="ignore", invalid="ignore"):
             result = op(image1.data, image2.data)
         return Image(result, bands=image1.bands, yx0=image1.yx0)
 
     if op != operator.add and op != operator.sub and image1.bands != image2.bands:
-        msg = f"Images with different bands can only be combined "\
-              f"using addition and subtraction, got {op}"
+        msg = (
+            f"Images with different bands can only be combined "
+            f"using addition and subtraction, got {op}"
+        )
         raise ValueError(msg)
 
     # Use all of the bands in the first image

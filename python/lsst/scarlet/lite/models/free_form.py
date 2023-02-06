@@ -96,7 +96,10 @@ class FreeFormComponent(FactorizedComponent):
         This is the main difference between an `SedComponent` and a
         `FactorizedComponent`, since this component has fewer constraints.
         """
-        from lsst.scarlet.lite.detect_pybind11 import get_connected_multipeak, get_footprints
+        from lsst.scarlet.lite.detect_pybind11 import (
+            get_connected_multipeak,
+            get_footprints,
+        )
 
         if self.bg_thresh is not None:
             bg_thresh = self.bg_rms * self.bg_thresh

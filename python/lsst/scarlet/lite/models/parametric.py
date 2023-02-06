@@ -392,7 +392,9 @@ def grad_gaussian2(
     return np.array([d_y0, d_x0, d_sigma_y, d_sigma_x, d_theta], dtype=params.dtype)
 
 
-def circular_gaussian(center: Sequence[int], frame: CartesianFrame, sigma: float) -> np.ndarray:
+def circular_gaussian(
+    center: Sequence[int], frame: CartesianFrame, sigma: float
+) -> np.ndarray:
     """Model of a circularly symmetric Gaussian
 
     Parameters
