@@ -58,9 +58,9 @@ class Blend:
 
         Parameters
         ----------
-        sources: Sequence[Source]
+        sources:
             The sources to fit.
-        observation: Observation
+        observation:
             The observation that contains the images,
             PSF, etc. that are being fit.
         """
@@ -75,11 +75,12 @@ class Blend:
 
     @property
     def shape(self) -> tuple[int, int, int]:
+        """Shape of the model for the entire `Blend`."""
         return self.observation.shape
 
     @property
     def bbox(self) -> Box:
-        """The bounding box of the entire blend"""
+        """The bounding box of the entire blend."""
         return self.observation.bbox
 
     @property
@@ -92,15 +93,20 @@ class Blend:
         return [c for src in self.sources for c in src.components]
 
     def get_model(self, convolve: bool = False, use_flux: bool = False) -> Image:
-        """Generate a model of the entire blend
+        """Generate a model of the entire blend.
 
         Parameters
         ----------
-        convolve: bool
+        convolve:
             Whether to convolve the model with the observed PSF in each band.
-        use_flux: bool
+        use_flux:
             Whether to use the re-distributed flux associated with the source
             instead of the component models.
+
+        Returns
+        -------
+        model:
+            The model created by combining all of the source models.
         """
         model = Image(
             np.zeros(self.shape, dtype=self.observation.images.dtype),
@@ -140,13 +146,13 @@ class Blend:
 
         Parameters
         ----------
-        clip: bool
+        clip:
             Whether or not to clip components that were not
             assigned any flux during the fit.
 
         Returns
         -------
-        blend: Blend
+        blend:
             The blend with updated components is returned.
         """
         from .initialization import multifit_spectra
@@ -220,22 +226,22 @@ class Blend:
 
         Parameters
         ----------
-        max_iter: int
+        max_iter:
             The maximum number of iterations
-        e_rel: float
+        e_rel:
             The relative error to use for determining convergence.
-        min_iter: int
+        min_iter:
             The minimum number of iterations.
-        resize: int
+        resize:
             Number of iterations before attempting to resize the
             resizable components. If `resize` is `None` then
             no resizing is ever attempted.
 
         Returns
         -------
-        it: int
+        it:
             Number if iterations.
-        loss: float
+        loss:
             Loss for the last solution
         """
         while self.it < max_iter:
@@ -264,7 +270,7 @@ class Blend:
 
         Parameters
         ----------
-        parameterization: Callable
+        parameterization:
             A function to use to convert parameters of a given type into
             a `Parameter` in place. It should take a single argument that
             is the `Component` or `Source` that is to be parameterized.
