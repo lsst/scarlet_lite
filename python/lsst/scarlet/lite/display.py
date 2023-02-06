@@ -25,11 +25,11 @@ def channels_to_rgb(channels: int) -> np.ndarray:
     signal-to-noise variations across channels or human perception.
     Parameters
     ----------
-    channels: int
+    channels:
         Number of channels (in range(0,7)).
     Returns
     -------
-    channel_map: np.ndarray
+    channel_map:
         Array (3, `channels`) to map onto RGB.
     """
     assert channels in range(
@@ -142,15 +142,15 @@ def img_to_3channel(
 
     Parameters
     ----------
-    img: np.ndarray
+    img:
         This should be an array with dimensions (channels, height, width).
-    channel_map: np.ndarray
+    channel_map:
         Linear mapping with dimensions (3, channels)
-    fill_value: float
+    fill_value:
         Value to use for any masked pixels.
     Returns
     -------
-    RGB: np.ndarray
+    RGB:
     """
     # expand single img into cube
     assert len(img.shape) in [2, 3]
@@ -193,21 +193,21 @@ def img_to_rgb(
     truncated such as to preserve the corresponding color.
     Parameters
     ----------
-    img: np.ndarray
+    img:
         This should be an array with dimensions (channels, height, width).
-    channel_map: np.ndarray
+    channel_map:
         Linear mapping with dimensions (3, channels)
-    fill_value: float
+    fill_value:
         Value to use for any masked pixels.
-    norm: Mapping
+    norm:
         Norm to use for mapping in the allowed range [0..255].
         If ``norm=None``, `LinearPercentileNorm` will be used.
-    mask: np.ndarray
+    mask:
         A [0,1] binary mask to apply over the top of the image,
         where pixels with mask==1 are masked out.
     Returns
     -------
-    rgb: np.ndarray
+    rgb:
         RGB values with dimensions (3, height, width) and dtype uint8
     """
     if isinstance(img, Image):
@@ -228,16 +228,16 @@ def show_likelihood(
 
     Parameters
     ----------
-    blend: Blend
+    blend:
         The blend to generate the likelihood plot for.
-    figsize: tuple[float, float]
+    figsize:
         The size of the figure.
-    kwargs: dict
+    kwargs:
         Keyword arguements passed to `blend.log_likelihood`.
 
     Returns
     -------
-    fig: matplotlib.Figure
+    fig:
         The figure containing the log-likelihood plot.
     """
     fig, ax = plt.subplots(1, 1, figsize=figsize)
@@ -257,6 +257,7 @@ def _add_markers(
     marker_kwargs: dict,
     box_kwargs: dict,
 ):
+    """Add markers to a plot."""
     if add_markers and hasattr(src, "center") and src.center is not None:
         center = np.array(src.center)[::-1]
         ax.plot(*center, "wx", **marker_kwargs)
@@ -295,39 +296,39 @@ def show_scene(
 
     Parameters
     ----------
-    blend: Blend
-    norm: Mapping
+    blend:
+    norm:
         Norm to compress image intensity to the range [0,255].
-    channel_map: np.ndarray
+    channel_map:
         Linear mapping with dimensions (3, channels).
-    show_model: bool
+    show_model:
         Whether the model is shown in the model frame.
-    show_observed: bool
+    show_observed:
         Whether the observation is shown.
-    show_rendered: bool
+    show_rendered:
         Whether the model, rendered to match the observation, is shown.
-    show_residual: bool
+    show_residual:
         Whether the residuals between rendered model and observation is shown.
-    add_labels: bool
+    add_labels:
         Whether each source is labeled with its numerical
         index in the source list.
-    add_boxes: bool
+    add_boxes:
         Whether each source box is shown.
-    figsize: tuple[float, float]
+    figsize:
         Size of the final figure.
-    linear: bool
+    linear:
         Whether or not to display the scene in a single line (`True`) or
         on multiple lines (`False`).
-    use_flux: bool
+    use_flux:
         Whether to show the flux redistributed model (`source.flux`) or
         the model itself (`source.get_model()`) for each source.
-    box_kwargs: dict
+    box_kwargs:
         Keyword arguments to create boxes (`matplotlib.patches.Rectangle`)
         around sources, if `add_boxes == True`.
 
     Returns
     -------
-    fig: matplotlib.Figure
+    fig:
         The figure that is generated based on the parameters.
     """
     if box_kwargs is None:
@@ -451,8 +452,14 @@ def get_extent(bbox: Box) -> tuple[int, int, int, int]:
 
     Paramters
     ---------
-    bbox: Box
+    bbox:
        The box to convert into an extent list.
+
+    Returns
+    -------
+    extent:
+        Tuple of coordintates that matplotlib lib requires for the
+        extent of an image in ``imshow``.
     """
     return bbox.start[-1], bbox.stop[-1], bbox.start[-2], bbox.stop[-2]
 
@@ -479,40 +486,40 @@ def show_sources(
 
     Parameters
     ----------
-    blend: Blend
+    blend:
         The blend that contains the sources.
-    sources: list[Source]
+    sources:
         The list of sources to plot.
         If `sources` is `None` then all of the sources in `blend` are
         displayed.
-    norm: Mapping
+    norm:
         Norm to compress image intensity to the range [0,255].
-    channel_map: np.ndarray
+    channel_map:
         Linear mapping with dimensions (3, channels).
-    show_model: bool
+    show_model:
         Whether the model is shown in the model frame.
-    show_observed: bool
+    show_observed:
         Whether the observation is shown.
-    show_rendered: bool
+    show_rendered:
         Whether the model, rendered to match the observation, is shown.
-    show_spectrum: bool
+    show_spectrum:
         Whether or not to show a plot for the spectrum of each component
         in each source.
-    figsize: tuple[float, float]
+    figsize:
         Size of the final figure.
-    model_mask: bool
+    model_mask:
         Whether pixels with no flux in a model are masked.
-    add_markers: bool
+    add_markers:
         Whether all of the sources are marked in each plot.
-    add_boxes: bool
+    add_boxes:
         Whether each source box is shown.
-    use_flux: bool
+    use_flux:
         Whether to show the flux redistributed model (`source.flux`) or
         the model itself (`source.get_model()`) for each source.
 
     Returns
     -------
-    fig: matplotlib.Figure
+    fig:
         The figure that is generated based on the parameters.
     """
     observation = blend.observation
@@ -635,11 +642,11 @@ def compare_spectra(
 
     Parameters
     ----------
-    use_flux: bool
+    use_flux:
         Whether or not to show the re-distributed flux version of the model.
-    use_template: bool
+    use_template:
         Whether or not to show the scarlet model templates.
-    all_sources: dict[str, list[Source]]
+    all_sources:
         The list of sources for each different deblending model.
     """
     first_key = next(iter(all_sources.keys()))

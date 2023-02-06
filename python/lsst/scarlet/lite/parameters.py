@@ -47,7 +47,16 @@ DEFAULT_ADAPROX_FACTOR = 1e-2
 
 
 class Parameter:
-    """A parameter in a `Component`"""
+    """A parameter in a `Component`
+
+    Parameters
+    ----------
+    x:
+        The array of values that is being fit.
+    helpers:
+        A dictionary of helper arrays that are used by an optimizer to
+        persist values like the gradient of `x`, the Hessian of `x`, etc.
+    """
 
     def __init__(self, x, helpers: dict[str, np.ndarray]):
         self.x = x
@@ -55,13 +64,16 @@ class Parameter:
 
     @property
     def shape(self) -> tuple[int, ...]:
+        """The shape of the array that is being fit."""
         return self.x.shape
 
     @property
     def dtype(self) -> npt.DTypeLike:
+        """The numpy dtype of the array that is being fit."""
         return self.x.dtype
 
     def copy(self) -> TParameter:
+        """Copy this parameter, including all of the helper arrays."""
         helpers = {k: v.copy() for k, v in self.helpers.items()}
         return Parameter(self.x.copy(), helpers)
 
@@ -74,9 +86,9 @@ class Parameter:
 
         Parameters
         ----------
-        it: int
+        it:
             The current iteration
-        input_grad: np.ndarray
+        input_grad:
             The gradient from the full model, passed to the parameter.
         """
         raise NotImplementedError("Base Parameters cannot be updated")
@@ -107,12 +119,12 @@ def parameter(x: np.ndarray | Parameter) -> Parameter:
 
     Parameters
     ----------
-    x: np.ndarray | Parameter
+    x:
         The array or parameter to convert into a `Parameter`.
 
     Returns
     -------
-    result: Parameter
+    result:
         `x`, converted into a `Parameter` if necessary.
     """
     if isinstance(x, Parameter):

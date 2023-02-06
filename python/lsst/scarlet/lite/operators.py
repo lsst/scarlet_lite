@@ -11,15 +11,15 @@ def prox_connected(morph: np.ndarray, centers: Sequence[Sequence[int]]) -> np.nd
 
     Parameters
     ----------
-    morph: np.ndarray
+    morph:
         The morphology that is being constrained.
-    centers: Sequence[Sequence[int, int]]
+    centers:
         The `(cy, cx)` center of any sources that all pixels must be
         connected to.
 
     Returns
     -------
-    result: np.ndarray
+    result:
         The morphology with all pixels not connected to a center postion set
         to zero.
     """
@@ -51,6 +51,20 @@ class Monotonicity:
     This class is then called with the source morphology
     to make monotonic and the location of the "center" of the image,
     and the full weight matrix is sliced accordingly.
+
+    Parameters
+    ----------
+    shape:
+        The shape of the full operator.
+        This must be larger than the largest possible object size
+        in the blend.
+    dtype:
+        The numpy ``dtype`` of the output image.
+    auto_update:
+        If ``True`` the operator will update its shape if a image is
+        too big to fit in the current operator.
+    fit_radius:
+        The radius around the center to search for a higher flux value.
     """
 
     def __init__(
@@ -60,22 +74,6 @@ class Monotonicity:
         auto_update: bool = True,
         fit_radius: int = 1,
     ):
-        """Initialize the monotonicity operator
-
-        Parameters
-        ----------
-        shape:
-            The shape of the full operator.
-            This must be larger than the largest possible object size
-            in the blend.
-        dtype:
-            The numpy ``dtype`` of the output image.
-        auto_update:
-            If ``True`` the operator will update its shape if a image is
-            too big to fit in the current operator.
-        fit_radius:
-            The radius around the center to search for a higher flux value.
-        """
         # Initialize defined variables
         self.weights = None
         self.distance = None
@@ -216,7 +214,7 @@ class Monotonicity:
 
         Returns
         -------
-        result: np.ndarray
+        result:
             The input image is updated in place, but also returned from this
             method.
         """
@@ -258,17 +256,17 @@ def get_center(
 
     Parameters
     ----------
-    image: np.ndarray
+    image:
         The image of the source.
-    center: Sequence[int, int]
+    center:
         The suggested center of the source.
-    radius: int
+    radius:
         The number of pixels around the `center` to search
         for a higher flux value.
 
     Returns
     -------
-    new_center: tuple[int, int]
+    new_center:
         The true center of the source.
     """
     cy, cx = int(center[0]), int(center[1])
@@ -292,26 +290,26 @@ def prox_monotonic_mask(
 
     Parameters
     ----------
-    x: np.ndarray
+    x:
         The input image that the mask is created for.
-    center: Sequence[int, int]
+    center:
         The location of the center of the mask.
-    center_radius: float
+    center_radius:
         Radius from the center pixel to search for a better center
         (ie. a pixel in `X` with higher flux than the pixel given by
          `center`).
         If `center_radius == 0` then the `center` pixel is assumed
         to be correct.
-    variance: float
+    variance:
         The average variance in the image.
         This is used to allow pixels to be non-monotonic up to `variance`,
         so setting `variance=0` will force strict monotonicity in the mask.
-    max_iter: int
+    max_iter:
         Maximum number of iterations to interpolate non-monotonic pixels.
 
     Returns
     -------
-    result: tuple[np.ndarray, np.ndarray, np.ndarray[int, int, int, int]]
+    result:
         The result is the tuple:
             - valid: Boolean array of pixels that are monotonic
             - model: the model with invalid pixels masked out
@@ -380,7 +378,7 @@ def uncentered_operator(
 
     Returns
     -------
-    result : np.ndarray
+    result:
         `x`, with an operator applied based on the shifted center.
     """
     if center is None:
@@ -425,12 +423,12 @@ def prox_sdss_symmetry(x: np.ndarray):
 
     Parameters
     ----------
-    x: np.ndarray
+    x:
         The array to make symmetric.
 
     Returns
     -------
-    result: np.ndarray
+    result:
         The updated `x`.
     """
     symmetric = np.fliplr(np.flipud(x))
@@ -449,18 +447,18 @@ def prox_uncentered_symmetry(
 
     Parameters
     ----------
-    x: np.ndarray
+    x:
         The parameter to update.
-    center: Sequence[int, int]
+    center:
         The center pixel coordinates to apply the symmetry operator.
-    fill: float
+    fill:
         The value to fill the region that cannot be made symmetric.
         When `fill` is `None` then the region of `X` that is not symmetric
         is not constrained.
 
     Returns
     -------
-    result: Callable
+    result:
         The update function based on the specified parameters.
     """
     return uncentered_operator(x, prox_sdss_symmetry, center, fill=fill)

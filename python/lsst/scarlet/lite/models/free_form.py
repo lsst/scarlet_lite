@@ -36,6 +36,20 @@ class FreeFormComponent(FactorizedComponent):
     With no constraints this component is typically either a garbage collector,
     or part of a set of components to deconvolve an image by separating out
     the different spectral components.
+
+    See `FactorizedComponent` for a list of parameters not shown here.
+
+    Parameters
+    ----------
+    peaks: `list` of `tuple`
+        A set of ``(cy, cx)`` peaks for detected sources.
+        If peak is not ``None`` then only pixels in the same "footprint"
+        as one of the peaks are included in the morphology.
+        If `peaks` is ``None`` then there is no constraint applied.
+    min_area: float
+        The minimum area for a peak.
+        If `min_area` is not `None` then all regions of the morphology
+        with fewer than `min_area` connected pixels are removed.
     """
 
     def __init__(
@@ -50,22 +64,6 @@ class FreeFormComponent(FactorizedComponent):
         peaks: list[tuple[int, int]] = None,
         min_area: float = 0,
     ):
-        """Initialize the component.
-
-        See `FactorizedComponent` for a list of parameters not shown here.
-
-        Parameters
-        ----------
-        peaks: `list` of `tuple`
-            A set of ``(cy, cx)`` peaks for detected sources.
-            If peak is not ``None`` then only pixels in the same "footprint"
-            as one of the peaks are included in the morphology.
-            If `peaks` is ``None`` then there is no constraint applied.
-        min_area: float
-            The minimum area for a peak.
-            If `min_area` is not `None` then all regions of the morphology
-            with fewer than `min_area` connected pixels are removed.
-        """
         super().__init__(
             bands=bands,
             spectrum=spectrum,

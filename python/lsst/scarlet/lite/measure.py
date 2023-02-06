@@ -10,7 +10,7 @@ def calculate_snr(
     variance: Image,
     psfs: np.ndarray,
     center: tuple[int, int],
-):
+) -> float:
     """Calculate the signal to noise for a point source
 
     This is done by weighting the image with the PSF in each band
@@ -29,7 +29,7 @@ def calculate_snr(
 
     Returns
     -------
-    snr: `numpy.ndarray`
+    snr:
         The signal to noise of the source.
     """
     py = psfs.shape[1] // 2
@@ -44,7 +44,7 @@ def calculate_snr(
     return np.sum(numerator) / np.sqrt(np.sum(denominator))
 
 
-def conserve_flux(blend: Blend, mask_footprint: bool = True):
+def conserve_flux(blend: Blend, mask_footprint: bool = True) -> None:
     """Use the source models as templates to re-weight the data
 
     This is the standard "deblending" trick, where the models are
@@ -57,14 +57,10 @@ def conserve_flux(blend: Blend, mask_footprint: bool = True):
 
     Parameters
     ----------
-    blend: `scarlet.lite.LiteBlend`
+    blend:
         The blend that is being fit
-    mask_footprint: `bool`
+    mask_footprint:
         Whether or not to apply a mask for pixels with zero weight.
-
-    Returns
-    -------
-    None
     """
     observation = blend.observation
     py = observation.psfs.shape[-2] // 2

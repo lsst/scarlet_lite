@@ -69,9 +69,9 @@ def fast_zero_pad(arr: np.ndarray, pad_width: Sequence[Sequence[int]]) -> np.nda
 
     Paramters
     ---------
-    arr: np.ndarray
+    arr:
         The array to pad
-    pad_width: Sequence[Sequence[int]]
+    pad_width:
         Number of values padded to the edges of each axis.
         See numpy docs for more.
 
@@ -103,6 +103,22 @@ def _pad(
     which uses the `np.fft.fftshift` convention of moving
     the center pixel of `arr` (if `arr.shape` is odd) to
     the center-right pixel in an even shaped `newshape`.
+
+    Parameters
+    ----------
+    arr:
+        The arrray to pad.
+    newshape:
+        The new shape of the array.
+    axes:
+        The axes that are being reshaped.
+    mode:
+        The numpy mode used to pad the array.
+        In other words, how to fill the new padded elements.
+        See ``numpy.pad`` for details.
+    constant_values:
+        If `mode` == "constant" then this is the value to set all of
+        the new padded elements to.
     """
     if axes is None:
         newshape = np.asarray(newshape)
@@ -141,6 +157,26 @@ def get_fft_shape(
 
     Calculate the fast fft shape for each dimension in
     axes.
+
+    Parameters
+    ----------
+    im_or_shape1:
+        The left image or shape of an image.
+    im_or_shape2:
+        The right image or shape of an image.
+    padding:
+        Any additional padding to add to the final shape.
+    axes:
+        The axes that are being transformed.
+    use_max:
+        Whether or not to use the maximum of the two shapes,
+        or the combination of the two shapes.
+
+    Returns
+    -------
+    shape:
+        Tuple of the shape to use when the two images are transformed
+        into k-space.
     """
     if hasattr(im_or_shape1, "shape"):
         shape1 = np.asarray(im_or_shape1.shape)
@@ -188,6 +224,14 @@ class Fourier(object):
     convolved with different images might require different
     padding, so the FFT for each different shape is stored
     in a dictionary.
+
+    Parameters
+    ----------
+    image: np.ndarray
+        The real space image.
+    image_fft: dict[Sequence[int], np.ndarray]
+        A dictionary of {shape: fft_value} for which each different
+        shape has a precalculated FFT.
     """
 
     def __init__(
@@ -195,16 +239,6 @@ class Fourier(object):
         image: np.ndarray,
         image_fft: dict[Sequence[Sequence[int]], np.ndarray] = None,
     ):
-        """Initialize the object
-
-        Parameters
-        ----------
-        image: np.ndarray
-            The real space image.
-        image_fft: dict[Sequence[int], np.ndarray]
-            A dictionary of {shape: fft_value} for which each different
-            shape has a precalculated FFT.
-        """
         if image_fft is None:
             self._fft = {}
         else:
@@ -227,25 +261,25 @@ class Fourier(object):
 
         Parameters
         ----------
-        image_fft: np.ndarray
+        image_fft:
             The FFT of the image.
-        fft_shape: Sequence[int]
+        fft_shape:
             "Fast" shape of the image used to generate the FFT.
             This will be different than `image_fft.shape` if
             any of the dimensions are odd, since `np.fft.rfft`
             requires an even number of dimensions (for symmetry),
             so this tells `np.fft.irfft` how to go from
             complex k-space to real space.
-        image_shape: Sequence[int]
+        image_shape:
             The shape of the image *before padding*.
             This will regenerate the image with the extra
             padding stripped.
-        axes: int | Sequence[int]
+        axes:
             The dimension(s) of the array that will be transformed.
 
         Returns
         -------
-        result: Fourier
+        result:
             A `Fourier` object generated from the FFT.
         """
         if axes is None:
@@ -272,7 +306,20 @@ class Fourier(object):
         return self._image.shape
 
     def fft(self, fft_shape: Sequence[int], axes: int | Sequence[int]) -> np.ndarray:
-        """The FFT of an image for a given `fft_shape` along desired `axes`"""
+        """The FFT of an image for a given `fft_shape` along desired `axes`
+
+        Parameters
+        ----------
+        fft_shape:
+            "Fast" shape of the image used to generate the FFT.
+            This will be different than `image_fft.shape` if
+            any of the dimensions are odd, since `np.fft.rfft`
+            requires an even number of dimensions (for symmetry),
+            so this tells `np.fft.irfft` how to go from
+            complex k-space to real space.
+        axes:
+            The dimension(s) of the array that will be transformed.
+        """
         try:
             iter(axes)
         except TypeError:
@@ -291,6 +338,7 @@ class Fourier(object):
         return self._fft[fft_key]
 
     def __len__(self) -> int:
+        """Length of the image"""
         return len(self.image)
 
     def __getitem__(self, index: int | Sequence[int] | slice) -> TFourier:
@@ -341,10 +389,22 @@ def _kspace_operation(
 ) -> Fourier:
     """Combine two images in k-space using a given `operator`
 
-    `image1` and `image2` are required to be `Fourier` objects and
-    `op` should be an operator (either `operator.mul` for a convolution
-    or `operator.truediv` for deconvolution). `shape` is the shape of the
-    output image (`Fourier` instance).
+    Parameters
+    ----------
+    image1:
+        The LHS of the equation.
+    image2:
+        The RHS of the equation.
+    padding:
+        The amount of padding to add before transforming into k-space.
+    op:
+        The operator used to combine the two images.
+        This is either ``operator.mul`` for a convolution
+        or ``operator.truediv`` for deconvolution.
+    shape:
+        The shape of the output image.
+    axes:
+        The dimension(s) of the array that will be transformed.
     """
     if len(image1.shape) != len(image2.shape):
         msg = "Both images must have the same number of axes, got {0} and {1}"
@@ -386,17 +446,22 @@ def match_psf(
 
     Parameters
     ----------
-    psf1: np.ndarray | Fourier
+    psf1:
         PSF1 either as array or as `Fourier` object
-    psf2: np.ndarray | Fourier
+    psf2:
         PSF1 either as array or as `Fourier` object
-    padding: int
+    padding:
         Additional padding to use when generating the FFT
         to supress artifacts.
-    axes: int | Sequence[int]
+    axes:
         Axes that contain the spatial information for the PSFs.
-    return_fourier: bool
+    return_fourier:
         Whether to return `Fourier` or array
+
+    Returns
+    -------
+    result:
+        The differnce kernel to go from `psf1` to `psf2`.
     """
     if not isinstance(psf1, Fourier):
         psf1 = Fourier(psf1)
@@ -426,17 +491,22 @@ def convolve(
 
     Parameters
     ----------
-    image: np.ndarray | Fourier
+    image:
         Image either as array or as `Fourier` object
-    kernel: np.ndarray | Fourier
+    kernel:
         Convolution kernel either as array or as `Fourier` object
-    padding: int
+    padding:
         Additional padding to use when generating the FFT
         to supress artifacts.
-    axes: int | Sequence[int]
+    axes:
         Axes that contain the spatial information for the PSFs.
-    return_fourier: bool
+    return_fourier:
         Whether to return `Fourier` or array
+
+    Returns
+    -------
+    result:
+        The convolution of the image with the kernel.
     """
     if not isinstance(image, Fourier):
         image = Fourier(image)

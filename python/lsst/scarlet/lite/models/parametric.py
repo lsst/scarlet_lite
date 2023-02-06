@@ -111,6 +111,26 @@ class EllipseFrame(CartesianFrame):
     based on the semi-major axis, semi-minor axis, and rotation angle.
     It is also used to calculate the gradient wrt either the
     radius**2 or radius for all of the model parameters.
+
+    Parameters
+    ----------
+    y0: float
+        The y-center of the ellipse.
+    x0: float
+        The x-center of the ellipse.
+    major: float
+        The length of the semi-major axis.
+    minor: float
+        The length of the semi-minor axis.
+    theta: float
+        The counter-clockwise rotation angle
+        from the semi-major axis.
+    bbox: Box
+        The bounding box that contains the entire frame.
+    r_min: float
+        The minimum value of the radius.
+        This is used to prevent divergences that occur
+        when calculating the gradient at radius == 0.
     """
 
     def __init__(
@@ -123,28 +143,6 @@ class EllipseFrame(CartesianFrame):
         bbox: Box,
         r_min: float = 1e-20,
     ):
-        """Initialize the EllipseFrame
-
-        Parameters
-        ----------
-        y0: float
-            The y-center of the ellipse.
-        x0: float
-            The x-center of the ellipse.
-        major: float
-            The length of the semi-major axis.
-        minor: float
-            The length of the semi-minor axis.
-        theta: float
-            The counter-clockwise rotation angle
-            from the semi-major axis.
-        bbox: Box
-            The bounding box that contains the entire frame.
-        r_min: float
-            The minimum value of the radius.
-            This is used to prevent divergences that occur
-            when calculating the gradient at radius == 0.
-        """
         super().__init__(bbox)
         # Set some useful parameters for derivations
         sin = np.sin(theta)
@@ -175,15 +173,15 @@ class EllipseFrame(CartesianFrame):
 
         Parameters
         ----------
-        input_grad: np.ndarray
+        input_grad:
             Gradient of the likelihood wrt the component model
-        use_r2: bool
+        use_r2:
             Whether to calculate the gradient of the radius**2
             (``useR2==True``) or the radius (``useR2==False``).
 
         Returns
         -------
-        result: float
+        result:
             The gradient of the likelihood wrt x0.
         """
         grad = -self._xa * self._cos / self._major + self._yb * self._sin / self._minor
@@ -199,15 +197,15 @@ class EllipseFrame(CartesianFrame):
 
         Parameters
         ----------
-        input_grad: np.ndarray
+        input_grad:
             Gradient of the likelihood wrt the component model
-        use_r2: bool
+        use_r2:
             Whether to calculate the gradient of the radius**2
             (``useR2==True``) or the radius (``useR2==False``).
 
         Returns
         -------
-        result: float
+        result:
             The gradient of the likelihood wrt y0.
         """
         grad = -(
@@ -226,15 +224,15 @@ class EllipseFrame(CartesianFrame):
 
         Parameters
         ----------
-        input_grad: np.ndarray
+        input_grad:
             Gradient of the likelihood wrt the component model
-        use_r2: bool
+        use_r2:
             Whether to calculate the gradient of the radius**2
             (``useR2==True``) or the radius (``useR2==False``).
 
         Returns
         -------
-        result: float
+        result:
             The gradient of the likelihood wrt the semi-major axis.
         """
         grad = -2 / self._major * self._xa**2
@@ -251,15 +249,15 @@ class EllipseFrame(CartesianFrame):
 
         Parameters
         ----------
-        input_grad: np.ndarray
+        input_grad:
             Gradient of the likelihood wrt the component model
-        use_r2: bool
+        use_r2:
             Whether to calculate the gradient of the radius**2
             (``useR2==True``) or the radius (``useR2==False``).
 
         Returns
         -------
-        result: float
+        result:
             The gradient of the likelihood wrt the semi-minor axis.
         """
         grad = -2 / self._minor * self._yb**2
@@ -276,15 +274,15 @@ class EllipseFrame(CartesianFrame):
 
         Parameters
         ----------
-        input_grad: np.array
+        input_grad:
             Gradient of the likelihood wrt the component model
-        use_r2: bool
+        use_r2:
             Whether to calculate the gradient of the radius**2
             (``useR2==True``) or the radius (``useR2==False``).
 
         Returns
         -------
-        result: float
+        result:
             The gradient of the likelihood wrt the rotation angle.
         """
         grad = (
@@ -346,15 +344,15 @@ def gaussian2d(params: np.ndarray, ellipse: EllipseFrame) -> np.ndarray:
 
     Parameters
     ----------
-    params: np.ndarray
+    params:
         The parameters of the function.
         In this case there are none outside of the ellipticity
-    ellipse: EllipseFrame
+    ellipse:
         The ellipse parameters to scale the radius in all directions.
 
     Returns
     -------
-    result: np.ndarray
+    result:
         The 2D guassian for the given ellipse parameters
     """
     return np.exp(-ellipse.r2_grid)
@@ -372,15 +370,15 @@ def grad_gaussian2(
 
     Parameters
     ----------
-    input_grad: np.ndarray
+    input_grad:
         Gradient of the likelihood wrt the component model
-    params: np.ndarray
+    params:
         The parameters of the morphology.
-    morph: np.ndarray
+    morph:
         The model of the morphology.
-    spectrum: np.ndarray
+    spectrum:
         The model of the spectrum.
-    ellipse: EllipseFrame
+    ellipse:
         The ellipse parameters to scale the radius in all directions.
     """
     # Calculate the gradient of the likelihod
@@ -394,21 +392,21 @@ def grad_gaussian2(
     return np.array([d_y0, d_x0, d_sigma_y, d_sigma_x, d_theta], dtype=params.dtype)
 
 
-def circular_gaussian(center: Sequence[int], frame: CartesianFrame, sigma: float):
+def circular_gaussian(center: Sequence[int], frame: CartesianFrame, sigma: float) -> np.ndarray:
     """Model of a circularly symmetric Gaussian
 
     Parameters
     ----------
-    center: np.ndarray
+    center:
         The center of the Gaussian.
-    frame: CartesianFrame
+    frame:
         The frame in which to generate the image of the circular Gaussian
-    sigma: float
+    sigma:
         The standard deviation.
 
     Returns
     -------
-    result: np.ndarray
+    result:
         The image of the circular Gaussian.
     """
     y0, x0 = center[:2]
@@ -430,17 +428,17 @@ def grad_circular_gaussian(
 
     Parameters
     ----------
-    input_grad: np.ndarray
+    input_grad:
         Gradient of the likelihood wrt the component model
-    params: np.ndarray
+    params:
         The parameters of the morphology.
-    morph: np.ndarray
+    morph:
         The model of the morphology.
-    spectrum: np.ndarray
+    spectrum:
         The model of the spectrum.
-    frame: CartesianFrame
+    frame:
         The frame in which to generate the image of the circular Gaussian.
-    sigma: float
+    sigma:
         The standard deviation.
     """
     # Calculate the gradient of the likelihod
@@ -463,14 +461,14 @@ def integrated_gaussian(params: np.ndarray, frame: CartesianFrame):
 
     Parameters
     ----------
-    params: np.ndarray
+    params:
         The center of the Gaussian.
-    frame: CartesianFrame
+    frame:
         The frame in which to generate the image of the circular Gaussian
 
     Returns
     -------
-    result: np.ndarray
+    result:
         The image of the circular Gaussian.
     """
     # Unpack the parameters and define constants
@@ -496,15 +494,15 @@ def grad_integrated_gaussian(
 
     Parameters
     ----------
-    input_grad: np.ndarray
+    input_grad:
         Gradient of the likelihood wrt the component model
-    params: np.ndarray
+    params:
         The parameters of the morphology.
-    morph: np.ndarray
+    morph:
         The model of the morphology.
-    spectrum: np.ndarray
+    spectrum:
         The model of the spectrum.
-    frame: CartesianFrame
+    frame:
         The frame in which to generate the image of the circular Gaussian.
     """
     # Calculate the gradient of the likelihood
@@ -545,16 +543,16 @@ def bounded_prox(
 
     Parameters
     ----------
-    params: np.ndarray
+    params:
         The array of parameters to constrain.
-    proxmin: np.ndarray
+    proxmin:
         The array of minimum values for each parameter.
-    proxmax: np.ndarray
+    proxmax:
         The array of maximum values for each parameter.
 
     Returns
     -------
-    result: np.ndarray
+    result:
         The updated parameters.
     """
     cuts = params < proxmin
@@ -564,20 +562,20 @@ def bounded_prox(
     return params
 
 
-def sersic(params: np.ndarray, ellipse: EllipseFrame):
+def sersic(params: np.ndarray, ellipse: EllipseFrame) -> np.ndarray:
     """Generate a Sersic Model.
 
     Parameters
     ----------
-    params: np.ndarray
+    params:
         The parameters of the function.
         In this case the only parameter is the sersic index ``n``.
-    ellipse: EllipseFrame
+    ellipse:
         The ellipse parameters to scale the radius in all directions.
 
     Returns
     -------
-    result: np.ndarray
+    result:
         The 2D guassian for the given ellipse parameters
     """
     (n,) = params
@@ -598,20 +596,20 @@ def grad_sersic(
     morph: np.ndarray,
     spectrum: np.ndarray,
     ellipse: EllipseFrame,
-):
+) -> np.ndarray:
     """Gradient of the component model wrt the Gaussian morphology parameters
 
     Parameters
     ----------
-    input_grad: np.ndarray
+    input_grad:
         Gradient of the likelihood wrt the component model
-    params: np.ndarray
+    params:
         The parameters of the morphology.
-    morph: np.ndarray
+    morph:
         The model of the morphology.
-    spectrum: np.ndarray
+    spectrum:
         The model of the spectrum.
-    ellipse: EllipseFrame
+    ellipse:
         The ellipse parameters to scale the radius in all directions.
     """
     n = params[5]
@@ -644,7 +642,37 @@ def grad_sersic(
 
 
 class ParametricComponent(Component):
-    """A parametric model of an astrophysical source"""
+    """A parametric model of an astrophysical source
+
+    Parameters
+    ----------
+    bands:
+        The bands used in the model.
+    bbox:
+        The bounding box that holds the model.
+    spectrum:
+        The spectrum of the component.
+    morph_params:
+        The parameters of the morphology.
+    morph_func:
+        The function to generate the 2D morphology image
+        based on `morphParams`.
+    morph_grad:
+        The function to calculate the gradient of the
+        likelihood wrt the morphological parameters.
+    morph_prox:
+        The proximal operator for the morphology parameters.
+    morph_step:
+        The function that calculates the gradient of the
+        morphological model.
+    prox_spectrum:
+        Proximal operator for the spectrum.
+        If `prox_spectrum` is `None` then the default proximal
+        operator `self.prox_spectrum` is used.
+    floor:
+        The minimum value of the spectrum, used to prevent
+        divergences in the gradients.
+    """
 
     def __init__(
         self,
@@ -659,37 +687,6 @@ class ParametricComponent(Component):
         prox_spectrum: Callable = None,
         floor: float = 1e-20,
     ):
-        """Initialize the component
-
-        Parameters
-        ----------
-        bands:
-            The bands used in the model.
-        bbox:
-            The bounding box that holds the model.
-        spectrum:
-            The spectrum of the component.
-        morph_params:
-            The parameters of the morphology.
-        morph_func:
-            The function to generate the 2D morphology image
-            based on `morphParams`.
-        morph_grad:
-            The function to calculate the gradient of the
-            likelihood wrt the morphological parameters.
-        morph_prox:
-            The proximal operator for the morphology parameters.
-        morph_step:
-            The function that calculates the gradient of the
-            morphological model.
-        prox_spectrum:
-            Proximal operator for the spectrum.
-            If `prox_spectrum` is `None` then the default proximal
-            operator `self.prox_spectrum` is used.
-        floor:
-            The minimum value of the spectrum, used to prevent
-            divergences in the gradients.
-        """
         super().__init__(bands=bands, bbox=bbox)
 
         self._spectrum = parameter(spectrum)
@@ -744,13 +741,13 @@ class ParametricComponent(Component):
 
         Parameters
         ----------
-        frame: CartesianFrame
+        frame:
             The frame (bounding box, pixel grid) that the image is
             placed in.
 
         Returns
         -------
-        result: np.ndarray
+        result:
             The image of the morphology in the `frame`.
         """
         if frame is None:
@@ -791,7 +788,7 @@ class ParametricComponent(Component):
 
         Parameters
         ----------
-        spectrum: np.ndarray
+        spectrum:
             The spectrum of the model.
         """
         # prevent divergent spectrum
@@ -805,16 +802,16 @@ class ParametricComponent(Component):
 
         Parameters
         ----------
-        input_grad: np.ndarray
+        input_grad:
             Gradient of the likelihood wrt the component model
-        spectrum: np.ndarray
+        spectrum:
             The model of the spectrum.
-        morph: np.ndarray
+        morph:
             The model of the morphology.
 
         Returns
         -------
-        result: np.ndarray
+        result:
             The gradient of the likelihood wrt. the spectrum.
         """
         return np.einsum("...jk,jk", input_grad, morph)
@@ -824,9 +821,9 @@ class ParametricComponent(Component):
 
         Parameters
         ----------
-        it: int
+        it:
             The current iteration of the optimizer.
-        input_grad: np.ndarray
+        input_grad:
             Gradient of the likelihood wrt the component model
         """
         spectrum = self.spectrum.copy()
@@ -855,7 +852,35 @@ class ParametricComponent(Component):
 
 
 class EllipticalParametricComponent(ParametricComponent):
-    """A radial density/surface brightness profile with elliptical symmetry"""
+    """A radial density/surface brightness profile with elliptical symmetry
+
+    Parameters
+    ----------
+    bands:
+        The bands used in the model.
+    bbox:
+        The bounding box that holds this component model.
+    spectrum:
+        The spectrum of the component.
+    morph_params:
+        The parameters passed to `morph_func` to
+        generate the morphology in image space.
+    morph_func:
+        The function to generate the morphology
+        based on `morphParams`.
+    morph_grad:
+        The function to calculate the gradient of the
+        likelihood wrt the morphological parameters.
+    morph_prox:
+        The proximal operator for the morphology parameters.
+    prox_spectrum:
+        Proximal operator for the spectrum.
+        If `prox_spectrum` is `None` then the default proximal
+        operator `self.prox_spectrum` is used.
+    floor:
+        The minimum value of the spectrum, used to prevent
+        divergences in the gradients.
+    """
 
     def __init__(
         self,
@@ -870,35 +895,6 @@ class EllipticalParametricComponent(ParametricComponent):
         prox_spectrum: Callable = None,
         floor: float = 1e-20,
     ):
-        """Initialize the component
-
-        Parameters
-        ----------
-        bands:
-            The bands used in the model.
-        bbox: Box
-            The bounding box that holds this component model.
-        spectrum: np.ndarray
-            The spectrum of the component.
-        morph_params: np.ndarray
-            The parameters passed to `morph_func` to
-            generate the morphology in image space.
-        morph_func: Callable
-            The function to generate the morphology
-            based on `morphParams`.
-        morph_grad: Callable
-            The function to calculate the gradient of the
-            likelihood wrt the morphological parameters.
-        morph_prox: Callable
-            The proximal operator for the morphology parameters.
-        prox_spectrum: Callable
-            Proximal operator for the spectrum.
-            If `prox_spectrum` is `None` then the default proximal
-            operator `self.prox_spectrum` is used.
-        floor: float
-            The minimum value of the spectrum, used to prevent
-            divergences in the gradients.
-        """
         super().__init__(
             bands=bands,
             bbox=bbox,
@@ -961,9 +957,9 @@ class EllipticalParametricComponent(ParametricComponent):
 
         Parameters
         ----------
-        it: int
+        it:
             The current iteration of the optimizer.
-        input_grad: np.ndarray
+        input_grad:
             Gradient of the likelihood wrt the component model
         """
         ellipse = self.frame

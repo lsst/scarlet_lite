@@ -35,14 +35,14 @@ def integrated_gaussian_psf(x: np.ndarray, sigma: float) -> np.ndarray:
 
     Parameters
     ----------
-    x: np.ndarray
+    x:
         The coordinates to evaluate the integrated Gaussian.
-    sigma: float
+    sigma:
         The standard deviation of the Gaussian.
 
     Returns
     -------
-    gaussian: np.ndarray
+    gaussian:
         A Gaussian function integrated over `x`
     """
     sqrt2 = np.sqrt(2)
@@ -99,15 +99,15 @@ def get_circle_mask(diameter: int, dtype: npt.DTypeLike = np.float64):
 
     Parameters
     ----------
-    diameter: int
+    diameter:
         The diameter of the circle and width
         of the image.
-    dtype: npt.DTypeLike
+    dtype:
         The `dtype` of the image.
 
     Returns
     -------
-    circle: `numpy.ndarray`
+    circle:
         A boolean array with ones for the
         inside of the circle and zeros
         outside of the circle.

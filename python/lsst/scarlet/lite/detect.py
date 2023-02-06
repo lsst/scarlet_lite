@@ -4,7 +4,7 @@ from typing import Sequence, TypeVar
 import numpy as np
 
 from .bbox import Box
-from .detect_pybind11 import Footprint
+from lsst.scarlet.lite.detect_pybind11 import Footprint
 from .image import Image
 from .utils import continue_class
 from .wavelet import starlet_transform, get_multiresolution_support
@@ -23,7 +23,7 @@ def bounds_to_bbox(bounds: tuple[int, int, int, int]) -> Box:
         ``(bottom, top, left, right)``.
     Returns
     -------
-    result: Box
+    result:
         The `Box` created fro the bounds
     """
     return Box(
@@ -40,7 +40,7 @@ class Footprint:  # noqa: F811
 
         Returns
         -------
-        bbox: Box
+        bbox:
             The minimal `Box` that contains the entire `Footprint`.
         """
         return bounds_to_bbox(self.bounds)
@@ -99,7 +99,7 @@ def scarlet_footprints_to_image(
 
     Returns
     -------
-    result: np.ndarray
+    result:
         The image created from the footprints.
     """
     result = Image.from_box(Box(shape), dtype=int)
@@ -117,12 +117,12 @@ def get_wavelets(
 
     Parameters
     ----------
-    images: np.ndarray
+    images:
         The array of images with shape `(bands, Ny, Nx)` for which to
         calculate wavelet coefficients.
-    variance: np.ndarray
+    variance:
         An array of variances with the same shape as `images`.
-    scales: int
+    scales:
         The maximum number of wavelet scales to use.
         Note that the result will have `scales+1` total arrays,
         where the last set of coefficients is the image of all
@@ -130,7 +130,7 @@ def get_wavelets(
 
     Returns
     -------
-    coeffs: np.ndarray
+    coeffs:
         The array of coefficents with shape `(scales+1, bands, Ny, Nx)`.
     """
     sigma = np.median(np.sqrt(variance), axis=(1, 2))
@@ -152,12 +152,12 @@ def get_detect_wavelets(
     """Get an array of wavelet coefficents to use for detection
 
     Parameters
-    images: np.ndarray
+    images:
         The array of images with shape `(bands, Ny, Nx)` for which to
         calculate wavelet coefficients.
-    variance: np.ndarray
+    variance:
         An array of variances with the same shape as `images`.
-    scales: int
+    scales:
         The maximum number of wavelet scales to use.
         Note that the result will have `scales+1` total arrays,
         where the last set of coefficients is the image of all

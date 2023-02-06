@@ -40,16 +40,16 @@ def get_filter_coords(
 
     Parameters
     ----------
-    filter_values: np.ndarray
+    filter_values:
         The 2D array of the filter to apply.
-    center: Sequence[int, int]
+    center:
         The center (y,x) of the filter. If `center` is `None` then
         `filter_values` must have an odd number of rows and columns
         and the center will be set to the center of `filter_values`.
 
     Returns
     -------
-    coords: np.ndarray
+    coords:
         The coordinates of the pixels in `filter_values`,
         where the coordinates of the `center` pixel are `(0,0)`.
     """
@@ -77,13 +77,13 @@ def get_filter_bounds(coords: np.ndarray) -> tuple[int, int, int, int]:
 
     Parameters
     ----------
-    coords: np.ndarray
+    coords:
         The coordinates of the filter,
         defined by `get_filter_coords`.
 
     Returns
     -------
-    y_start, y_end, x_start, x_end: Sequence[int, int, int, int]
+    y_start, y_end, x_start, x_end:
         The start and end of each slice that is passed to `apply_filter`.
     """
     z = np.zeros((len(coords),), dtype=int)
@@ -96,8 +96,19 @@ def get_filter_bounds(coords: np.ndarray) -> tuple[int, int, int, int]:
     return y_start, y_end, x_start, x_end
 
 
-def convolve(image, psf, bounds):
-    """Convolve an image with a PSF in real space"""
+def convolve(image: np.ndarray, psf: np.ndarray, bounds: tuple[int, int, int, int]):
+    """Convolve an image with a PSF in real space
+
+    Parameters
+    ----------
+    image:
+        The multi-band image to convolve.
+    psf:
+        The psf to convolve the image with.
+    bounds:
+        The filter bounds required by the ``apply_filter`` C++ method,
+        usually obtained by calling `get_filter_bounds`.
+    """
     from lsst.scarlet.lite.operators_pybind11 import apply_filter
 
     result = np.empty(image.shape, dtype=image.dtype)
@@ -160,6 +171,34 @@ class Observation:
     to the assumptions that the observations are all resampled
     onto the same pixel grid and that the `images` contain all
     of the information for all of the model bands.
+
+    Parameters
+    ----------
+    images:
+        (bands, y, x) array of observed images.
+    variance:
+        (bands, y, x) array of variance for each image pixel.
+    weights:
+        (bands, y, x) array of weights to use when calculate the
+        likelihood of each pixel.
+    psfs:
+        (bands, y, x) array of the PSF image in each band.
+    model_psf:
+        (bands, y, x) array of the model PSF image in each band.
+        If `model_psf` is `None` then convolution has no
+        affect on the model, as it is generated in the same seeing as
+        the observation(s).
+    noise_rms:
+        Per-band average noise RMS. If `noise_rms` is `None` then the mean
+        of the sqrt of the variance is used.
+    bbox:
+        The bounding box containing the model. If `bbox` is `None` then
+        a `Box` is created that is the shape of `images` with an origin
+        at `(0, 0)`.
+    padding:
+        Padding to use when performing an FFT convolution.
+    convolution_mode:
+        The method of convolution. This should be either "fft" or "real".
     """
 
     def __init__(
@@ -175,36 +214,6 @@ class Observation:
         padding: int = 3,
         convolution_mode: str = "fft",
     ):
-        """Initialize an Observation.
-
-        Parameters
-        ----------
-        images:
-            (bands, y, x) array of observed images.
-        variance:
-            (bands, y, x) array of variance for each image pixel.
-        weights:
-            (bands, y, x) array of weights to use when calculate the
-            likelihood of each pixel.
-        psfs:
-            (bands, y, x) array of the PSF image in each band.
-        model_psf:
-            (bands, y, x) array of the model PSF image in each band.
-            If `model_psf` is `None` then convolution has no
-            affect on the model, as it is generated in the same seeing as
-            the observation(s).
-        noise_rms:
-            Per-band average noise RMS. If `noise_rms` is `None` then the mean
-            of the sqrt of the variance is used.
-        bbox:
-            The bounding box containing the model. If `bbox` is `None` then
-            a `Box` is created that is the shape of `images` with an origin
-            at `(0, 0)`.
-        padding:
-            Padding to use when performing an FFT convolution.
-        convolution_mode:
-            The method of convolution. This should be either "fft" or "real".
-        """
         # Convert the images to a multi-band `Image` and use the resulting
         # bbox and bands.
         images = _set_image_like(images, bands, bbox)
@@ -244,10 +253,12 @@ class Observation:
 
     @property
     def bands(self) -> tuple:
+        """The bands in the observations."""
         return self.images.bands
 
     @property
     def bbox(self) -> Box:
+        """The bounding box for the full observation."""
         return self.images.bbox
 
     def convolve(self, image: Image, mode: str = None, grad: bool = False) -> Image:
@@ -268,7 +279,7 @@ class Observation:
 
         Returns
         -------
-        result: Image
+        result:
             The convolved image.
         """
         if grad:
@@ -303,7 +314,7 @@ class Observation:
 
         Returns
         -------
-        result: float
+        result:
             The log-likelihood of the given model.
         """
         result = 0.5 * -np.sum((self.weights * (self.images - model) ** 2).data)

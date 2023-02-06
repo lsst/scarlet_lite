@@ -60,9 +60,9 @@ def trim_morphology(
 
     Returns
     -------
-    morph: np.ndarray
+    morph:
         The trimmed morphology
-    box: Box
+    box:
         The box that contains the morphology.
     """
     # trim morph to pixels above threshold
@@ -108,9 +108,9 @@ def init_monotonic_morph(
 
     Returns
     -------
-    bbox: Box
+    bbox:
         The bounding box of the morphology.
-    morph: np.ndarray
+    morph:
         The initialized morphology.
     """
     if monotonicity is None:
@@ -196,7 +196,24 @@ def multifit_spectra(
 
 
 class FactorizedInitialization(ABC):
-    """Common variables and methods for both Factorized Component schems"""
+    """Common variables and methods for both Factorized Component schems
+
+    Parameters
+    ----------
+    observation:
+        The observation containing the blend
+    centers:
+        The center of each source to initialize.
+    min_snr:
+        The minimum SNR required per component.
+        So a 2-component source requires at least `2*min_snr` while sources
+        with SNR < `min_snr` will be initialized with the PSF.
+    monotonicity:
+        When `monotonicity` is `None`,
+        the component is initialized with only the
+        monotonic pixels, otherwise the monotonicity operator is used to
+        project the morphology to a monotonic solution.
+    """
 
     def __init__(
         self,
@@ -206,25 +223,6 @@ class FactorizedInitialization(ABC):
         min_snr: float = 50,
         monotonicity: Monotonicity | None = None,
     ):
-        """
-         Initialize the class
-
-        Parameters
-        ----------
-        observation:
-            The observation containing the blend
-        centers:
-            The center of each source to initialize.
-        min_snr:
-            The minimum SNR required per component.
-            So a 2-component source requires at least `2*min_snr` while sources
-            with SNR < `min_snr` will be initialized with the PSF.
-        monotonicity:
-            When `monotonicity` is `None`,
-            the component is initialized with only the
-            monotonic pixels, otherwise the monotonicity operator is used to
-            project the morphology to a monotonic solution.
-        """
         self.observation = observation
         self.convolved = convolved
         self.centers = centers
@@ -392,6 +390,32 @@ class FactorizedChi2Initialization(FactorizedInitialization):
     and passed to `init_main_source` for each source.
     It also creates temporary objects that only need to be created once for
     all of the sources in a blend.
+
+    Parameters
+    ----------
+    observation:
+        The observation containing the blend
+    centers:
+        The center of each source to initialize.
+    detect:
+        The array that contains a 2D image used for detection.
+    min_snr:
+        The minimum SNR required per component.
+        So a 2-component source requires at least `2*min_snr` while sources
+        with SNR < `min_snr` will be initialized with the PSF.
+    monotonicity:
+        When `monotonicity` is `None`,
+        the component is initialized with only the
+        monotonic pixels, otherwise the monotonicity operator is used to
+        project the morphology to a monotonic solution.
+    disk_percentile:
+        The percentage of the overall flux to attribute to the disk.
+    thresh:
+        The threshold used to trim the morphology,
+        so all pixels below `thresh * bg_rms` are set to zero.
+    padding:
+        The amount to pad the morphology to allow for extra flux
+        in the first few iterations before resizing.
     """
 
     def __init__(
@@ -405,34 +429,6 @@ class FactorizedChi2Initialization(FactorizedInitialization):
         thresh: float = 0.5,
         padding: int = 0,
     ):
-        """Initialize the class
-
-        Parameters
-        ----------
-        observation:
-            The observation containing the blend
-        centers:
-            The center of each source to initialize.
-        detect:
-            The array that contains a 2D image used for detection.
-        min_snr:
-            The minimum SNR required per component.
-            So a 2-component source requires at least `2*min_snr` while sources
-            with SNR < `min_snr` will be initialized with the PSF.
-        monotonicity:
-            When `monotonicity` is `None`,
-            the component is initialized with only the
-            monotonic pixels, otherwise the monotonicity operator is used to
-            project the morphology to a monotonic solution.
-        disk_percentile:
-            The percentage of the overall flux to attribute to the disk.
-        thresh:
-            The threshold used to trim the morphology,
-            so all pixels below `thresh * bg_rms` are set to zero.
-        padding:
-            The amount to pad the morphology to allow for extra flux
-            in the first few iterations before resizing.
-        """
         if detect is None:
             # Build the morphology detection image
             detect = np.sum(
@@ -537,6 +533,37 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
     sources being initialized from the same set of wavelet coefficients.
     To simplify the API those parameters are all initialized by this class
     and passed to `init_wavelet_source` for each source.
+
+    Parameters
+    ----------
+    observation:
+        The multiband observation of the blend.
+    centers:
+        The center of each source to initialize.
+    bulge_slice, disk_slice:
+        The slice used to select the wavelet scales used for the
+        bulge/disk.
+    bulge_padding, disk_padding:
+        The number of pixels to grow the bounding box of the bulge/disk
+        to leave extra room for growth in the first few iterations.
+    use_psf:
+        Whether or not to use the PSF for single component sources.
+        If `use_psf` is `False` then only sources with low signal
+        at all scales are initialized with the PSF morphology.
+    scales:
+        Number of wavelet scales to use.
+    wavelets:
+        The array of wavelet coefficients `(scale, y, x)`
+        used for detection.
+    monotonicity:
+        When `monotonicity` is `None`,
+        the component is initialized with only the
+        monotonic pixels, otherwise the monotonicity operator is used to
+        project the morphology to a monotonic solution.
+    min_snr:
+        The minimum SNR required per component.
+        So a 2-component source requires at least `2*min_snr` while sources
+        with SNR < `min_snr` will be initialized with the PSF.
     """
 
     def __init__(
@@ -553,39 +580,6 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
         monotonicity: Monotonicity | None = None,
         min_snr: float = 50,
     ):
-        """Initialize the parameters.
-
-        Parameters
-        ----------
-        observation:
-            The multiband observation of the blend.
-        centers:
-            The center of each source to initialize.
-        bulge_slice, disk_slice:
-            The slice used to select the wavelet scales used for the
-            bulge/disk.
-        bulge_padding, disk_padding:
-            The number of pixels to grow the bounding box of the bulge/disk
-            to leave extra room for growth in the first few iterations.
-        use_psf:
-            Whether or not to use the PSF for single component sources.
-            If `use_psf` is `False` then only sources with low signal
-            at all scales are initialized with the PSF morphology.
-        scales:
-            Number of wavelet scales to use.
-        wavelets: `numpy.ndarray`
-            The array of wavelet coefficients `(scale, y, x)`
-            used for detection.
-        monotonicity:
-            When `monotonicity` is `None`,
-            the component is initialized with only the
-            monotonic pixels, otherwise the monotonicity operator is used to
-            project the morphology to a monotonic solution.
-        min_snr:
-            The minimum SNR required per component.
-            So a 2-component source requires at least `2*min_snr` while sources
-            with SNR < `min_snr` will be initialized with the PSF.
-        """
         if wavelets is None:
             wavelets = get_detect_wavelets(
                 observation.images.data,
@@ -616,6 +610,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
 
     def init_source(self, center: tuple[int, int]) -> Source | None:
         """Initialize a source from a chi^2 detection.
+
         Parameter
         ---------
         center:

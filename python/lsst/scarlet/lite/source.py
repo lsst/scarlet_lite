@@ -33,20 +33,18 @@ class Source:
 
     A source can have a single component, or multiple components,
     and each can be contained in different bounding boxes.
+
+    Parameters
+    ----------
+    components: list[Component]
+        The components contained in the source.
+    dtype: npt.DTypeLike
+        The dtype of the resulting source model.
+        This is needed in order to ensure that the model matches
+        the same dtype as the observation data.
     """
 
     def __init__(self, components: list[Component]):
-        """Initialize an instance.
-
-        Parameters
-        ----------
-        components: list[Component]
-            The components contained in the source.
-        dtype: npt.DTypeLike
-            The dtype of the resulting source model.
-            This is needed in order to ensure that the model matches
-            the same dtype as the observation data.
-        """
         self.components = components
         self.flux = None
 
@@ -57,12 +55,14 @@ class Source:
 
     @property
     def center(self) -> tuple[int, int] | None:
+        """The center of the source in the full Blend."""
         if not self.is_null and hasattr(self.components[0], "center"):
             return self.components[0].center  # type: ignore
         return None
 
     @property
     def source_center(self) -> tuple[int, int] | None:
+        """The center of the source in its local bounding box."""
         _center = self.center
         _origin = self.bbox.origin
         if _center is not None:
@@ -93,6 +93,7 @@ class Source:
 
     @property
     def bands(self) -> tuple:
+        """The bands in the full source model."""
         if self.is_null:
             return ()
         return self.components[0].bands
@@ -105,13 +106,13 @@ class Source:
 
         Parameters
         ----------
-        use_flux: bool
+        use_flux:
             Whether to use the re-distributed flux associated with the source
             instead of the component models.
 
         Returns
         -------
-        model: np.ndarray
+        model:
             The full-color model.
         """
         if self.n_components == 0:
@@ -132,7 +133,7 @@ class Source:
 
         Parameters
         ----------
-        parameterization: Callable
+        parameterization:
             A function to use to convert parameters of a given type into
             a `Parameter` in place. It should take a single argument that
             is the `Component` or `Source` that is to be parameterized.
