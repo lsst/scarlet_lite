@@ -1,3 +1,5 @@
+from typing import Sequence
+
 from astropy.visualization.lupton_rgb import Mapping, LinearMapping, AsinhMapping
 import matplotlib
 import matplotlib.pyplot as plt
@@ -10,6 +12,7 @@ from .bbox import Box
 from .blend import Blend
 from .source import Source
 from .image import Image
+from .observation import Observation
 
 
 # Size of a single panel, used for generating figures with multiple sub-plots
@@ -271,6 +274,83 @@ def _add_markers(
             **box_kwargs,
         )
         ax.add_artist(rect)
+
+
+def show_observation(
+    observation: Observation,
+    norm: Mapping = None,
+    channel_map: np.ndarray = None,
+    centers: Sequence = None,
+    psf_scaling: str | None = None,
+    add_labels: bool = True,
+    figsize: tuple[float, float] = None,
+):
+    """Plot observation in standardized form.
+    """
+    if psf_scaling is None:
+        panels = 1
+    else:
+        panels = 2
+        if psf_scaling not in ["same", "large"]:
+            raise ValueError(f"psf_scaling must be either 'same' or 'large', got {psf_scaling}")
+    if figsize is None:
+        figsize = (panel_size * panels, panel_size)
+    fig, ax = plt.subplots(1, panels, figsize=figsize)
+    if not hasattr(ax, "__iter__"):
+        ax = (ax,)
+
+    # Mask any pixels with zero weight in all bands
+    mask = np.sum(observation.weights, axis=0) == 0
+    # if there are no masked pixels, do not use a mask
+    if np.all(mask == 0):
+        mask = None
+
+    panel = 0
+    extent = get_extent(observation.bbox)
+    ax[panel].imshow(
+        img_to_rgb(observation.images, norm=norm, channel_map=channel_map, mask=mask),
+        extent=extent,
+        origin="lower",
+    )
+    ax[panel].set_title("Observation")
+
+    if add_labels:
+        assert centers is not None, "Provide center positions for labeled objects"
+
+        for k, center in enumerate(centers):
+            # If the image is multi-band, use a white label,
+            # otherwise the image with be black and white so use red.
+            color = "w" if observation.images.shape[0] > 1 else "r"
+            ax[panel].text(*center[::-1], k, color=color, ha="center", va="center")
+
+    panel += 1
+    if psf_scaling is not None:
+        psf_image = np.zeros(observation.images.shape)
+
+        if observation.model_psf is not None:
+            psf_model = observation.psfs
+            # make PSF as bright as the brightest pixel of the observation
+            psf_model *= (
+                np.max(np.mean(observation.images.data, axis=0)) / np.max(np.mean(psf_model, axis=0))
+            )
+            if psf_scaling == "same":
+                psf_image = psf_model
+            else:
+                psf_image = np.zeros(observation.images.shape)
+                height = psf_model.shape[1]
+                width = psf_model.shape[2]
+                height_diff = observation.images.shape[1] - height
+                width_diff = observation.images.shape[2] - width
+                y0 = height_diff // 2
+                x0 = width_diff // 2
+                yf = y0 + height
+                xf = x0 + width
+                psf_image[:, y0: yf, x0:xf] = psf_model
+        ax[panel].imshow(img_to_rgb(psf_image, norm=norm), origin="lower")
+        ax[panel].set_title("PSF")
+
+    fig.tight_layout()
+    return fig
 
 
 def show_scene(
