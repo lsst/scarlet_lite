@@ -213,6 +213,9 @@ class FactorizedInitialization(ABC):
         the component is initialized with only the
         monotonic pixels, otherwise the monotonicity operator is used to
         project the morphology to a monotonic solution.
+    use_sparse_init:
+        Use a monotonic mask to prevent initial source models from growing
+        too large.
     """
 
     def __init__(
@@ -222,12 +225,14 @@ class FactorizedInitialization(ABC):
         centers: Sequence[tuple[int, int]],
         min_snr: float = 50,
         monotonicity: Monotonicity | None = None,
+        use_sparse_init: bool = True,
     ):
         self.observation = observation
         self.convolved = convolved
         self.centers = centers
         self.min_snr = min_snr
         self.monotonicity = monotonicity
+        self.use_sparse_init = use_sparse_init
 
         # Get the model PSF
         # Convolve the PSF in order to set the spectrum
@@ -335,13 +340,17 @@ class FactorizedInitialization(ABC):
             A `FactorizedComponent` created from the detection image.
 
         """
+        if self.use_sparse_init:
+            monotonicity = None
+        else:
+            monotonicity = self.monotonicity
         bbox, morph = init_monotonic_morph(
             detect,
             center,
             self.observation.bbox,
             padding=padding,
             normalize=False,
-            monotonicity=self.monotonicity,
+            monotonicity=monotonicity,
             thresh=thresh,
         )
 
@@ -669,6 +678,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                             bulge_morph,
                             bulge_box,
                             center,
+                            monotonicity=self.monotonicity,
                         )
                     )
                 else:
@@ -681,6 +691,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                             disk_morph,
                             disk_box,
                             center,
+                            monotonicity=self.monotonicity,
                         )
                     )
                 else:
