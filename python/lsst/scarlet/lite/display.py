@@ -282,7 +282,6 @@ def show_observation(
     channel_map: np.ndarray = None,
     centers: Sequence = None,
     psf_scaling: str | None = None,
-    add_labels: bool = True,
     figsize: tuple[float, float] = None,
 ):
     """Plot observation in standardized form.
@@ -291,8 +290,8 @@ def show_observation(
         panels = 1
     else:
         panels = 2
-        if psf_scaling not in ["same", "large"]:
-            raise ValueError(f"psf_scaling must be either 'same' or 'large', got {psf_scaling}")
+        if psf_scaling not in ["native", "same"]:
+            raise ValueError(f"psf_scaling must be either 'same' or 'native', got {psf_scaling}")
     if figsize is None:
         figsize = (panel_size * panels, panel_size)
     fig, ax = plt.subplots(1, panels, figsize=figsize)
@@ -314,9 +313,7 @@ def show_observation(
     )
     ax[panel].set_title("Observation")
 
-    if add_labels:
-        assert centers is not None, "Provide center positions for labeled objects"
-
+    if centers is not None:
         for k, center in enumerate(centers):
             # If the image is multi-band, use a white label,
             # otherwise the image with be black and white so use red.
@@ -333,7 +330,7 @@ def show_observation(
             psf_model *= (
                 np.max(np.mean(observation.images.data, axis=0)) / np.max(np.mean(psf_model, axis=0))
             )
-            if psf_scaling == "same":
+            if psf_scaling == "native":
                 psf_image = psf_model
             else:
                 psf_image = np.zeros(observation.images.shape)

@@ -18,6 +18,8 @@ toctree linking to topics related to using the module's APIs.
 .. toctree::
    :maxdepth: 2
 
+    quick_start
+
 .. _lsst.scarlet.lite-contributing:
 
 Contributing
