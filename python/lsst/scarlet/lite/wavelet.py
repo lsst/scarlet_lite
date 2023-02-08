@@ -244,7 +244,7 @@ def get_multiresolution_support(
     epsilon: float = 1e-1,
     max_iter: int = 20,
     image_type: str = "ground",
-) -> np.ndarray[int]:
+) -> np.ndarray:
     """Calculate the multi-resolution support for a
     dictionary of starlet coefficients.
 
