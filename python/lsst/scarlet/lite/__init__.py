@@ -1,21 +1,17 @@
+from . import detect
 from .bbox import *
 from .blend import *
 from .component import *
-from . import detect
 
 try:
-    import matplotlib
     import display
+    import matplotlib
 except ImportError:
     pass
 
+from . import initialization, measure, models, operators, utils
 from .fft import *
 from .image import *
-from . import initialization
-from . import measure
-from . import models
 from .observation import *
-from . import operators
 from .parameters import *
 from .source import *
-from . import utils

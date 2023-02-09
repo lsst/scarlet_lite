@@ -25,7 +25,6 @@ import numpy as np
 import numpy.typing as npt
 from scipy.special import erfc
 
-
 ScalarLike = bool | int | float | complex
 ScalarTypes = (bool, int, float, complex)
 

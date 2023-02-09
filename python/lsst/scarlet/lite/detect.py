@@ -2,13 +2,12 @@ import logging
 from typing import Sequence, TypeVar
 
 import numpy as np
+from lsst.scarlet.lite.detect_pybind11 import Footprint
 
 from .bbox import Box
-from lsst.scarlet.lite.detect_pybind11 import Footprint
 from .image import Image
 from .utils import continue_class
-from .wavelet import starlet_transform, get_multiresolution_support
-
+from .wavelet import get_multiresolution_support, starlet_transform
 
 logger = logging.getLogger("scarlet.detect")
 TFootprint = TypeVar("TFootprint", bound="Footprint")

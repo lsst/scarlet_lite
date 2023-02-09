@@ -20,16 +20,15 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import os
-from utils import ScarletTestCase
 
 import numpy as np
-
 from lsst.scarlet.lite import Blend, Image, Observation, Source
 from lsst.scarlet.lite.component import default_adaprox_parameterization
 from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
 from lsst.scarlet.lite.measure import calculate_snr, conserve_flux
 from lsst.scarlet.lite.operators import Monotonicity
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
+from utils import ScarletTestCase
 
 
 class TestMeasurements(ScarletTestCase):

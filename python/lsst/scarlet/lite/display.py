@@ -1,19 +1,18 @@
 from typing import Sequence
 
-from astropy.visualization.lupton_rgb import Mapping, LinearMapping, AsinhMapping
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-from matplotlib.ticker import MaxNLocator
 import numpy as np
 import numpy.typing as npt
+from astropy.visualization.lupton_rgb import AsinhMapping, LinearMapping, Mapping
+from matplotlib.patches import Rectangle
+from matplotlib.ticker import MaxNLocator
 
 from .bbox import Box
 from .blend import Blend
-from .source import Source
 from .image import Image
 from .observation import Observation
-
+from .source import Source
 
 # Size of a single panel, used for generating figures with multiple sub-plots
 panel_size = 4.0
@@ -266,7 +265,6 @@ def _add_markers(
         ax.plot(*center, "wx", **marker_kwargs)
 
     if add_boxes:
-
         rect = Rectangle(
             (extent[0], extent[2]),
             extent[1] - extent[0],
@@ -284,14 +282,15 @@ def show_observation(
     psf_scaling: str | None = None,
     figsize: tuple[float, float] = None,
 ):
-    """Plot observation in standardized form.
-    """
+    """Plot observation in standardized form."""
     if psf_scaling is None:
         panels = 1
     else:
         panels = 2
         if psf_scaling not in ["native", "same"]:
-            raise ValueError(f"psf_scaling must be either 'same' or 'native', got {psf_scaling}")
+            raise ValueError(
+                f"psf_scaling must be either 'same' or 'native', got {psf_scaling}"
+            )
     if figsize is None:
         figsize = (panel_size * panels, panel_size)
     fig, ax = plt.subplots(1, panels, figsize=figsize)
@@ -327,8 +326,8 @@ def show_observation(
         if observation.model_psf is not None:
             psf_model = observation.psfs
             # make PSF as bright as the brightest pixel of the observation
-            psf_model *= (
-                np.max(np.mean(observation.images.data, axis=0)) / np.max(np.mean(psf_model, axis=0))
+            psf_model *= np.max(np.mean(observation.images.data, axis=0)) / np.max(
+                np.mean(psf_model, axis=0)
             )
             if psf_scaling == "native":
                 psf_image = psf_model
@@ -342,7 +341,7 @@ def show_observation(
                 x0 = width_diff // 2
                 yf = y0 + height
                 xf = x0 + width
-                psf_image[:, y0: yf, x0:xf] = psf_model
+                psf_image[:, y0:yf, x0:xf] = psf_model
         ax[panel].imshow(img_to_rgb(psf_image, norm=norm), origin="lower")
         ax[panel].set_title("PSF")
 

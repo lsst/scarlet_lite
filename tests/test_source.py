@@ -23,7 +23,6 @@ import numpy as np
 from lsst.scarlet.lite import Box, Image, Source
 from lsst.scarlet.lite.component import FactorizedComponent
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
-
 from utils import ScarletTestCase
 
 

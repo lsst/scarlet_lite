@@ -22,16 +22,15 @@
 import os
 
 import numpy as np
-from numpy.testing import assert_almost_equal
-
 from lsst.scarlet.lite.wavelet import (
-    starlet_transform,
-    starlet_reconstruction,
-    multiband_starlet_transform,
-    multiband_starlet_reconstruction,
-    get_multiresolution_support,
     apply_wavelet_denoising,
+    get_multiresolution_support,
+    multiband_starlet_reconstruction,
+    multiband_starlet_transform,
+    starlet_reconstruction,
+    starlet_transform,
 )
+from numpy.testing import assert_almost_equal
 from utils import ScarletTestCase
 
 

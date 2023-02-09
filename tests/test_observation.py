@@ -20,13 +20,12 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import numpy as np
+from lsst.scarlet.lite import Box, Image, Observation
+from lsst.scarlet.lite.observation import convolve as scarlet_convolve
+from lsst.scarlet.lite.observation import get_filter_bounds, get_filter_coords
+from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_almost_equal, assert_array_equal
 from scipy.signal import convolve as scipy_convolve
-
-from lsst.scarlet.lite import Observation, Box, Image
-from lsst.scarlet.lite.observation import convolve as scarlet_convolve
-from lsst.scarlet.lite.observation import get_filter_coords, get_filter_bounds
-from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from utils import ObservationData, ScarletTestCase
 
 

@@ -20,15 +20,13 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import numpy as np
-from numpy.testing import assert_array_almost_equal, assert_array_equal
-
 from lsst.scarlet.lite.utils import (
     continue_class,
     get_circle_mask,
     integrated_circular_gaussian,
     integrated_gaussian_psf,
 )
-
+from numpy.testing import assert_array_almost_equal, assert_array_equal
 from utils import ScarletTestCase
 
 

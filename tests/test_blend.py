@@ -19,23 +19,21 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from typing import cast, Callable
+from typing import Callable, cast
 
 import numpy as np
-from numpy.testing import assert_raises
-from numpy.testing import assert_almost_equal
-from scipy.signal import convolve as scipy_convolve
-
 from lsst.scarlet.lite import Blend, Box, Image, Observation, Source
 from lsst.scarlet.lite.component import (
-    default_adaprox_parameterization,
     Component,
     FactorizedComponent,
+    default_adaprox_parameterization,
 )
 from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
 from lsst.scarlet.lite.operators import Monotonicity
 from lsst.scarlet.lite.parameters import Parameter
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
+from numpy.testing import assert_almost_equal, assert_raises
+from scipy.signal import convolve as scipy_convolve
 from utils import ObservationData, ScarletTestCase
 
 

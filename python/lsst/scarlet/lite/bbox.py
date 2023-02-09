@@ -25,7 +25,6 @@ from typing import Sequence, TypeVar
 
 import numpy as np
 
-
 TBox = TypeVar("TBox", bound="Box")
 
 

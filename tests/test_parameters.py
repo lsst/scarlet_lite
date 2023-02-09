@@ -20,18 +20,16 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import numpy as np
-from numpy.testing import assert_array_equal
-
 from lsst.scarlet.lite import Box
 from lsst.scarlet.lite.parameters import (
-    parameter,
-    phi_psi,
     AdaproxParameter,
     FistaParameter,
     FixedParameter,
     Parameter,
+    parameter,
+    phi_psi,
 )
-
+from numpy.testing import assert_array_equal
 from utils import ScarletTestCase
 
 

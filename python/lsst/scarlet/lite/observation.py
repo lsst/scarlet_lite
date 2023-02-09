@@ -21,14 +21,16 @@
 
 __all__ = ["Observation", "convolve"]
 
-import numpy as np
-import numpy.typing as npt
 from typing import Sequence, TypeVar
 
-from .bbox import Box
-from .fft import Fourier, match_psf, convolve as fft_convolve
-from .image import Image
+import numpy as np
+import numpy.typing as npt
 
+from .bbox import Box
+from .fft import Fourier
+from .fft import convolve as fft_convolve
+from .fft import match_psf
+from .image import Image
 
 TObservation = TypeVar("TObservation", bound="Observation")
 

@@ -36,10 +36,10 @@ from .bbox import Box
 from .image import Image
 from .operators import Monotonicity
 from .parameters import (
-    parameter,
-    Parameter,
-    FistaParameter,
     AdaproxParameter,
+    FistaParameter,
+    Parameter,
+    parameter,
     relative_step,
 )
 

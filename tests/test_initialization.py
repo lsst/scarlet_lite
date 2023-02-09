@@ -22,20 +22,18 @@
 import os
 
 import numpy as np
-from numpy.testing import assert_array_equal, assert_almost_equal
-from scipy.signal import convolve as scipy_convolve
-
 from lsst.scarlet.lite import Box, Image, Observation
 from lsst.scarlet.lite.initialization import (
-    trim_morphology,
-    init_monotonic_morph,
-    multifit_spectra,
     FactorizedChi2Initialization,
     FactorizedWaveletInitialization,
+    init_monotonic_morph,
+    multifit_spectra,
+    trim_morphology,
 )
-from lsst.scarlet.lite.operators import prox_monotonic_mask, Monotonicity
+from lsst.scarlet.lite.operators import Monotonicity, prox_monotonic_mask
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
-
+from numpy.testing import assert_almost_equal, assert_array_equal
+from scipy.signal import convolve as scipy_convolve
 from utils import ObservationData, ScarletTestCase
 
 

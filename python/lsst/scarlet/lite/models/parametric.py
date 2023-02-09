@@ -44,9 +44,7 @@ from scipy.stats import gamma
 from ..bbox import Box
 from ..component import Component
 from ..image import Image
-
-from ..parameters import parameter, Parameter
-
+from ..parameters import Parameter, parameter
 
 # Some operations fail at the origin in radial coordinates,
 # so we make use of a very small offset.

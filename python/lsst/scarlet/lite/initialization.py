@@ -19,10 +19,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from abc import ABC, abstractmethod
 import logging
-import numpy as np
+from abc import ABC, abstractmethod
 from typing import Sequence
+
+import numpy as np
 
 from .bbox import Box
 from .component import FactorizedComponent
@@ -30,14 +31,8 @@ from .detect import bounds_to_bbox, get_detect_wavelets
 from .image import Image
 from .measure import calculate_snr
 from .observation import Observation
-from .operators import (
-    prox_monotonic_mask,
-    prox_uncentered_symmetry,
-    Monotonicity,
-)
-
+from .operators import Monotonicity, prox_monotonic_mask, prox_uncentered_symmetry
 from .source import Source
-
 
 logger = logging.getLogger("scarlet.lite.initialization")
 

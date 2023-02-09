@@ -22,16 +22,15 @@
 import os
 
 import numpy as np
-from numpy.testing import assert_array_equal
-
 from lsst.scarlet.lite import Image
 from lsst.scarlet.lite.operators import (
-    prox_connected,
     Monotonicity,
+    prox_connected,
     prox_monotonic_mask,
     prox_sdss_symmetry,
     prox_uncentered_symmetry,
 )
+from numpy.testing import assert_array_equal
 from utils import ScarletTestCase
 
 

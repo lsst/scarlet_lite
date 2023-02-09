@@ -21,7 +21,7 @@
 
 __all__ = ["FitPsfObservation", "FitPsfBlend"]
 
-from typing import Sequence, cast, Callable
+from typing import Callable, Sequence, cast
 
 import numpy as np
 

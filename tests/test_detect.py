@@ -22,24 +22,22 @@
 import os
 
 import numpy as np
-from numpy.testing import assert_array_equal
-
 from lsst.scarlet.lite import Box, Image
-from lsst.scarlet.lite.utils import integrated_circular_gaussian
-from lsst.scarlet.lite.detect_pybind11 import (
-    get_connected_pixels,
-    get_connected_multipeak,
-    get_footprints,
-    Footprint,
-    Peak,
-)
 from lsst.scarlet.lite.detect import (
     bounds_to_bbox,
-    scarlet_footprints_to_image,
-    get_wavelets,
     get_detect_wavelets,
+    get_wavelets,
+    scarlet_footprints_to_image,
 )
-
+from lsst.scarlet.lite.detect_pybind11 import (
+    Footprint,
+    Peak,
+    get_connected_multipeak,
+    get_connected_pixels,
+    get_footprints,
+)
+from lsst.scarlet.lite.utils import integrated_circular_gaussian
+from numpy.testing import assert_array_equal
 from utils import ScarletTestCase
 
 

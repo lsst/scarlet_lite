@@ -21,14 +21,13 @@
 
 import operator
 
-import numpy as np
-from numpy.testing import assert_array_equal, assert_almost_equal
-from scipy.signal import convolve as scipy_convolve
-
 import lsst.scarlet.lite.fft as fft
+import numpy as np
 from lsst.scarlet.lite import Fourier
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
-from utils import get_psfs, ScarletTestCase
+from numpy.testing import assert_almost_equal, assert_array_equal
+from scipy.signal import convolve as scipy_convolve
+from utils import ScarletTestCase, get_psfs
 
 
 class TestFourier(ScarletTestCase):

@@ -21,12 +21,11 @@
 
 __all__ = ["Fourier"]
 
+import operator
 from typing import Callable, Sequence, TypeVar
 
 import numpy as np
 from scipy import fftpack
-import operator
-
 
 TFourier = TypeVar("TFourier", bound="Fourier")
 

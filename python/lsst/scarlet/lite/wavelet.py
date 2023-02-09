@@ -27,7 +27,7 @@ __all__ = [
     "get_multiresolution_support",
 ]
 
-from typing import Iterable, Callable
+from typing import Callable, Iterable
 
 import numpy as np
 import numpy.typing as npt

@@ -22,16 +22,15 @@
 from typing import Callable
 
 import numpy as np
-from numpy.testing import assert_almost_equal, assert_array_equal
-
 from lsst.scarlet.lite import Box, Image, Parameter
 from lsst.scarlet.lite.component import (
     Component,
     FactorizedComponent,
-    default_fista_parameterization,
     default_adaprox_parameterization,
+    default_fista_parameterization,
 )
 from lsst.scarlet.lite.operators import Monotonicity
+from numpy.testing import assert_almost_equal, assert_array_equal
 from utils import ScarletTestCase
 
 

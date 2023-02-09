@@ -25,9 +25,8 @@ import numpy as np
 
 from ..bbox import Box
 from ..component import FactorizedComponent
-from ..parameters import Parameter
-
 from ..detect import scarlet_footprints_to_image
+from ..parameters import Parameter
 
 
 class FreeFormComponent(FactorizedComponent):

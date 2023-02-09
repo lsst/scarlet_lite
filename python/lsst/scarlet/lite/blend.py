@@ -21,7 +21,7 @@
 
 __all__ = ["Blend"]
 
-from typing import cast, Callable, Sequence, TypeVar
+from typing import Callable, Sequence, TypeVar, cast
 
 import numpy as np
 
@@ -30,7 +30,6 @@ from .component import Component, FactorizedComponent
 from .image import Image
 from .observation import Observation
 from .source import Source
-
 
 TBlend = TypeVar("TBlend", bound="Blend")
 

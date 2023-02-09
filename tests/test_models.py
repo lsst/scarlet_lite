@@ -19,34 +19,32 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from functools import partial
 import os
+from functools import partial
 from typing import cast
 
+import lsst.scarlet.lite.models as models
 import numpy as np
-from numpy.testing import assert_array_equal
-
-from lsst.scarlet.lite import Blend, Box, Image, Observation, Source, FistaParameter
+from lsst.scarlet.lite import Blend, Box, FistaParameter, Image, Observation, Source
 from lsst.scarlet.lite.component import (
+    Component,
     default_adaprox_parameterization,
     default_fista_parameterization,
-    Component,
 )
 from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
 from lsst.scarlet.lite.models import (
     CartesianFrame,
     EllipseFrame,
-    FreeFormComponent,
-    ParametricComponent,
     EllipticalParametricComponent,
     FitPsfBlend,
     FitPsfObservation,
+    FreeFormComponent,
+    ParametricComponent,
 )
-import lsst.scarlet.lite.models as models
 from lsst.scarlet.lite.operators import Monotonicity
-from lsst.scarlet.lite.parameters import AdaproxParameter, relative_step, parameter
+from lsst.scarlet.lite.parameters import AdaproxParameter, parameter, relative_step
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
-
+from numpy.testing import assert_array_equal
 from utils import ScarletTestCase
 
 

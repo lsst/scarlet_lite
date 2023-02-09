@@ -19,21 +19,19 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from unittest import TestCase
 import sys
 import traceback
 from typing import Sequence
+from unittest import TestCase
 
 import numpy as np
-from numpy.testing import assert_array_equal, assert_almost_equal
-from scipy.signal import convolve as scipy_convolve
-
 from lsst.scarlet.lite.bbox import Box
 from lsst.scarlet.lite.fft import match_psf
 from lsst.scarlet.lite.image import Image
 from lsst.scarlet.lite.observation import Observation
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
-
+from numpy.testing import assert_almost_equal, assert_array_equal
+from scipy.signal import convolve as scipy_convolve
 
 __all__ = ["get_psfs", "ObservationData", "ScarletTestCase"]
 
