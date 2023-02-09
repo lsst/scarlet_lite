@@ -597,7 +597,7 @@ class TestImage(ScarletTestCase):
         data = np.arange(60).reshape(3, 4, 5)
         img = Image(data, bands=tuple("gri"))
         result = img.project(tuple("gi"))
-        truth = data[(0, 2),]
+        truth = data[(0, 2), :]
         self.assertImageEqual(result, Image(truth, bands=tuple("gi")))
 
     def test_repeat(self):
