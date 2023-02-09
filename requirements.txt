@@ -3,7 +3,5 @@ pybind11
 pydantic
 pytest
 scipy
-
-[plotting]
 matplotlib
 astropy
