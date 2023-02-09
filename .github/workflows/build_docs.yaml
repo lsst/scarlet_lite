@@ -26,6 +26,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install wheel
 
+      - name: install peigen to access EIGEN headers
+        run: pip install peigen
+
       - name: Install dependencies
         run: |
           pip install -r requirements.txt

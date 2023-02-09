@@ -29,6 +29,9 @@ jobs:
       - name: Install prereqs for setuptools
         run: pip install wheel
 
+      - name: install peigen to access EIGEN headers
+        run: pip install peigen
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
