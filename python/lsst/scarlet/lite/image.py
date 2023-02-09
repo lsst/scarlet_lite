@@ -628,9 +628,7 @@ class Image:
             bands = self.bands
         if self.is_multiband:
             indices = self.spectral_indices(bands)
-            data = self.data[
-                indices,
-            ]
+            data = self.data[indices, :]
         else:
             data = self.data
 
