@@ -165,7 +165,9 @@ class TestParametric(ScarletTestCase):
             self.model_psf[None],
             bands=bands,
         )
-        del data
+
+    def tearDown(self):
+        del self.data
 
     def test_cartesian_frame(self):
         bbox = Box((31, 60), (1, 2))
