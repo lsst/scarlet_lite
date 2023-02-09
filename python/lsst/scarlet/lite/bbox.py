@@ -38,8 +38,9 @@ class Box:
     however the bounding `Box` code is agnostic as to number of dimensions
     or the meaning of those dimensions.
 
-    Constructors
-    ============
+    Examples
+    --------
+
     At a minimum a new `Box` can be initialized using the ``shape`` of the
     region it describes:
 
@@ -72,9 +73,6 @@ class Box:
     >>> bbox = Box.from_data(data, 1e-2)
     >>> print(bbox)
     <Box shape=(5, 5), origin=(5, 5)>
-
-    Convenience Methods
-    -------------------
 
     The `Box` class contains a number of convenience methods that can be used
     to extract subsets of an array, combine bounding boxes, etc.

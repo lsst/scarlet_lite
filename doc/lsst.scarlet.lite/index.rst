@@ -18,8 +18,8 @@ toctree linking to topics related to using the module's APIs.
 .. toctree::
    :maxdepth: 2
 
-    getting_started
-    detection
+   getting_started
+   detection
 
 .. _lsst.scarlet.lite-contributing:
 
@@ -40,14 +40,5 @@ Python API reference
 ====================
 
 .. automodapi:: lsst.scarlet.lite
-   :no-main-docstr:
-   :no-inheritance-diagram:
-
-
-.. automodapi:: lsst.scarlet.lite.callStack
-   :no-main-docstr:
-   :no-inheritance-diagram:
-
-.. automodapi:: lsst.scarlet.lite.history
    :no-main-docstr:
    :no-inheritance-diagram:

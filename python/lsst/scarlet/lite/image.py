@@ -92,8 +92,8 @@ class Image:
     it is consistent with the ordering in the original scarlet package and
     ensures the consistency of scarlet lite images and python index slicing.
 
-    Constructors
-    ============
+    Examples
+    --------
 
     The easiest way to create a new image is to use ``Image(numpy_array)``,
     for example
@@ -158,9 +158,6 @@ class Image:
       [0. 0. 0. 0.]]]
       bands=('r', 'i')
       bbox=<Box shape=(3, 4), origin=(0, 0)>
-
-    Slicing and Indexing
-    ====================
 
     To select a sub-image use a ``Box`` to select a spatial region in either a
     single-band or multi-band image:
@@ -253,9 +250,6 @@ class Image:
 
 
     will return a new image with the bands re-ordered.
-
-    Arithmetic
-    ==========
 
     Images can be combined using the standard arithmetic operations similar to
     numpy arrays, including ``+, -, *, /, **`` etc, however, if two images are
