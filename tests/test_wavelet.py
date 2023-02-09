@@ -40,6 +40,9 @@ class TestWavelet(ScarletTestCase):
         filename = os.path.abspath(filename)
         self.data = np.load(filename)
 
+    def tearDown(self) -> None:
+        del self.data
+
     def test_transform_inverse(self):
         image = np.sum(self.data["images"].astype(float), axis=0)
         starlets = starlet_transform(image, scales=3)

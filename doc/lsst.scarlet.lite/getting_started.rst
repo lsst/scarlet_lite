@@ -53,6 +53,8 @@ All of the necessary difference kernels and other primitives needed to perform r
 ...     model_psf[None],  # the PSF of the model space
 ...     bands=data["filters"],  # the name of each band
 ... )
+>>> # Remove the
+>>> del data
 
 .. warning::
 

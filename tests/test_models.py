@@ -78,6 +78,7 @@ class TestFreeForm(ScarletTestCase):
             model_psf[None],
             bands=bands,
         )
+        del data
 
     def test_free_form_component(self):
         images = self.data["images"]
@@ -164,6 +165,7 @@ class TestParametric(ScarletTestCase):
             self.model_psf[None],
             bands=bands,
         )
+        del data
 
     def test_cartesian_frame(self):
         bbox = Box((31, 60), (1, 2))
