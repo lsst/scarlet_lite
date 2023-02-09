@@ -49,7 +49,7 @@ jobs:
 
       - name: Run tests
         run: >
-          pytest -r a -v -n 3 --open-files --cov=tests --cov=lsst.pex.config
+          pytest -r a -v -n 3 --open-files --cov=tests --cov=lsst.scarlet.lite
           --cov-report=xml --cov-report=term
           --doctest-modules --doctest-glob="*.rst"
 
