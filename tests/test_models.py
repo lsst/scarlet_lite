@@ -78,7 +78,9 @@ class TestFreeForm(ScarletTestCase):
             model_psf[None],
             bands=bands,
         )
-        del data
+
+    def tearDown(self):
+        del self.data
 
     def test_free_form_component(self):
         images = self.data["images"]

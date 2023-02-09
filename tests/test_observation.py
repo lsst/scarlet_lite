@@ -85,6 +85,9 @@ class TestObservation(ScarletTestCase):
         self.psfs = psfs
         self.bands = bands
 
+    def tearDown(self):
+        del self.data
+
     def test_real_convolution_function(self):
         """Test that real space convolution works"""
         images = self.data.images
