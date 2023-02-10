@@ -477,7 +477,7 @@ class Image:
     @property
     def slices(
         self,
-    ) -> dict[tuple[tuple[int, ...], tuple[int, ...]], tuple[tuple[slice, ...], tuple[slice, ...]],]:
+    ) -> dict[tuple[tuple[int, ...], tuple[int, ...]], tuple[tuple[slice, ...], tuple[slice, ...]]]:
         """Dictionary of cached slices to insert this image into another
         image.
         """
