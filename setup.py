@@ -33,11 +33,16 @@ This is not a complete definition.
 """
 
 import glob
+import os
 
 # Importing this automatically enables parallelized builds
 import numpy.distutils.ccompiler  # noqa: F401
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 from setuptools import setup
+
+eigen_path = None
+if "EIGEN_DIR" in os.environ:
+    eigen_path = os.environ["EIGEN_DIR"]
 
 
 class GetEigenInclude(object):
@@ -51,9 +56,14 @@ class GetEigenInclude(object):
         self.user = user
 
     def __str__(self):
-        import peigen
+        if "EIGEN_INCLUDE" in os.environ:
+            return os.environ["EIGEN_INCLUDE"]
+        if eigen_path is not None:
+            return os.path.join(os.environ["EIGEN_DIR"], "include")
+        else:
+            import peigen
 
-        return peigen.header_path
+            return peigen.header_path
 
 
 # Find the source code -- we can combine it into a single module
