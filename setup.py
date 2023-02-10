@@ -69,7 +69,10 @@ class GetEigenInclude(object):
 # Find the source code -- we can combine it into a single module
 pybind_src = sorted(glob.glob("python/lsst/scarlet/lite/*.cc"))
 
-ext_modules = [Pybind11Extension("lsst.scarlet.lite", pybind_src, include_dirs=[GetEigenInclude()])]
+ext_modules = [
+    Pybind11Extension("lsst.scarlet.lite.detect_pybind11", pybind_src, include_dirs=[GetEigenInclude()]),
+    Pybind11Extension("lsst.scarlet.lite.operators_pybind11", pybind_src, include_dirs=[GetEigenInclude()]),
+]
 
 setup(
     ext_modules=ext_modules,
