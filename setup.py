@@ -71,7 +71,13 @@ pybind_src = sorted(glob.glob("python/lsst/scarlet/lite/*.cc"))
 
 ext_modules = [Pybind11Extension("lsst.scarlet.lite", pybind_src, include_dirs=[GetEigenInclude()])]
 
+install_requires = []
+
+if eigen_path is None:
+    install_requires.append("peigen>=0.0.9")
+
 setup(
+    install_requires=install_requires,
     ext_modules=ext_modules,
     cmdclass={"build_ext": build_ext},
 )
