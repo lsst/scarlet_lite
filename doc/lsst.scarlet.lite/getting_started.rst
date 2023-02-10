@@ -228,3 +228,5 @@ It can also be useful to check convergence by plotting the log likelihood in eac
 >>> plt.plot(blend.loss) # doctest: +ELLIPSIS
 [...]
 >>> plt.show() # doctest: +SKIP
+>>> # The following line is added to prevent an error when testing the doc code
+>>> plt.close()
