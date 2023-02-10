@@ -39,10 +39,27 @@ import numpy.distutils.ccompiler  # noqa: F401
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 from setuptools import setup
 
+
+class get_eigen_include(object):
+    """Helper class to determine the peigen include path
+    The purpose of this class is to postpone importing peigen
+    until it is actually installed, so that the ``get_include()``
+    method can be invoked.
+    """
+
+    def __init__(self, user=False):
+        self.user = user
+
+    def __str__(self):
+        import peigen
+
+        return peigen.header_path
+
+
 # Find the source code -- we can combine it into a single module
 pybind_src = sorted(glob.glob("python/lsst/scarlet/lite/*.cc"))
 
-ext_modules = [Pybind11Extension("lsst.scarlet.lite", pybind_src)]
+ext_modules = [Pybind11Extension("lsst.scarlet.lite", pybind_src, include_dirs=[get_eigen_include()])]
 
 setup(
     ext_modules=ext_modules,

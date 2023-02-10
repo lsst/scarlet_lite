@@ -28,7 +28,7 @@ jobs:
           pip install wheel
 
       - name: Build and install
-        run: pip install --upgrade pip setuptools "flake8<5" -v -e .[yaml,test,eigen]
+        run: pip install -v -e .[yaml,test,eigen]
 
       - name: Install documenteer
         run: pip install 'documenteer[pipelines]<0.7'
