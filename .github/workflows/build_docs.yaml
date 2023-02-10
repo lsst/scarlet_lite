@@ -26,15 +26,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install wheel
 
-      - name: install peigen to access EIGEN headers
-        run: pip install peigen
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-
       - name: Build and install
-        run: pip install -v .
+        run: pip install -v -e .[yaml,test]
 
       - name: Install documenteer
         run: pip install 'documenteer[pipelines]<0.7'

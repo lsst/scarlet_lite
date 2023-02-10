@@ -29,12 +29,6 @@ jobs:
       - name: Install prereqs for setuptools
         run: pip install wheel
 
-      - name: install peigen to access EIGEN headers
-        run: pip install peigen
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
       # We have two cores so we can speed up the testing with xdist
       - name: Install xdist, openfiles and flake8 for pytest
         run: >
@@ -42,7 +36,7 @@ jobs:
           pytest-cov "flake8<5"
 
       - name: Build and install
-        run: pip install -v -e .
+        run: pip install -v -e .[yaml,test]
 
       - name: Install documenteer
         run: pip install 'documenteer[pipelines]<0.7'
