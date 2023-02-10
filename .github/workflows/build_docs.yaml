@@ -28,7 +28,7 @@ jobs:
           pip install wheel
 
       - name: Build and install
-        run: pip install -v -e .
+        run: pip install -v .
 
       - name: Show compiled files
         run: ls python/lsst/scarlet/lite
