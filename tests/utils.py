@@ -140,24 +140,15 @@ class ObservationData:
         images = np.zeros((3, 35, 35), dtype=float)
         spectral_box = Box((len(bands),))
         for spectrum, center, morph, bbox in zip(spectra, centers, morphs, boxes):
-            images[(spectral_box @ bbox).slices] += (
-                spectrum[:, None, None] * morph[None, :, :]
-            )
+            images[(spectral_box @ bbox).slices] += spectrum[:, None, None] * morph[None, :, :]
 
         diff_kernel = match_psf(psfs, model_psf[None], padding=3)
-        convolved = np.array(
-            [
-                scipy_convolve(images[b], diff_kernel.image[b], mode="same")
-                for b in range(3)
-            ]
-        )
+        convolved = np.array([scipy_convolve(images[b], diff_kernel.image[b], mode="same") for b in range(3)])
 
         self.images = Image(images, bands=bands)
         self.convolved = Image(convolved, bands=bands)
         self.diff_kernel = diff_kernel
-        self.morphs = [
-            Image(morph, yx0=origin) for morph, origin in zip(morphs, origins)
-        ]
+        self.morphs = [Image(morph, yx0=origin) for morph, origin in zip(morphs, origins)]
 
 
 class ScarletTestCase(TestCase):
@@ -173,17 +164,11 @@ class ScarletTestCase(TestCase):
             msg = f"Box origins differ: {bbox.origin}!={truth.origin}"
             raise AssertionError(msg)
 
-    def assertImageAlmostEqual(
-        self, image: Image, truth: Image, decimal: int = 7
-    ):  # noqa: N802
+    def assertImageAlmostEqual(self, image: Image, truth: Image, decimal: int = 7):  # noqa: N802
         if not isinstance(image, Image):
-            raise AssertionError(
-                f"image is a {type(image)}, not a lsst.scarlet.lite `Image`"
-            )
+            raise AssertionError(f"image is a {type(image)}, not a lsst.scarlet.lite `Image`")
         if not isinstance(truth, Image):
-            raise AssertionError(
-                f"truth is a {type(truth)}, not a lsst.scarlet.lite `Image`"
-            )
+            raise AssertionError(f"truth is a {type(truth)}, not a lsst.scarlet.lite `Image`")
 
         try:
             self.assertTupleEqual(image.bands, truth.bands)
