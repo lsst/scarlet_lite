@@ -30,6 +30,9 @@ jobs:
       - name: Build and install
         run: pip install -v -e .[yaml,test]
 
+      - name: Show compiled files
+        run: ls python/lsst/scarlet/lite
+
       - name: Install documenteer
         run: pip install 'documenteer[pipelines]<0.7'
 
