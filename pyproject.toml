@@ -44,6 +44,7 @@ test = [
 ]
 yaml = ["pyyaml >= 5.1"]
 plotting = ["matplotlib", "astropy"]
+eigen = ["peigen >= 0.0.9"]
 
 [tool.setuptools.packages.find]
 where = ["python"]
