@@ -406,9 +406,9 @@ def uncentered_operator(
         yslice = slice(dy, None)
 
     if fill is not None:
-        _X = np.ones(x.shape, x.dtype) * fill
-        _X[yslice, xslice] = func(x[yslice, xslice], **kwargs)
-        x[:] = _X
+        _x = np.ones(x.shape, x.dtype) * fill
+        _x[yslice, xslice] = func(x[yslice, xslice], **kwargs)
+        x[:] = _x
     else:
         x[yslice, xslice] = func(x[yslice, xslice], **kwargs)
 

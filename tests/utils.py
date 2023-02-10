@@ -28,7 +28,6 @@ import numpy as np
 from lsst.scarlet.lite.bbox import Box
 from lsst.scarlet.lite.fft import match_psf
 from lsst.scarlet.lite.image import Image
-from lsst.scarlet.lite.observation import Observation
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_almost_equal, assert_array_equal
 from scipy.signal import convolve as scipy_convolve
@@ -162,7 +161,7 @@ class ObservationData:
 
 
 class ScarletTestCase(TestCase):
-    def assertBoxEqual(self, bbox: Box, truth: Box):
+    def assertBoxEqual(self, bbox: Box, truth: Box):  # noqa: N802
         try:
             self.assertTupleEqual(bbox.shape, truth.shape)
         except AssertionError:
@@ -174,7 +173,9 @@ class ScarletTestCase(TestCase):
             msg = f"Box origins differ: {bbox.origin}!={truth.origin}"
             raise AssertionError(msg)
 
-    def assertImageAlmostEqual(self, image: Image, truth: Image, decimal: int = 7):
+    def assertImageAlmostEqual(
+        self, image: Image, truth: Image, decimal: int = 7
+    ):  # noqa: N802
         if not isinstance(image, Image):
             raise AssertionError(
                 f"image is a {type(image)}, not a lsst.scarlet.lite `Image`"
@@ -201,9 +202,6 @@ class ScarletTestCase(TestCase):
         # check the values of the images
         assert_almost_equal(image.data, truth.data, decimal=decimal)
 
-    def assertImageEqual(self, image: Image, truth: Image):
+    def assertImageEqual(self, image: Image, truth: Image):  # noqa: N802
         self.assertImageAlmostEqual(image, truth)
         assert_array_equal(image.data, truth.data)
-
-    def assertObservationEqual(self, observation: Observation, truth: Observation):
-        pass
