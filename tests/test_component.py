@@ -116,15 +116,11 @@ class TestFactorizedComponent(ScarletTestCase):
 
     def test_get_model(self):
         component = self.component
-        assert_array_equal(
-            component.get_model(), self.spectrum[:, None, None] * self.morph[None, :, :]
-        )
+        assert_array_equal(component.get_model(), self.spectrum[:, None, None] * self.morph[None, :, :])
 
         # Insert component into a larger model
         full_model = np.zeros(self.full_shape)
-        full_model[:, 22:26, 31:36] = (
-            self.spectrum[:, None, None] * self.morph[None, :, :]
-        )
+        full_model[:, 22:26, 31:36] = self.spectrum[:, None, None] * self.morph[None, :, :]
 
         test_model = Image(np.zeros(self.full_shape), bands=self.bands)
         test_model += component.get_model()
@@ -144,14 +140,10 @@ class TestFactorizedComponent(ScarletTestCase):
                 np.sum(3 * morph**2),
             ]
         )
-        assert_almost_equal(
-            component.grad_spectrum(input_grad, spectrum, morph), true_spectrum_grad
-        )
+        assert_almost_equal(component.grad_spectrum(input_grad, spectrum, morph), true_spectrum_grad)
 
         true_morph_grad = np.sum(input_grad * spectrum[:, None, None], axis=0)
-        assert_almost_equal(
-            component.grad_morph(input_grad, morph, spectrum), true_morph_grad
-        )
+        assert_almost_equal(component.grad_morph(input_grad, morph, spectrum), true_morph_grad)
 
     def test_proximal_operators(self):
         # Test spectrum positivity, morph threshold, and monotonicity
@@ -235,9 +227,7 @@ class TestFactorizedComponent(ScarletTestCase):
 
     def test_parameterization(self):
         component = self.component
-        assert_array_equal(
-            component.get_model(), self.spectrum[:, None, None] * self.morph[None, :, :]
-        )
+        assert_array_equal(component.get_model(), self.spectrum[:, None, None] * self.morph[None, :, :])
 
         component.parameterize(default_fista_parameterization)
         helpers = set(component._morph.helpers.keys())

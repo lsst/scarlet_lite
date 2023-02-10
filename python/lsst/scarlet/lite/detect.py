@@ -84,9 +84,7 @@ class Footprint:  # noqa: F811
         return footprint1 | footprint2
 
 
-def scarlet_footprints_to_image(
-    footprints: Sequence[Footprint], shape: tuple[int, int]
-) -> np.ndarray:
+def scarlet_footprints_to_image(footprints: Sequence[Footprint], shape: tuple[int, int]) -> np.ndarray:
     """Convert a set of scarlet footprints to a pixelized image.
 
     Parameters
@@ -109,9 +107,7 @@ def scarlet_footprints_to_image(
     return result
 
 
-def get_wavelets(
-    images: np.ndarray, variance: np.ndarray, scales: int = None
-) -> np.ndarray:
+def get_wavelets(images: np.ndarray, variance: np.ndarray, scales: int = None) -> np.ndarray:
     """Calculate wavelet coefficents given a set of images and their variances
 
     Parameters
@@ -145,9 +141,7 @@ def get_wavelets(
     return np.array(coeffs)
 
 
-def get_detect_wavelets(
-    images: np.ndarray, variance: np.ndarray, scales: int = 3
-) -> np.ndarray:
+def get_detect_wavelets(images: np.ndarray, variance: np.ndarray, scales: int = 3) -> np.ndarray:
     """Get an array of wavelet coefficents to use for detection
 
     Parameters

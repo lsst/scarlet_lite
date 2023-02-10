@@ -143,11 +143,7 @@ class TestDetect(ScarletTestCase):
         self.assertEqual(footprints[2].peaks[0].y, self.centers[2][0])
         self.assertEqual(footprints[2].peaks[0].x, self.centers[2][1])
 
-        truth = (
-            1 * self.sources[3]
-            + 2 * (self.sources[0] + self.sources[1])
-            + 3 * self.sources[2]
-        )
+        truth = 1 * self.sources[3] + 2 * (self.sources[0] + self.sources[1]) + 3 * self.sources[2]
         truth.data[truth.data < 1e-15] = 0
         fp_image = scarlet_footprints_to_image(footprints, truth.shape)
         assert_array_equal(fp_image, truth.data)
@@ -167,11 +163,7 @@ class TestDetect(ScarletTestCase):
             self.sources[0].bbox.start[1],
             self.sources[0].bbox.stop[1],
         ]
-        peaks = [
-            Peak(
-                self.centers[0][0], self.centers[0][1], self.image.data[self.centers[0]]
-            )
-        ]
+        peaks = [Peak(self.centers[0][0], self.centers[0][1], self.image.data[self.centers[0]])]
         footprint1 = Footprint(footprint, peaks, bounds)
         footprint = self.sources[1].data
         footprint[footprint < 1e-15] = 0
@@ -181,11 +173,7 @@ class TestDetect(ScarletTestCase):
             self.sources[1].bbox.start[1],
             self.sources[1].bbox.stop[1],
         ]
-        peaks = [
-            Peak(
-                self.centers[1][0], self.centers[1][1], self.image.data[self.centers[1]]
-            )
-        ]
+        peaks = [Peak(self.centers[1][0], self.centers[1][1], self.image.data[self.centers[1]])]
         footprint2 = Footprint(footprint, peaks, bounds)
 
         truth = self.sources[0] + self.sources[1]

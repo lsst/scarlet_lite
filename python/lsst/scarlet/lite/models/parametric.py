@@ -206,9 +206,7 @@ class EllipseFrame(CartesianFrame):
         result:
             The gradient of the likelihood wrt y0.
         """
-        grad = -(
-            self._xa * self._sin / self._major + self._yb * self._cos / self._minor
-        )
+        grad = -(self._xa * self._sin / self._major + self._yb * self._cos / self._minor)
         if use_r2:
             grad *= 2
         else:
@@ -283,10 +281,7 @@ class EllipseFrame(CartesianFrame):
         result:
             The gradient of the likelihood wrt the rotation angle.
         """
-        grad = (
-            self._xa * self._xMinor / self._major
-            - self._yb * self._xMajor / self._minor
-        )
+        grad = self._xa * self._xMinor / self._major - self._yb * self._xMajor / self._minor
         if use_r2:
             grad *= 2
         else:
@@ -390,9 +385,7 @@ def grad_gaussian2(
     return np.array([d_y0, d_x0, d_sigma_y, d_sigma_x, d_theta], dtype=params.dtype)
 
 
-def circular_gaussian(
-    center: Sequence[int], frame: CartesianFrame, sigma: float
-) -> np.ndarray:
+def circular_gaussian(center: Sequence[int], frame: CartesianFrame, sigma: float) -> np.ndarray:
     """Model of a circularly symmetric Gaussian
 
     Parameters
@@ -534,9 +527,7 @@ def grad_integrated_gaussian(
     return np.array([d_y0, d_x0, d_sigma])
 
 
-def bounded_prox(
-    params: np.ndarray, proxmin: np.ndarray, proxmax: np.ndarray
-) -> np.ndarray:
+def bounded_prox(params: np.ndarray, proxmin: np.ndarray, proxmax: np.ndarray) -> np.ndarray:
     """A bounded proximal operator
 
     This function updates `params` in place.
@@ -622,23 +613,14 @@ def grad_sersic(
         d_exp = -bn / n * morph * r ** (1 / n - 1)
 
     _grad = np.einsum("i,i...", spectrum, input_grad)
-    d_n = np.sum(
-        _grad
-        * bn
-        * morph
-        * ellipse.r_grid ** (1 / n)
-        * np.log10(ellipse.r_grid)
-        / n**2
-    )
+    d_n = np.sum(_grad * bn * morph * ellipse.r_grid ** (1 / n) * np.log10(ellipse.r_grid) / n**2)
     _grad = _grad * d_exp
     d_y0 = ellipse.grad_y0(_grad, False)
     d_x0 = ellipse.grad_x0(_grad, False)
     d_sigma_y = ellipse.grad_major(_grad, False)
     d_sigma_x = ellipse.grad_minor(_grad, False)
     d_theta = ellipse.grad_theta(_grad, False)
-    return np.array(
-        [d_y0, d_x0, d_sigma_y, d_sigma_x, d_theta, d_n], dtype=params.dtype
-    )
+    return np.array([d_y0, d_x0, d_sigma_y, d_sigma_x, d_theta, d_n], dtype=params.dtype)
 
 
 class ParametricComponent(Component):
@@ -795,9 +777,7 @@ class ParametricComponent(Component):
         spectrum[spectrum < self.floor] = self.floor
         return spectrum
 
-    def grad_spectrum(
-        self, input_grad: np.ndarray, spectrum: np.ndarray, morph: np.ndarray
-    ) -> np.ndarray:
+    def grad_spectrum(self, input_grad: np.ndarray, spectrum: np.ndarray, morph: np.ndarray) -> np.ndarray:
         """Gradient of the spectrum wrt. the component model
 
         Parameters

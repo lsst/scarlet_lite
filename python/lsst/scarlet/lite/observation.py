@@ -35,9 +35,7 @@ from .image import Image
 TObservation = TypeVar("TObservation", bound="Observation")
 
 
-def get_filter_coords(
-    filter_values: np.ndarray, center: tuple[int, int] = None
-) -> np.ndarray:
+def get_filter_coords(filter_values: np.ndarray, center: tuple[int, int] = None) -> np.ndarray:
     """Create filter coordinate grid needed for the apply filter function
 
     Parameters
@@ -129,9 +127,7 @@ def convolve(image: np.ndarray, psf: np.ndarray, bounds: tuple[int, int, int, in
     return result
 
 
-def _set_image_like(
-    images: np.ndarray | Image, bands: tuple | None = None, bbox: Box | None = None
-) -> Image:
+def _set_image_like(images: np.ndarray | Image, bands: tuple | None = None, bbox: Box | None = None) -> Image:
     """Ensure that an image-like array is cast appropriately as an image
 
      Parameters

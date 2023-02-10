@@ -183,9 +183,7 @@ def multifit_spectra(
 
     for b in range(n_bands):
         a = np.vstack(morph_images[b]).T
-        spectra[:, b] = np.linalg.lstsq(
-            a, image[observation.bands[b]].data.flatten(), rcond=None
-        )[0]
+        spectra[:, b] = np.linalg.lstsq(a, image[observation.bands[b]].data.flatten(), rcond=None)[0]
     spectra[spectra < 0] = 0
     return spectra
 
@@ -233,9 +231,7 @@ class FactorizedInitialization(ABC):
         # Convolve the PSF in order to set the spectrum
         # of a point source correctly.
         model_psf = Image(observation.model_psf[0])
-        self.convolved_psf = observation.convolve(
-            model_psf.repeat(observation.bands), mode="real"
-        ).data
+        self.convolved_psf = observation.convolve(model_psf.repeat(observation.bands), mode="real").data
         # Get the "spectrum" of the PSF
         self.py = model_psf.shape[0] // 2
         self.px = model_psf.shape[1] // 2
@@ -623,16 +619,12 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
         nbr_components = self.get_snr(center)
         observation = self.observation
 
-        if (nbr_components < 1 and self.use_psf) or self.detectlets[
-            center[0], center[1]
-        ] <= 0:
+        if (nbr_components < 1 and self.use_psf) or self.detectlets[center[0], center[1]] <= 0:
             # Initialize the source as an PSF source
             components = [self.get_psf_component(center)]
         elif nbr_components < 2:
             # Inititialize with a single component
-            components = [
-                self.get_single_component(center, self.detectlets, 0, self.disk_grow)
-            ]
+            components = [self.get_single_component(center, self.detectlets, 0, self.disk_grow)]
         else:
             # Initialize with a 2 component model
             bulge_box, bulge_morph = init_monotonic_morph(
@@ -647,11 +639,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                         return None
                 # One of the components was null,
                 # so initialize as a single component
-                components = [
-                    self.get_single_component(
-                        center, self.detectlets, 0, self.disk_grow
-                    )
-                ]
+                components = [self.get_single_component(center, self.detectlets, 0, self.disk_grow)]
             else:
                 bulge_morph = bulge_morph[bulge_box.slices]
                 disk_morph = disk_morph[disk_box.slices]

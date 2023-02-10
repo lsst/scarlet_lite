@@ -120,11 +120,7 @@ class TestFreeForm(ScarletTestCase):
 
         # Test with peak centers specified
         sources = []
-        peaks = list(
-            np.array([self.data["catalog"]["y"], self.data["catalog"]["x"]]).T.astype(
-                int
-            )
-        )
+        peaks = list(np.array([self.data["catalog"]["y"], self.data["catalog"]["x"]]).T.astype(int))
         for i in range(5):
             component = FreeFormComponent(
                 self.observation.bands,
@@ -262,9 +258,7 @@ class TestParametric(ScarletTestCase):
             yi, xi = cy, cx
             # Restrict the values of the parameters
             _proxmin = np.array([yi - 2, xi - 2, 1e-1, 1e-1, -np.pi / 2, 1.1])
-            _proxmax = np.array(
-                [yi + 2, xi + 2, frame.shape[-2] / 2, frame.shape[-1] / 2, np.pi / 2, 3]
-            )
+            _proxmax = np.array([yi + 2, xi + 2, frame.shape[-2] / 2, frame.shape[-1] / 2, np.pi / 2, 3])
 
             __proxmin = np.array([yi - 2, xi - 2, 0.8])
             __proxmax = np.array([yi + 2, xi + 2, 1.2])
@@ -278,9 +272,7 @@ class TestParametric(ScarletTestCase):
                 morph_params=parameter(np.array([center[0], center[1], 0.8])),
                 morph_func=models.integrated_gaussian,
                 morph_grad=models.grad_integrated_gaussian,
-                morph_prox=partial(
-                    models.bounded_prox, proxmin=__proxmin, proxmax=__proxmax
-                ),
+                morph_prox=partial(models.bounded_prox, proxmin=__proxmin, proxmax=__proxmax),
                 morph_step=np.array([1e-2, 1e-2, 1e-2]),
                 prox_spectrum=lambda x: x,
             )
@@ -292,14 +284,10 @@ class TestParametric(ScarletTestCase):
                 bands,
                 bbox,
                 spectrum=parameter(spectrum.copy()),
-                morph_params=parameter(
-                    np.array([center[0], center[1], 2 * 1.2**2, 2 * 1.2**2, 0.0, 1])
-                ),
+                morph_params=parameter(np.array([center[0], center[1], 2 * 1.2**2, 2 * 1.2**2, 0.0, 1])),
                 morph_func=models.sersic,
                 morph_grad=models.grad_sersic,
-                morph_prox=partial(
-                    models.bounded_prox, proxmin=_proxmin, proxmax=_proxmax
-                ),
+                morph_prox=partial(models.bounded_prox, proxmin=_proxmin, proxmax=_proxmax),
                 morph_step=np.array([1e-2, 1e-2, 1e-3, 1e-3, 1e-2, 1e-2]),
             )
             # Define the component to use ADAPROX as the optimizer
@@ -309,14 +297,10 @@ class TestParametric(ScarletTestCase):
                 bands,
                 bbox,
                 spectrum=parameter(spectrum.copy()),
-                morph_params=parameter(
-                    np.array([center[0], center[1], 2 * 1.2**2, 2 * 1.2**2, 0.0, 1])
-                ),
+                morph_params=parameter(np.array([center[0], center[1], 2 * 1.2**2, 2 * 1.2**2, 0.0, 1])),
                 morph_func=models.sersic,
                 morph_grad=models.grad_sersic,
-                morph_prox=partial(
-                    models.bounded_prox, proxmin=_proxmin, proxmax=_proxmax
-                ),
+                morph_prox=partial(models.bounded_prox, proxmin=_proxmin, proxmax=_proxmax),
                 morph_step=np.array([1e-2, 1e-2, 1e-3, 1e-3, 1e-2, 1e-2]),
             )
             # Define the component to use ADAPROX as the optimizer
@@ -363,9 +347,7 @@ class TestParametric(ScarletTestCase):
             yi, xi = cy, cx
             # Restrict the values of the parameters
             _proxmin = np.array([yi - 2, xi - 2, 1e-1, 1e-1, -np.pi / 2])
-            _proxmax = np.array(
-                [yi + 2, xi + 2, frame.shape[-2] / 2, frame.shape[-1] / 2, np.pi / 2]
-            )
+            _proxmax = np.array([yi + 2, xi + 2, frame.shape[-2] / 2, frame.shape[-1] / 2, np.pi / 2])
 
             __proxmin = np.array([yi - 2, xi - 2])
             __proxmax = np.array([yi + 2, xi + 2])
@@ -379,9 +361,7 @@ class TestParametric(ScarletTestCase):
                 morph_params=parameter(np.array([center[0], center[1]])),
                 morph_func=partial(models.circular_gaussian, sigma=0.8),
                 morph_grad=partial(models.grad_circular_gaussian, sigma=0.8),
-                morph_prox=partial(
-                    models.bounded_prox, proxmin=__proxmin, proxmax=__proxmax
-                ),
+                morph_prox=partial(models.bounded_prox, proxmin=__proxmin, proxmax=__proxmax),
                 morph_step=np.array([1e-2, 1e-2, 1e-2]),
             )
             # Define the component to use ADAPROX as the optimizer
@@ -392,14 +372,10 @@ class TestParametric(ScarletTestCase):
                 bands,
                 bbox,
                 spectrum=parameter(spectrum.copy()),
-                morph_params=parameter(
-                    np.array([center[0], center[1], 2 * 1.2**2, 2 * 1.2**2, 0.0])
-                ),
+                morph_params=parameter(np.array([center[0], center[1], 2 * 1.2**2, 2 * 1.2**2, 0.0])),
                 morph_func=models.gaussian2d,
                 morph_grad=models.grad_gaussian2,
-                morph_prox=partial(
-                    models.bounded_prox, proxmin=_proxmin, proxmax=_proxmax
-                ),
+                morph_prox=partial(models.bounded_prox, proxmin=_proxmin, proxmax=_proxmax),
                 morph_step=np.array([1e-2, 1e-2, 1e-3, 1e-3, 1e-2, 1e-2]),
             )
             # Define the component to use ADAPROX as the optimizer
@@ -432,9 +408,7 @@ class TestParametric(ScarletTestCase):
             if isinstance(cls, FitPsfObservation):
                 cls._fit_kernel = FistaParameter(cls._fit_kernel.x, step=1e-2)
 
-        init = FactorizedChi2Initialization(
-            observation, self.centers, monotonicity=monotonicity
-        )
+        init = FactorizedChi2Initialization(observation, self.centers, monotonicity=monotonicity)
         blend = FitPsfBlend(init.sources, observation).fit_spectra()
         blend.parameterize(default_fista_parameterization)
         cast(FitPsfObservation, blend.observation).parameterize(obs_params)

@@ -34,9 +34,9 @@ def channels_to_rgb(channels: int) -> np.ndarray:
     channel_map:
         Array (3, `channels`) to map onto RGB.
     """
-    assert channels in range(
-        0, 8
-    ), "No mapping has been implemented for more than {} channels".format(channels)
+    assert channels in range(0, 8), "No mapping has been implemented for more than {} channels".format(
+        channels
+    )
 
     channel_map = np.zeros((3, channels))
     if channels == 1:
@@ -137,9 +137,7 @@ class AsinhPercentileNorm(AsinhMapping):
         super().__init__(minimum=vmin, stretch=stretch, Q=beta)
 
 
-def img_to_3channel(
-    img: np.ndarray, channel_map: np.ndarray = None, fill_value: float = 0
-) -> np.ndarray:
+def img_to_3channel(img: np.ndarray, channel_map: np.ndarray = None, fill_value: float = 0) -> np.ndarray:
     """Convert multi-band image cube into 3 RGB channels
 
     Parameters
@@ -162,9 +160,7 @@ def img_to_3channel(
     elif len(img.shape) == 3:
         img_ = img
     else:
-        raise ValueError(
-            f"Image must have either 2 or 3 dimensions, got {len(img.shape)}"
-        )
+        raise ValueError(f"Image must have either 2 or 3 dimensions, got {len(img.shape)}")
     dimensions = len(img_)
 
     # filterWeights: channel x band
@@ -223,9 +219,7 @@ def img_to_rgb(
     return rgb
 
 
-def show_likelihood(
-    blend: Blend, figsize: tuple[float, float] = None, **kwargs
-) -> matplotlib.pyplot.Figure:
+def show_likelihood(blend: Blend, figsize: tuple[float, float] = None, **kwargs) -> matplotlib.pyplot.Figure:
     """Display a plot of the likelihood in each iteration for a blend
 
     Parameters
@@ -288,9 +282,7 @@ def show_observation(
     else:
         panels = 2
         if psf_scaling not in ["native", "same"]:
-            raise ValueError(
-                f"psf_scaling must be either 'same' or 'native', got {psf_scaling}"
-            )
+            raise ValueError(f"psf_scaling must be either 'same' or 'native', got {psf_scaling}")
     if figsize is None:
         figsize = (panel_size * panels, panel_size)
     fig, ax = plt.subplots(1, panels, figsize=figsize)
@@ -326,9 +318,7 @@ def show_observation(
         if observation.model_psf is not None:
             psf_model = observation.psfs
             # make PSF as bright as the brightest pixel of the observation
-            psf_model *= np.max(np.mean(observation.images.data, axis=0)) / np.max(
-                np.mean(psf_model, axis=0)
-            )
+            psf_model *= np.max(np.mean(observation.images.data, axis=0)) / np.max(np.mean(psf_model, axis=0))
             if psf_scaling == "native":
                 psf_image = psf_model
             else:
@@ -464,9 +454,7 @@ def show_scene(
 
     if show_observed:
         ax[panel].imshow(
-            img_to_rgb(
-                observation.images.data, norm=norm, channel_map=channel_map, mask=mask
-            ),
+            img_to_rgb(observation.images.data, norm=norm, channel_map=channel_map, mask=mask),
             extent=extent,
             origin="lower",
         )
@@ -515,9 +503,7 @@ def show_scene(
                 panel = 1
             if observation is not None:
                 for panel in range(panel, panels):
-                    ax[panel].text(
-                        *center[::-1], k, color="w", ha="center", va="center"
-                    )
+                    ax[panel].text(*center[::-1], k, color="w", ha="center", va="center")
 
     fig.tight_layout()
     return fig
@@ -634,9 +620,7 @@ def show_sources(
                 _model_mask = None
             # Show the unrendered model in it's bbox
             ax[k - skipped][panel].imshow(
-                img_to_rgb(
-                    model.data, norm=norm, channel_map=channel_map, mask=_model_mask
-                ),
+                img_to_rgb(model.data, norm=norm, channel_map=channel_map, mask=_model_mask),
                 extent=extent,
                 origin="lower",
             )

@@ -23,11 +23,7 @@ from typing import Callable, cast
 
 import numpy as np
 from lsst.scarlet.lite import Blend, Box, Image, Observation, Source
-from lsst.scarlet.lite.component import (
-    Component,
-    FactorizedComponent,
-    default_adaprox_parameterization,
-)
+from lsst.scarlet.lite.component import Component, FactorizedComponent, default_adaprox_parameterization
 from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
 from lsst.scarlet.lite.operators import Monotonicity
 from lsst.scarlet.lite.parameters import Parameter
@@ -63,9 +59,7 @@ class TestBlend(ScarletTestCase):
     def setUp(self):
         bands = ("g", "r", "i")
         # The PSF in each band of the "obseration"
-        psfs = np.array(
-            [integrated_circular_gaussian(sigma=sigma) for sigma in [1.05, 0.9, 1.2]]
-        )
+        psfs = np.array([integrated_circular_gaussian(sigma=sigma) for sigma in [1.05, 0.9, 1.2]])
         # The PSF of the model
         model_psf = integrated_circular_gaussian(sigma=0.8)
 
@@ -82,10 +76,7 @@ class TestBlend(ScarletTestCase):
         )
 
         # Use a point source for all of the sources
-        morphs = [
-            integrated_circular_gaussian(sigma=sigma)
-            for sigma in [0.8, 2.5, 1.1, 2.1, 1.5]
-        ]
+        morphs = [integrated_circular_gaussian(sigma=sigma) for sigma in [0.8, 2.5, 1.1, 2.1, 1.5]]
         # Make the second component a disk component
         morphs[1] = scipy_convolve(morphs[1], model_psf, mode="same")
 
@@ -147,9 +138,7 @@ class TestBlend(ScarletTestCase):
         self.assertEqual(len(blend.sources), 4)
         self.assertBoxEqual(blend.bbox, Box(self.data.images.shape[1:]))
         self.assertImageAlmostEqual(blend.get_model(), self.data.images)
-        self.assertImageAlmostEqual(
-            blend.get_model(convolve=True), self.observation.images
-        )
+        self.assertImageAlmostEqual(blend.get_model(convolve=True), self.observation.images)
         self.assertImageAlmostEqual(
             self.observation.convolve(blend.get_model(), mode="real"),
             self.observation.images,
@@ -198,9 +187,7 @@ class TestBlend(ScarletTestCase):
         self.assertEqual(len(blend.sources), 4)
         self.assertBoxEqual(blend.bbox, Box(self.observation.bbox.shape))
         self.assertImageAlmostEqual(blend.get_model(), self.data.images)
-        self.assertImageAlmostEqual(
-            blend.get_model(convolve=True), self.observation.images
-        )
+        self.assertImageAlmostEqual(blend.get_model(convolve=True), self.observation.images)
 
     def test_fit(self):
         observation = self.observation
@@ -210,9 +197,7 @@ class TestBlend(ScarletTestCase):
         observation.images._data += noise
 
         monotonicity = Monotonicity((101, 101))
-        init = FactorizedChi2Initialization(
-            observation, self.centers, monotonicity=monotonicity
-        )
+        init = FactorizedChi2Initialization(observation, self.centers, monotonicity=monotonicity)
 
         blend = Blend(init.sources, self.observation).fit_spectra()
         blend.parameterize(default_adaprox_parameterization)
@@ -241,9 +226,7 @@ class TestBlend(ScarletTestCase):
         # Remove the disk component from the first source
         blend.sources[0].components = blend.sources[0].components[:1]
         # Create a new source for the disk with a non-factorized component
-        component = DummyCubeComponent(
-            Image(model, bands=self.blend.observation.bands, yx0=yx0)
-        )
+        component = DummyCubeComponent(Image(model, bands=self.blend.observation.bands, yx0=yx0))
         blend.sources.append(Source([component]))
 
         blend.fit_spectra()

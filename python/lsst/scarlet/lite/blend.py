@@ -182,9 +182,7 @@ class Blend:
             model,
         )
         for idx in range(len(morphs)):
-            component = cast(
-                FactorizedComponent, self.components[factorized_indices[idx]]
-            )
+            component = cast(FactorizedComponent, self.components[factorized_indices[idx]])
             component.spectrum[:] = fit_spectra[idx]
             component.spectrum[component.spectrum < 0] = 0
 
@@ -257,9 +255,7 @@ class Blend:
                     if component.resize(self.bbox):
                         component.overlap = component.bbox & self.bbox
             # Stopping criteria
-            if self.it > min_iter and np.abs(
-                self.loss[-1] - self.loss[-2]
-            ) < e_rel * np.abs(self.loss[-1]):
+            if self.it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(self.loss[-1]):
                 break
             self.it += 1
         return self.it, self.loss[-1]

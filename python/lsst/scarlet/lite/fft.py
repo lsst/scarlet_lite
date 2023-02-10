@@ -48,9 +48,7 @@ def _centered(arr: np.ndarray, newshape: Sequence[int]) -> np.ndarray:
     currshape = np.array(arr.shape)
 
     if not np.all(newshape <= currshape):
-        msg = (
-            "arr must be larger than newshape in both dimensions, received {0}, and {1}"
-        )
+        msg = "arr must be larger than newshape in both dimensions, received {0}, and {1}"
         raise ValueError(msg.format(arr.shape, newshape))
 
     startind = (currshape - newshape + 1) // 2
@@ -82,9 +80,7 @@ def fast_zero_pad(arr: np.ndarray, pad_width: Sequence[Sequence[int]]) -> np.nda
     newshape = tuple([a + ps[0] + ps[1] for a, ps in zip(arr.shape, pad_width)])
 
     result = np.zeros(newshape, dtype=arr.dtype)
-    slices = tuple(
-        [slice(start, s - end) for s, (start, end) in zip(result.shape, pad_width)]
-    )
+    slices = tuple([slice(start, s - end) for s, (start, end) in zip(result.shape, pad_width)])
     result[slices] = arr
     return result
 
@@ -187,9 +183,7 @@ def get_fft_shape(
         shape2 = np.asarray(im_or_shape2)
     # Make sure the shapes are the same size
     if len(shape1) != len(shape2):
-        msg = (
-            "img1 and img2 must have the same number of dimensions, but got {0} and {1}"
-        )
+        msg = "img1 and img2 must have the same number of dimensions, but got {0} and {1}"
         raise ValueError(msg.format(len(shape1), len(shape2)))
     # Set the combined shape based on the total dimensions
     if axes is None:
@@ -347,11 +341,7 @@ class Fourier(object):
 
         # Axes that are removed from the shape of the new object
         removed = np.array(
-            [
-                n
-                for n, idx in enumerate(index)
-                if not isinstance(idx, slice) and idx is not None
-            ]
+            [n for n, idx in enumerate(index) if not isinstance(idx, slice) and idx is not None]
         )
 
         # Create views into the fft transformed values, appropriately adjusting
@@ -359,19 +349,9 @@ class Fourier(object):
 
         fft_kernels = {
             (
-                tuple(
-                    [s for idx, s in enumerate(key[0]) if key[1][idx] not in removed]
-                ),
-                tuple(
-                    [a for ida, a in enumerate(key[1]) if key[1][ida] not in removed]
-                ),
-                tuple(
-                    [
-                        aa
-                        for idaa, aa in enumerate(key[2])
-                        if key[2][idaa] not in removed
-                    ]
-                ),
+                tuple([s for idx, s in enumerate(key[0]) if key[1][idx] not in removed]),
+                tuple([a for ida, a in enumerate(key[1]) if key[1][ida] not in removed]),
+                tuple([aa for idaa, aa in enumerate(key[2]) if key[2][idaa] not in removed]),
             ): kernel[index]
             for key, kernel in self._fft.items()
         }
@@ -512,9 +492,7 @@ def convolve(
     if not isinstance(kernel, Fourier):
         kernel = Fourier(kernel)
 
-    convolved = _kspace_operation(
-        image, kernel, padding, operator.mul, image.shape, axes=axes
-    )
+    convolved = _kspace_operation(image, kernel, padding, operator.mul, image.shape, axes=axes)
     if return_fourier:
         return convolved
     else:

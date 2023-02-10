@@ -34,9 +34,7 @@ class TestObservation(ScarletTestCase):
         bands = ("g", "r", "i")
         variance = np.ones((3, 35, 35), dtype=float)
         weights = 1 / variance
-        psfs = np.array(
-            [integrated_circular_gaussian(sigma=sigma) for sigma in [1.05, 0.9, 1.2]]
-        )
+        psfs = np.array([integrated_circular_gaussian(sigma=sigma) for sigma in [1.05, 0.9, 1.2]])
         model_psf = integrated_circular_gaussian(sigma=0.8)
 
         # The spectrum of each source
@@ -51,10 +49,7 @@ class TestObservation(ScarletTestCase):
         )
 
         # Use a point source for all of the sources
-        morphs = [
-            integrated_circular_gaussian(sigma=sigma)
-            for sigma in [0.8, 3.1, 1.1, 2.1, 1.5]
-        ]
+        morphs = [integrated_circular_gaussian(sigma=sigma) for sigma in [0.8, 3.1, 1.1, 2.1, 1.5]]
         # Make the second component a disk component
         morphs[1] = scipy_convolve(morphs[1], model_psf, mode="same")
 
@@ -120,16 +115,12 @@ class TestObservation(ScarletTestCase):
         )
         self.assertImageEqual(observation.images, self.data.convolved)
         self.assertImageEqual(observation.variance, Image(variance, bands=self.bands))
-        self.assertImageEqual(
-            observation.weights, Image(1 / variance, bands=self.bands)
-        )
+        self.assertImageEqual(observation.weights, Image(1 / variance, bands=self.bands))
         assert_array_equal(observation.psfs, self.psfs)
         self.assertIsNone(observation.model_psf)
         self.assertIsNone(observation.diff_kernel)
         self.assertIsNone(observation.grad_kernel)
-        assert_array_equal(
-            observation.noise_rms, np.mean(np.sqrt(variance), axis=(1, 2))
-        )
+        assert_array_equal(observation.noise_rms, np.mean(np.sqrt(variance), axis=(1, 2)))
         self.assertBoxEqual(observation.bbox, Box(variance.shape[-2:]))
         self.assertIn(observation.mode, ["fft", "real"])
 
@@ -137,9 +128,7 @@ class TestObservation(ScarletTestCase):
         # so that images - model = np.ones, meaning the log_likelihood
         # is just half the sum of the weights.
         model = self.observation.images - 1
-        self.assertEqual(
-            observation.log_likelihood(model), -0.5 * np.sum(observation.weights.data)
-        )
+        self.assertEqual(observation.log_likelihood(model), -0.5 * np.sum(observation.weights.data))
         self.assertTupleEqual(observation.shape, (3, 35, 35))
         self.assertEqual(observation.n_bands, 3)
         self.assertEqual(observation.dtype, float)
@@ -162,16 +151,12 @@ class TestObservation(ScarletTestCase):
         # convolution.
         observation = self.observation
         assert_array_equal(observation.diff_kernel.image, self.data.diff_kernel.image)
-        assert_almost_equal(
-            observation.convolve(self.data.images).data, observation.images.data
-        )
+        assert_almost_equal(observation.convolve(self.data.images).data, observation.images.data)
 
         # Test real conversions
         deconvolved = self.data.images
         observation.mode = "real"
-        self.assertImageAlmostEqual(
-            observation.convolve(deconvolved), observation.images
-        )
+        self.assertImageAlmostEqual(observation.convolve(deconvolved), observation.images)
 
         # Test convolution with the gradient
         grad_convolved = np.array(
@@ -184,9 +169,7 @@ class TestObservation(ScarletTestCase):
                 for band in range(len(deconvolved.data))
             ]
         )
-        assert_almost_equal(
-            observation.convolve(deconvolved, grad=True).data, grad_convolved
-        )
+        assert_almost_equal(observation.convolve(deconvolved, grad=True).data, grad_convolved)
 
         # Test that overriding the mode works
         real = observation.convolve(deconvolved, mode="real")

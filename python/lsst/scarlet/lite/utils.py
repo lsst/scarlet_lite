@@ -86,10 +86,7 @@ def integrated_circular_gaussian(
             f"Either X and Y must be specified, or neither must be specified, got X={x} and Y={y}"
         )
 
-    result = (
-        integrated_gaussian_psf(x, sigma)[None, :]
-        * integrated_gaussian_psf(y, sigma)[:, None]
-    )
+    result = integrated_gaussian_psf(x, sigma)[None, :] * integrated_gaussian_psf(y, sigma)[:, None]
     return result / np.sum(result)
 
 

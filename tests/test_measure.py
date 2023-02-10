@@ -53,9 +53,7 @@ class TestMeasurements(ScarletTestCase):
         snr = calculate_snr(images, variance, psfs, (27, 17))
 
         numerator = np.sum(images.data[:, 20:35, 10:25] * psfs)
-        denominator = np.sqrt(
-            np.sum(psfs**2 * np.array([0.2, 0.1, 0.05])[:, None, None])
-        )
+        denominator = np.sqrt(np.sum(psfs**2 * np.array([0.2, 0.1, 0.05])[:, None, None]))
         truth = numerator / denominator
         self.assertAlmostEqual(snr, truth)
 
@@ -64,9 +62,7 @@ class TestMeasurements(ScarletTestCase):
         filename = os.path.abspath(filename)
         data = np.load(filename)
         model_psf = integrated_circular_gaussian(sigma=0.8)
-        centers = tuple(
-            np.array([data["catalog"]["y"], data["catalog"]["x"]]).T.astype(int)
-        )
+        centers = tuple(np.array([data["catalog"]["y"], data["catalog"]["x"]]).T.astype(int))
         bands = data["filters"]
         observation = Observation(
             Image(data["images"], bands=bands),
@@ -77,9 +73,7 @@ class TestMeasurements(ScarletTestCase):
             bands=bands,
         )
         monotonicity = Monotonicity((101, 101))
-        init = FactorizedChi2Initialization(
-            observation, centers, monotonicity=monotonicity
-        )
+        init = FactorizedChi2Initialization(observation, centers, monotonicity=monotonicity)
 
         blend = Blend(init.sources, observation).fit_spectra()
         blend.sources.append(Source([]))

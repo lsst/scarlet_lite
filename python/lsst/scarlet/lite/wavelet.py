@@ -166,17 +166,13 @@ def multiband_starlet_transform(
 
     See `starlet_transform` for a description of the parameters.
     """
-    assert (
-        len(image.shape) == 3
-    ), f"Image should be 3D (bands, height, width), got shape {len(image.shape)}"
+    assert len(image.shape) == 3, f"Image should be 3D (bands, height, width), got shape {len(image.shape)}"
     assert generation in (1, 2), f"generation should be 1 or 2, got {generation}"
     scales = get_scales(image.shape, scales)
 
     wavelets = np.empty((scales + 1,) + image.shape, dtype=image.dtype)
     for b, image in enumerate(image):
-        wavelets[:, b] = starlet_transform(
-            image, scales=scales, generation=generation, convolve2d=convolve2d
-        )
+        wavelets[:, b] = starlet_transform(image, scales=scales, generation=generation, convolve2d=convolve2d)
     return wavelets
 
 
@@ -230,9 +226,7 @@ def multiband_starlet_reconstruction(
     scales, bands, width, height = starlets.shape
     result = np.zeros((bands, width, height), dtype=starlets.dtype)
     for band in range(bands):
-        result[band] = starlet_reconstruction(
-            starlets[:, band], generation=generation, convolve2d=convolve2d
-        )
+        result[band] = starlet_reconstruction(starlets[:, band], generation=generation, convolve2d=convolve2d)
     return result
 
 
@@ -290,9 +284,7 @@ def get_multiresolution_support(
         # Calculate sigma_je, the standard deviation at
         # each scale due to gaussian noise
         noise_img = np.random.normal(size=image.shape)
-        noise_starlet = starlet_transform(
-            noise_img, generation=1, scales=len(starlets) - 1
-        )
+        noise_starlet = starlet_transform(noise_img, generation=1, scales=len(starlets) - 1)
         sigma_je = np.zeros((len(noise_starlet),))
         for j, star in enumerate(noise_starlet):
             sigma_je[j] = np.std(star)
@@ -321,9 +313,7 @@ def get_multiresolution_support(
             # so sigma is effectively zero. To avoid infinities we
             # only check the scales with non-zero sigma
             cut = sigma_j > 0
-            if np.all(
-                np.abs(sigma_j[cut] - last_sigma_j[cut]) / sigma_j[cut] < epsilon
-            ):
+            if np.all(np.abs(sigma_j[cut] - last_sigma_j[cut]) / sigma_j[cut] < epsilon):
                 break
 
             last_sigma_j = sigma_j
@@ -373,9 +363,7 @@ def apply_wavelet_denoising(
     if sigma is None:
         sigma = np.median(np.absolute(image - np.median(image)))
     coeffs = image_coeffs.copy()
-    support = get_multiresolution_support(
-        image, coeffs, sigma, sigma_scaling, epsilon, max_iter, image_type
-    )
+    support = get_multiresolution_support(image, coeffs, sigma, sigma_scaling, epsilon, max_iter, image_type)
     x = starlet_reconstruction(coeffs)
 
     for n in range(max_iter):

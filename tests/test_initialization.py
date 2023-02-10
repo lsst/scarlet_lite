@@ -101,9 +101,7 @@ class TestInitialization(ScarletTestCase):
         assert_array_equal(morph, truth)
 
         # Test an empty morphology
-        bbox, morph = init_monotonic_morph(
-            np.zeros(self.detect.shape), center, full_box
-        )
+        bbox, morph = init_monotonic_morph(np.zeros(self.detect.shape), center, full_box)
         self.assertBoxEqual(bbox, Box((0, 0)))
         self.assertIsNone(morph)
 
@@ -113,9 +111,7 @@ class TestInitialization(ScarletTestCase):
         monotonicity = Monotonicity((101, 101))
 
         # Default parameters
-        bbox, morph = init_monotonic_morph(
-            self.detect.copy(), center, full_box, monotonicity=monotonicity
-        )
+        bbox, morph = init_monotonic_morph(self.detect.copy(), center, full_box, monotonicity=monotonicity)
         truth = monotonicity(self.detect.copy(), center)
         truth[truth < 0] = 0
         truth = truth / np.max(truth)
@@ -139,9 +135,7 @@ class TestInitialization(ScarletTestCase):
 
         # Test zero morphologu
         zeros = np.zeros(self.detect.shape)
-        bbox, morph = init_monotonic_morph(
-            zeros, center, full_box, monotonicity=monotonicity
-        )
+        bbox, morph = init_monotonic_morph(zeros, center, full_box, monotonicity=monotonicity)
         self.assertBoxEqual(bbox, Box((0, 0)))
         self.assertIsNone(morph)
 
@@ -149,9 +143,7 @@ class TestInitialization(ScarletTestCase):
         bands = ("g", "r", "i")
         variance = np.ones((3, 35, 35), dtype=float)
         weights = 1 / variance
-        psfs = np.array(
-            [integrated_circular_gaussian(sigma=sigma) for sigma in [1.05, 0.9, 1.2]]
-        )
+        psfs = np.array([integrated_circular_gaussian(sigma=sigma) for sigma in [1.05, 0.9, 1.2]])
         model_psf = integrated_circular_gaussian(sigma=0.8)
 
         # The spectrum of each source
@@ -166,10 +158,7 @@ class TestInitialization(ScarletTestCase):
         )
 
         # Use a point source for all of the sources
-        morphs = [
-            integrated_circular_gaussian(sigma=sigma)
-            for sigma in [0.8, 3.1, 1.1, 2.1, 1.5]
-        ]
+        morphs = [integrated_circular_gaussian(sigma=sigma) for sigma in [0.8, 3.1, 1.1, 2.1, 1.5]]
         # Make the second component a disk component
         morphs[1] = scipy_convolve(morphs[1], model_psf, mode="same")
 
@@ -209,9 +198,7 @@ class TestInitialization(ScarletTestCase):
         self.assertTupleEqual((init.py, init.px), (7, 7))
         self.assertEqual(len(init.sources), 7)
 
-        centers = tuple(tuple(center.astype(int)) for center in self.centers) + (
-            (0, 4),
-        )
+        centers = tuple(tuple(center.astype(int)) for center in self.centers) + ((0, 4),)
         init = FactorizedChi2Initialization(self.observation, centers)
         self.assertEqual(len(init.sources), 8)
 

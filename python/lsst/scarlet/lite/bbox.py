@@ -303,9 +303,7 @@ class Box:
         overlap = self & other
         return np.all(np.array(overlap.shape) != 0)
 
-    def overlapped_slices(
-        self, other: TBox
-    ) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
+    def overlapped_slices(self, other: TBox) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
         """`slice` for the box that contains the overlap of this and
         another `Box`
 
@@ -339,9 +337,7 @@ class Box:
             raise ValueError(f"Dimension mismatch in the boxes {other} and {self}")
         bounds = []
         for d in range(self.dimensions):
-            bounds.append(
-                (min(self.start[d], other.start[d]), max(self.stop[d], other.stop[d]))
-            )
+            bounds.append((min(self.start[d], other.start[d]), max(self.stop[d], other.stop[d])))
         return Box.from_bounds(*bounds)
 
     def __and__(self, other: TBox) -> TBox:
@@ -366,9 +362,7 @@ class Box:
         assert other.dimensions == self.dimensions
         bounds = []
         for d in range(self.dimensions):
-            bounds.append(
-                (max(self.start[d], other.start[d]), min(self.stop[d], other.stop[d]))
-            )
+            bounds.append((max(self.start[d], other.start[d]), min(self.stop[d], other.stop[d])))
         return Box.from_bounds(*bounds)
 
     def __getitem__(self, index: int | slice | tuple[int, ...]) -> TBox:
@@ -477,9 +471,7 @@ class Box:
         return hash((self.shape, self.origin))
 
 
-def overlapped_slices(
-    bbox1: Box, bbox2: Box
-) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
+def overlapped_slices(bbox1: Box, bbox2: Box) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
     """Slices of bbox1 and bbox2 that overlap
 
     Parameters

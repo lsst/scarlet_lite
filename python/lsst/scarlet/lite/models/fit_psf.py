@@ -92,9 +92,7 @@ class FitPsfObservation(Observation):
     def cached_kernel(self):
         return self.fit_kernel.real - self.fit_kernel.imag * 1j
 
-    def convolve(
-        self, image: Image, mode: str | None = None, grad: bool = False
-    ) -> Image:
+    def convolve(self, image: Image, mode: str | None = None, grad: bool = False) -> Image:
         """Convolve the model into the observed seeing in each band.
 
         Parameters
@@ -184,9 +182,7 @@ class FitPsfBlend(Blend):
         while it < max_iter:
             # Calculate the gradient wrt the on-convolved model
             grad_log_likelihood = self._grad_log_likelihood()
-            _grad_log_likelihood = self.observation.convolve(
-                grad_log_likelihood, grad=True
-            )
+            _grad_log_likelihood = self.observation.convolve(grad_log_likelihood, grad=True)
             # Update each component given the current gradient
             for component in self.components:
                 if not hasattr(component, "overlap"):
@@ -199,13 +195,9 @@ class FitPsfBlend(Blend):
                         component.overlap = component.bbox & self.bbox
 
             # Update the PSF
-            cast(FitPsfObservation, self.observation).update(
-                it, grad_log_likelihood.data, self.get_model()
-            )
+            cast(FitPsfObservation, self.observation).update(it, grad_log_likelihood.data, self.get_model())
             # Stopping criteria
-            if it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(
-                self.loss[-1]
-            ):
+            if it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(self.loss[-1]):
                 break
             it += 1
         self.it = it

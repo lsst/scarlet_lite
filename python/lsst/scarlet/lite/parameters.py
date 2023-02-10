@@ -265,9 +265,7 @@ def _radam_phi_psi(it, g, m, v, vhat, b1, b2, eps, p):
 
     if rho > 4:
         psi = np.sqrt(v / (1 - b2**t))
-        r = np.sqrt(
-            (rho - 4) * (rho - 2) * rho_inf / (rho_inf - 4) / (rho_inf - 2) / rho
-        )
+        r = np.sqrt((rho - 4) * (rho - 2) * rho_inf / (rho_inf - 4) / (rho_inf - 2) / rho)
         psi /= r
     else:
         psi = np.ones(g.shape, g.dtype)

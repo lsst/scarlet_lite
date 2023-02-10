@@ -90,14 +90,10 @@ class TestImage(ScarletTestCase):
 
         # test initializing an empty image from a bounding box
         image = Image.from_box(Box((10, 10), (13, 50)))
-        self.assertImageEqual(
-            image, Image(np.zeros((10, 10), dtype=float), bands=(), yx0=(13, 50))
-        )
+        self.assertImageEqual(image, Image(np.zeros((10, 10), dtype=float), bands=(), yx0=(13, 50)))
         bands = ("g", "r", "i")
         image = Image.from_box(Box((10, 10), (13, 50)), bands=bands)
-        self.assertImageEqual(
-            image, Image(np.zeros((3, 10, 10), dtype=float), bands=bands, yx0=(13, 50))
-        )
+        self.assertImageEqual(image, Image(np.zeros((3, 10, 10), dtype=float), bands=bands, yx0=(13, 50)))
 
         with self.assertRaises(ValueError):
             Image(np.zeros((3, 4, 5)), bands=tuple("gr"))
@@ -133,9 +129,7 @@ class TestImage(ScarletTestCase):
             assert_array_equal(result.data, truth)
             self.assertImageEqual(result, truth_image)
 
-            if op_name not in ("eq", "ne", "ge", "le", "lt", "gt") and (
-                op_name != "pow" or constant == 3.14
-            ):
+            if op_name not in ("eq", "ne", "ge", "le", "lt", "gt") and (op_name != "pow" or constant == 3.14):
                 truth = op(constant, lower_data)
                 truth_image = Image(truth, bands=lower.bands)
                 result = getattr(lower, f"__r{op_name}__")(constant)
@@ -485,22 +479,16 @@ class TestImage(ScarletTestCase):
         self.assertImageEqual(sub_img, Image(data[-2:], bands=("z", "y"), yx0=yx0))
 
         sub_img = image[("z", "i", "y")]
-        self.assertImageEqual(
-            sub_img, Image(data[(3, 2, 4), :, :], bands=("z", "i", "y"), yx0=yx0)
-        )
+        self.assertImageEqual(sub_img, Image(data[(3, 2, 4), :, :], bands=("z", "i", "y"), yx0=yx0))
 
         self.assertImageEqual(image[:], image)
 
         # Test bounding box slicing
         sub_img = image[:, Box((10, 5), (37, 87))]
-        self.assertImageEqual(
-            sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
-        )
+        self.assertImageEqual(sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87)))
 
         sub_img = image[Box((10, 5), (37, 87))]
-        self.assertImageEqual(
-            sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87))
-        )
+        self.assertImageEqual(sub_img, Image(data[:, 10:20, 5:10], bands=bands, yx0=(37, 87)))
 
         sub_img = image_2d[Box((10, 5), (37, 87))]
         self.assertImageEqual(sub_img, Image(data[0, 10:20, 5:10], yx0=(37, 87)))

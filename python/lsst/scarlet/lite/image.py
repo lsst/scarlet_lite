@@ -359,9 +359,7 @@ class Image:
             bands = tuple(bands)
             assert len(data.shape) == 3
             if data.shape[0] != len(bands):
-                raise ValueError(
-                    f"Array has spectral size {data.shape[0]}, but {bands} bands"
-                )
+                raise ValueError(f"Array has spectral size {data.shape[0]}, but {bands} bands")
         if yx0 is None:
             yx0 = (0, 0)
         if indices is None:
@@ -375,9 +373,7 @@ class Image:
         self._slices = slices
 
     @staticmethod
-    def from_box(
-        bbox: Box, bands: tuple | None = None, dtype: DTypeLike = float
-    ) -> TImage:
+    def from_box(bbox: Box, bands: tuple | None = None, dtype: DTypeLike = float) -> TImage:
         """Initialize an empty image from a bounding Box and optional bands
 
         Parameters
@@ -481,10 +477,7 @@ class Image:
     @property
     def slices(
         self,
-    ) -> dict[
-        tuple[tuple[int, ...], tuple[int, ...]],
-        tuple[tuple[slice, ...], tuple[slice, ...]],
-    ]:
+    ) -> dict[tuple[tuple[int, ...], tuple[int, ...]], tuple[tuple[slice, ...], tuple[slice, ...]],]:
         """Dictionary of cached slices to insert this image into another
         image.
         """
@@ -524,9 +517,7 @@ class Image:
         if isinstance(bands, str):
             return (self.bands.index(bands),)
 
-        band_indices = tuple(
-            self.bands.index(band) for band in bands if band in self.bands
-        )
+        band_indices = tuple(self.bands.index(band) for band in bands if band in self.bands)
         return band_indices
 
     def matched_spectral_indices(
@@ -572,9 +563,7 @@ class Image:
             self.indices[other.bands] = (other_indices, self_indices)
         return other_indices, self_indices
 
-    def matched_slices(
-        self, bbox: Box, save: bool = False
-    ) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
+    def matched_slices(self, bbox: Box, save: bool = False) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
         """Get the slices to match this image to a given bounding box
 
         Parameters
@@ -819,11 +808,7 @@ class Image:
             An image made by checking all of the elements in this array with
             another.
         """
-        if (
-            isinstance(other, Image)
-            and other.bands == self.bands
-            and other.bbox == self.bbox
-        ):
+        if isinstance(other, Image) and other.bands == self.bands and other.bbox == self.bbox:
             return self.copy_with(data=op(self.data, other.data))
 
         if not isinstance(other, Image):
@@ -1088,11 +1073,7 @@ class Image:
         """
         bands = self.bands
         if isinstance(index, slice):
-            if (
-                index.start in bands
-                or index.stop in bands
-                or (index.start is None and index.stop is None)
-            ):
+            if index.start in bands or index.stop in bands or (index.start is None and index.stop is None):
                 return True
             return False
         if index in self.bands:
@@ -1161,16 +1142,12 @@ class Image:
                     if len(indices) == 1:
                         # The spatial index must be a bounding box
                         if not isinstance(indices[0], Box):
-                            raise IndexError(
-                                f"Expected a Box for the spatial index but got {indices[1]}"
-                            )
+                            raise IndexError(f"Expected a Box for the spatial index but got {indices[1]}")
                         y_index, x_index = self._get_box_slices(indices[0])
                     elif len(indices) == 0:
                         y_index = x_index = slice(None)
                     else:
-                        raise IndexError(
-                            f"Too many spatial indices, expeected a Box bot got {indices}"
-                        )
+                        raise IndexError(f"Too many spatial indices, expeected a Box bot got {indices}")
                 full_index = (spectral_index, y_index, x_index)
             elif isinstance(indices[0], Box):
                 bands = self.bands
@@ -1181,9 +1158,7 @@ class Image:
                 raise IndexError(error)
         else:
             if len(indices) != 1 or not isinstance(indices[0], Box):
-                raise IndexError(
-                    f"2D images can only be sliced by bounding box, got {indices}"
-                )
+                raise IndexError(f"2D images can only be sliced by bounding box, got {indices}")
             bands = ()
             y_index, x_index = self._get_box_slices(indices[0])
             full_index = (y_index, x_index)
@@ -1212,9 +1187,7 @@ class Image:
         self._data[full_index] = value.data
         return self
 
-    def overlapped_slices(
-        self, bbox: Box
-    ) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
+    def overlapped_slices(self, bbox: Box) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
         """Get the slices needed to insert this image into a bounding box.
 
         Parameters
@@ -1269,9 +1242,7 @@ class Image:
         return self._get_sliced(indices, value)
 
 
-def _operate_on_images(
-    image1: Image, image2: Image | ScalarLike, op: Callable
-) -> Image:
+def _operate_on_images(image1: Image, image2: Image | ScalarLike, op: Callable) -> Image:
     """Perform an operation on two images, that may or may not be spectrally
     and spatially aligned.
 
@@ -1298,10 +1269,7 @@ def _operate_on_images(
         return Image(result, bands=image1.bands, yx0=image1.yx0)
 
     if op != operator.add and op != operator.sub and image1.bands != image2.bands:
-        msg = (
-            f"Images with different bands can only be combined "
-            f"using addition and subtraction, got {op}"
-        )
+        msg = f"Images with different bands can only be combined " f"using addition and subtraction, got {op}"
         raise ValueError(msg)
 
     # Use all of the bands in the first image
@@ -1367,7 +1335,5 @@ def insert_image(
         image_slices = (band_indices[0],) + slices[1]
         self_slices = (band_indices[1],) + slices[0]
 
-    main_image._data[image_slices] = op(
-        main_image.data[image_slices], sub_image.data[self_slices]
-    )
+    main_image._data[image_slices] = op(main_image.data[image_slices], sub_image.data[self_slices])
     return main_image

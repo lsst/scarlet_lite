@@ -35,13 +35,7 @@ import numpy as np
 from .bbox import Box
 from .image import Image
 from .operators import Monotonicity
-from .parameters import (
-    AdaproxParameter,
-    FistaParameter,
-    Parameter,
-    parameter,
-    relative_step,
-)
+from .parameters import AdaproxParameter, FistaParameter, Parameter, parameter, relative_step
 
 
 class Component(ABC):
@@ -240,15 +234,11 @@ class FactorizedComponent(Component):
         model = spectrum[:, None, None] * morph[None, :, :]
         return Image(model, bands=self.bands, yx0=self.bbox.origin)
 
-    def grad_spectrum(
-        self, input_grad: np.ndarray, spectrum: np.ndarray, morph: np.ndarray
-    ):
+    def grad_spectrum(self, input_grad: np.ndarray, spectrum: np.ndarray, morph: np.ndarray):
         """Gradient of the spectrum wrt. the component model"""
         return np.einsum("...jk,jk", input_grad, morph)
 
-    def grad_morph(
-        self, input_grad: np.ndarray, morph: np.ndarray, spectrum: np.ndarray
-    ):
+    def grad_morph(self, input_grad: np.ndarray, morph: np.ndarray, spectrum: np.ndarray):
         """Gradient of the morph wrt. the component model"""
         return np.einsum("i,i...", spectrum, input_grad)
 
@@ -303,8 +293,7 @@ class FactorizedComponent(Component):
             new_box = Box((1, 1), self.center).grow(self.padding) & model_box
         else:
             new_box = (
-                Box.from_data(significant, min_value=0).grow(self.padding)
-                + self.bbox.origin
+                Box.from_data(significant, min_value=0).grow(self.padding) + self.bbox.origin
             ) & model_box
         if new_box == self.bbox:
             return False

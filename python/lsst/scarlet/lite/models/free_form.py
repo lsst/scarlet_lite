@@ -95,10 +95,7 @@ class FreeFormComponent(FactorizedComponent):
         This is the main difference between an `SedComponent` and a
         `FactorizedComponent`, since this component has fewer constraints.
         """
-        from lsst.scarlet.lite.detect_pybind11 import (
-            get_connected_multipeak,
-            get_footprints,
-        )
+        from lsst.scarlet.lite.detect_pybind11 import get_connected_multipeak, get_footprints
 
         if self.bg_thresh is not None:
             bg_thresh = self.bg_rms * self.bg_thresh
@@ -114,9 +111,7 @@ class FreeFormComponent(FactorizedComponent):
 
         if self.min_area > 0:
             footprints = get_footprints(morph > 0, 4.0, self.min_area, 0, False)
-            morph = (
-                morph * (scarlet_footprints_to_image(footprints, morph.shape) > 0).data
-            )
+            morph = morph * (scarlet_footprints_to_image(footprints, morph.shape) > 0).data
 
         if np.all(morph == 0):
             morph[0, 0] = self.floor

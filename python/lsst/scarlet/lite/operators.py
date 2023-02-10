@@ -174,9 +174,7 @@ class Monotonicity:
         self.distance = distance
         self.sizes = (cy, cx, shape[0] - cy, shape[1] - cx)
 
-    def check_size(
-        self, shape: tuple[int, int], center: tuple[int, int], update: bool = True
-    ):
+    def check_size(self, shape: tuple[int, int], center: tuple[int, int], update: bool = True):
         """Check to see if the operator can be applied
 
         Parameters
@@ -197,9 +195,7 @@ class Monotonicity:
                 size = 2 * np.max(sizes) + 1
                 self.update((size, size))
             else:
-                raise ValueError(
-                    f"Cannot apply monotonicity to image with shape {shape} at {center}"
-                )
+                raise ValueError(f"Cannot apply monotonicity to image with shape {shape} at {center}")
 
     def __call__(self, image: np.ndarray, center: tuple[int, int]) -> np.ndarray:
         """Make an input image monotonic about a center pixel
@@ -244,9 +240,7 @@ class Monotonicity:
         return image
 
 
-def get_center(
-    image: np.ndarray, center: tuple[int, int], radius: int = 1
-) -> tuple[int, int]:
+def get_center(image: np.ndarray, center: tuple[int, int], radius: int = 1) -> tuple[int, int]:
     """Search around a location for the maximum flux
 
     For monotonicity it is important to start at the brightest pixel
@@ -339,9 +333,7 @@ def prox_monotonic_mask(
     while np.sum(orphans & unchecked) > 0 and it < max_iter:
         it += 1
         all_i, all_j = np.where(orphans)
-        linear_interpolate_invalid_pixels(
-            all_i, all_j, unchecked, model, orphans, variance, True, bounds
-        )
+        linear_interpolate_invalid_pixels(all_i, all_j, unchecked, model, orphans, variance, True, bounds)
     valid = ~unchecked & ~orphans
     # Clear all of the invalid pixels from the input image
     model = model * valid
