@@ -85,7 +85,7 @@ class Footprint:  # type: ignore # noqa
             The intersection of two footprints.
         """
         footprint1 = Image(self.footprint, yx0=self.yx0)  # type: ignore
-        footprint2 = Image(other.footprint, yx0=other.yx0) # type: ignore # noqa
+        footprint2 = Image(other.footprint, yx0=other.yx0)  # type: ignore # noqa
         return footprint1 & footprint2
 
     def union(self, other: Footprint) -> Image | None:
