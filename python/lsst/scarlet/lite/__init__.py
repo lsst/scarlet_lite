@@ -4,8 +4,9 @@ from .blend import *
 from .component import *
 
 try:
-    from . import display
     import matplotlib
+
+    from . import display
 except ImportError:
     pass
 

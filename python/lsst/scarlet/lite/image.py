@@ -22,7 +22,7 @@
 from __future__ import annotations
 
 import operator
-from typing import Any, cast, Callable, Sequence
+from typing import Any, Callable, Sequence, cast
 
 import numpy as np
 from numpy.typing import DTypeLike

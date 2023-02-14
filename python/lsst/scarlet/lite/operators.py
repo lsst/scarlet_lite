@@ -1,4 +1,4 @@
-from typing import cast, Callable, Sequence
+from typing import Callable, Sequence, cast
 
 import numpy as np
 import numpy.typing as npt

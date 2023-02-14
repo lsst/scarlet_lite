@@ -32,13 +32,12 @@ __all__ = [
     "DEFAULT_ADAPROX_FACTOR",
 ]
 
-from typing import cast, Callable, Sequence
+from typing import Callable, Sequence, cast
 
 import numpy as np
 import numpy.typing as npt
 
 from .bbox import Box
-
 
 # The default factor used for adaprox parameter steps
 DEFAULT_ADAPROX_FACTOR = 1e-2

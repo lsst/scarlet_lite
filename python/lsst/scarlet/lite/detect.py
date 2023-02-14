@@ -22,7 +22,7 @@
 from __future__ import annotations
 
 import logging
-from typing import cast, Sequence
+from typing import Sequence, cast
 
 import numpy as np
 from lsst.scarlet.lite.detect_pybind11 import Footprint  # type: ignore

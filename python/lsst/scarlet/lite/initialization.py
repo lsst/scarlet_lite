@@ -21,7 +21,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import cast, Sequence
+from typing import Sequence, cast
 
 import numpy as np
 

@@ -21,7 +21,7 @@
 
 __all__ = ["Observation", "convolve"]
 
-from typing import cast, TypeVar
+from typing import TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
