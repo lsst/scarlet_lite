@@ -51,7 +51,7 @@ def integrated_gaussian_psf(x: np.ndarray, sigma: float) -> np.ndarray:
 
 
 def integrated_circular_gaussian(
-    x: npt.ArrayLike = None, y: npt.ArrayLike = None, sigma: float = 0.8
+    x: np.ndarray = None, y: np.ndarray = None, sigma: float = 0.8
 ) -> np.ndarray:
     """Create a circular Gaussian that is integrated over pixels
 
@@ -79,11 +79,11 @@ def integrated_circular_gaussian(
             y = x
         else:
             raise ValueError(
-                f"Either X and Y must be specified, or neither must be specified, got X={x} and Y={y}"
+                f"Either X and Y must be specified, or neither must be specified, got {x=} and {y=}"
             )
     elif y is None:
         raise ValueError(
-            f"Either X and Y must be specified, or neither must be specified, got X={x} and Y={y}"
+            f"Either X and Y must be specified, or neither must be specified, got {x=} and {y=}"
         )
 
     result = integrated_gaussian_psf(x, sigma)[None, :] * integrated_gaussian_psf(y, sigma)[:, None]

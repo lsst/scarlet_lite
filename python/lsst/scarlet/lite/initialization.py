@@ -21,7 +21,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Sequence
+from typing import cast, Sequence
 
 import numpy as np
 
@@ -230,7 +230,7 @@ class FactorizedInitialization(ABC):
         # Get the model PSF
         # Convolve the PSF in order to set the spectrum
         # of a point source correctly.
-        model_psf = Image(observation.model_psf[0])
+        model_psf = Image(cast(np.ndarray, observation.model_psf)[0])
         self.convolved_psf = observation.convolve(model_psf.repeat(observation.bands), mode="real").data
         # Get the "spectrum" of the PSF
         self.py = model_psf.shape[0] // 2
@@ -286,12 +286,12 @@ class FactorizedInitialization(ABC):
         spectrum = self.observation.images.data[spectrum_center] / self.psf_spectrum
         spectrum[spectrum < 0] = 0
 
-        psf = self.observation.model_psf[0].copy()
+        psf = cast(np.ndarray, self.observation.model_psf)[0].copy()
         py = psf.shape[0] // 2
         px = psf.shape[1] // 2
         bbox = Box(psf.shape, origin=(-py + center[0], -px + center[1]))
         bbox = self.observation.bbox & bbox
-        morph = Image(psf, yx0=bbox.origin)[bbox].data
+        morph = Image(psf, yx0=cast(tuple[int, int], bbox.origin))[bbox].data
         component = FactorizedComponent(
             self.observation.bands,
             spectrum,
@@ -436,7 +436,7 @@ class FactorizedChi2Initialization(FactorizedInitialization):
                 axis=0,
             )
         self.detect = detect
-        detect = Image(detect)
+        _detect = Image(detect)
         # Convolve the detection image.
         # This may seem counter-intuitive,
         # since this is effectively growing the model,
@@ -444,7 +444,7 @@ class FactorizedChi2Initialization(FactorizedInitialization):
         # in each iteration.
         # So we create the convolved model in order
         # to correctly set the spectrum.
-        convolved = observation.convolve(detect.repeat(observation.bands), mode="real")
+        convolved = observation.convolve(_detect.repeat(observation.bands), mode="real")
 
         # Set the input parameters
         self.disk_percentile = disk_percentile
@@ -497,8 +497,8 @@ class FactorizedChi2Initialization(FactorizedInitialization):
             bulge_spectrum, disk_spectrum = multifit_spectra(
                 self.observation,
                 [
-                    Image(bulge_morph, yx0=component.bbox.origin),
-                    Image(disk_morph, yx0=component.bbox.origin),
+                    Image(bulge_morph, yx0=cast(tuple[int, int], component.bbox.origin)),
+                    Image(disk_morph, yx0=cast(tuple[int, int], component.bbox.origin)),
                 ],
             )
 
@@ -523,7 +523,7 @@ class FactorizedChi2Initialization(FactorizedInitialization):
                 ),
             ]
 
-        return Source(components)
+        return Source(components)  # type: ignore
 
 
 class FactorizedWaveletInitialization(FactorizedInitialization):
@@ -624,7 +624,9 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
             components = [self.get_psf_component(center)]
         elif nbr_components < 2:
             # Inititialize with a single component
-            components = [self.get_single_component(center, self.detectlets, 0, self.disk_grow)]
+            component = self.get_single_component(center, self.detectlets, 0, self.disk_grow)
+            if component is not None:
+                components = [component]
         else:
             # Initialize with a 2 component model
             bulge_box, bulge_morph = init_monotonic_morph(
@@ -639,7 +641,9 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                         return None
                 # One of the components was null,
                 # so initialize as a single component
-                components = [self.get_single_component(center, self.detectlets, 0, self.disk_grow)]
+                component = self.get_single_component(center, self.detectlets, 0, self.disk_grow)
+                if component is not None:
+                    components = [component]
             else:
                 bulge_morph = bulge_morph[bulge_box.slices]
                 disk_morph = disk_morph[disk_box.slices]
@@ -647,8 +651,8 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                 bulge_spectrum, disk_spectrum = multifit_spectra(
                     observation,
                     [
-                        Image(bulge_morph, yx0=bulge_box.origin),
-                        Image(disk_morph, yx0=disk_box.origin),
+                        Image(bulge_morph, yx0=cast(tuple[int, int], bulge_box.origin)),
+                        Image(disk_morph, yx0=cast(tuple[int, int], disk_box.origin)),
                     ],
                 )
 
@@ -679,4 +683,4 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                     )
                 else:
                     logger.debug("cut disk")
-        return Source(components)
+        return Source(components)  # type: ignore

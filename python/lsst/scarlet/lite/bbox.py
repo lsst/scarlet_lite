@@ -19,13 +19,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 __all__ = ["Box", "overlapped_slices"]
 
-from typing import Sequence, TypeVar
+from typing import Sequence, cast
 
 import numpy as np
-
-TBox = TypeVar("TBox", bound="Box")
 
 
 class Box:
@@ -180,7 +180,7 @@ class Box:
         self.origin = tuple(origin)
 
     @staticmethod
-    def from_bounds(*bounds: tuple[int, int]) -> TBox:
+    def from_bounds(*bounds: tuple[int, int]) -> Box:
         """Initialize a box from its bounds
 
         Parameters
@@ -198,7 +198,7 @@ class Box:
         return Box(shape, origin=origin)
 
     @staticmethod
-    def from_data(x: np.ndarray, min_value: float = 0) -> TBox:
+    def from_data(x: np.ndarray, min_value: float = 0) -> Box:
         """Define range of `x` above `min_value`
 
         Parameters
@@ -220,7 +220,7 @@ class Box:
             for dim in range(len(x.shape)):
                 bounds.append((nonzero[dim].min(), nonzero[dim].max() + 1))
         else:
-            bounds = [[0, 0]] * len(x.shape)
+            bounds = [(0, 0)] * len(x.shape)
         return Box.from_bounds(*bounds)
 
     def contains(self, p: Sequence[int]) -> bool:
@@ -263,15 +263,15 @@ class Box:
         """Bounds of the box as slices"""
         return tuple([slice(o, o + s) for o, s in zip(self.origin, self.shape)])
 
-    def grow(self, radius: int | tuple[tuple[int, ...], ...]) -> TBox:
+    def grow(self, radius: int | tuple[int, ...]) -> Box:
         """Grow the Box by the given radius in each direction"""
-        if not hasattr(radius, "__iter__"):
-            radius = [radius] * self.dimensions
+        if isinstance(radius, int):
+            radius = tuple([radius] * self.dimensions)
         origin = tuple([self.origin[d] - radius[d] for d in range(self.dimensions)])
         shape = tuple([self.shape[d] + 2 * radius[d] for d in range(self.dimensions)])
         return Box(shape, origin=origin)
 
-    def shifted_by(self, shift: Sequence[int]) -> TBox:
+    def shifted_by(self, shift: Sequence[int]) -> Box:
         """Generate a shifted copy of this box
 
         Parameters
@@ -287,7 +287,7 @@ class Box:
         origin = tuple(o + shift[i] for i, o in enumerate(self.origin))
         return Box(self.shape, origin=origin)
 
-    def intersects(self, other: TBox) -> bool:
+    def intersects(self, other: Box) -> bool:
         """Check if two boxes overlap
 
         Parameters
@@ -301,9 +301,9 @@ class Box:
             True when the two boxes overlap.
         """
         overlap = self & other
-        return np.all(np.array(overlap.shape) != 0)
+        return np.all(np.array(overlap.shape) != 0)  # type: ignore
 
-    def overlapped_slices(self, other: TBox) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
+    def overlapped_slices(self, other: Box) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
         """`slice` for the box that contains the overlap of this and
         another `Box`
 
@@ -320,7 +320,7 @@ class Box:
         """
         return overlapped_slices(self, other)
 
-    def __or__(self, other: TBox) -> TBox:
+    def __or__(self, other: Box) -> Box:
         """Union of two bounding boxes
 
         Parameters
@@ -340,7 +340,7 @@ class Box:
             bounds.append((min(self.start[d], other.start[d]), max(self.stop[d], other.stop[d])))
         return Box.from_bounds(*bounds)
 
-    def __and__(self, other: TBox) -> TBox:
+    def __and__(self, other: Box) -> Box:
         """Intersection of two bounding boxes
 
         If there is no intersection between the two bounding
@@ -365,20 +365,19 @@ class Box:
             bounds.append((max(self.start[d], other.start[d]), min(self.stop[d], other.stop[d])))
         return Box.from_bounds(*bounds)
 
-    def __getitem__(self, index: int | slice | tuple[int, ...]) -> TBox:
-        try:
+    def __getitem__(self, index: int | slice | tuple[int, ...]) -> Box:
+        if isinstance(index, int) or isinstance(index, slice):
+            s_ = self.shape[index]
+            o_ = self.origin[index]
+            if isinstance(s_, int):
+                s_ = (s_,)
+                o_ = (cast(int, o_),)  # type: ignore
+        else:
             iter(index)
             # If I is a Sequence then select the indices in `index`, in order
             s_ = tuple(self.shape[i] for i in index)
             o_ = tuple(self.origin[i] for i in index)
-        except TypeError:
-            # The index is an integer or slice
-            s_ = self.shape[index]
-            o_ = self.origin[index]
-            if not hasattr(s_, "__iter__"):
-                s_ = (s_,)
-                o_ = (o_,)
-        return Box(s_, origin=o_)
+        return Box(s_, origin=cast(tuple[int, ...], o_))
 
     def __repr__(self) -> str:
         result = "<Box shape={0}, origin={1}>"
@@ -397,11 +396,13 @@ class Box:
         offset:
             The offset as a tuple.
         """
-        if not hasattr(offset, "__iter__"):
-            offset = (offset,) * self.dimensions
-        return offset
+        if isinstance(offset, int):
+            _offset = (offset,) * self.dimensions
+        else:
+            _offset = tuple(offset)
+        return _offset
 
-    def __add__(self, offset: int | Sequence[int]) -> TBox:
+    def __add__(self, offset: int | Sequence[int]) -> Box:
         """Generate a new Box with a shifted offset
 
         Parameters
@@ -416,7 +417,7 @@ class Box:
         """
         return self.shifted_by(self._offset_to_tuple(offset))
 
-    def __sub__(self, offset: int | Sequence[int]) -> TBox:
+    def __sub__(self, offset: int | Sequence[int]) -> Box:
         """Generate a new Box with a shifted offset in the negative direction
 
         Parameters
@@ -433,7 +434,7 @@ class Box:
         offset = tuple(-o for o in offset)
         return self.shifted_by(offset)
 
-    def __matmul__(self, bbox: TBox) -> TBox:
+    def __matmul__(self, bbox: Box) -> Box:
         """Combine two Boxes into a higher dimensional box
 
         Parameters
@@ -450,22 +451,22 @@ class Box:
         result = Box.from_bounds(*bounds)
         return result
 
-    def __copy__(self) -> TBox:
+    def __copy__(self) -> Box:
         """Copy of the box"""
         return Box(self.shape, origin=self.origin)
 
-    def copy(self) -> TBox:
+    def copy(self) -> Box:
         """Copy of the box"""
         return self.__copy__()
 
-    def __eq__(self, other: TBox) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Check for equality.
 
         Two boxes are equal when they have the same shape and origin.
         """
         if not hasattr(other, "shape") and not hasattr(other, "origin"):
             return False
-        return self.shape == other.shape and self.origin == other.origin
+        return self.shape == other.shape and self.origin == other.origin  # type: ignore
 
     def __hash__(self) -> int:
         return hash((self.shape, self.origin))

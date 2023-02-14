@@ -1,4 +1,4 @@
-from typing import Callable, Sequence
+from typing import cast, Callable, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -24,7 +24,7 @@ def prox_connected(morph: np.ndarray, centers: Sequence[Sequence[int]]) -> np.nd
         to zero.
     """
     # Import here to avoid circular dependency
-    from lsst.scarlet.lite.detect_pybind11 import get_connected_pixels
+    from lsst.scarlet.lite.detect_pybind11 import get_connected_pixels  # type: ignore
 
     result = np.zeros(morph.shape, dtype=bool)
 
@@ -75,9 +75,9 @@ class Monotonicity:
         fit_radius: int = 1,
     ):
         # Initialize defined variables
-        self.weights = None
-        self.distance = None
-        self.sizes = None
+        self.weights: np.ndarray | None = None
+        self.distance: np.ndarray | None = None
+        self.sizes: tuple[int, int, int, int] | None = None
         self.dtype = dtype
         self.auto_update = auto_update
         self.fit_radius = fit_radius
@@ -92,7 +92,7 @@ class Monotonicity:
         result:
             The shape of the oeprator.
         """
-        return self.weights.shape[1:]
+        return cast(tuple[int, int], cast(np.ndarray, self.weights).shape[1:])
 
     @property
     def center(self) -> tuple[int, int]:
@@ -214,20 +214,20 @@ class Monotonicity:
             The input image is updated in place, but also returned from this
             method.
         """
-        from lsst.scarlet.lite.operators_pybind11 import new_monotonicity
+        from lsst.scarlet.lite.operators_pybind11 import new_monotonicity  # type: ignore
 
         # Check for a better center
         center = get_center(image, center, self.fit_radius)
 
         # Check that the operator can fit the image
-        self.check_size(image.shape, center, self.auto_update)
+        self.check_size(cast(tuple[int, int], image.shape), center, self.auto_update)
 
         # Create the bounding box to slice the weights and distance as needed
         cy, cx = self.center
         py, px = center
         bbox = Box((9,) + image.shape, origin=(0, cy - py, cx - px))
-        weights = self.weights[bbox.slices]
-        indices = np.argsort(self.distance[bbox.slices[1:]].flatten())
+        weights = cast(np.ndarray, self.weights)[bbox.slices]
+        indices = np.argsort(cast(np.ndarray, self.distance)[bbox.slices[1:]].flatten())
         coords = np.unravel_index(indices, image.shape)
 
         # Pad the image by 1 so that we don't have to worry about
@@ -269,7 +269,7 @@ def get_center(image: np.ndarray, center: tuple[int, int], radius: int = 1) -> t
     y_slice = slice(y0, cy + radius + 1)
     x_slice = slice(x0, cx + radius + 1)
     subset = image[y_slice, x_slice]
-    center = np.unravel_index(np.argmax(subset), subset.shape)
+    center = cast(tuple[int, int], np.unravel_index(np.argmax(subset), subset.shape))
     return center[0] + y0, center[1] + x0
 
 
@@ -337,13 +337,13 @@ def prox_monotonic_mask(
     valid = ~unchecked & ~orphans
     # Clear all of the invalid pixels from the input image
     model = model * valid
-    return valid, model, tuple(bounds)
+    return valid, model, tuple(bounds)  # type: ignore
 
 
 def uncentered_operator(
     x: np.ndarray,
     func: Callable,
-    center: tuple[float, float] = None,
+    center: tuple[int, int] = None,
     fill: float = None,
     **kwargs,
 ) -> np.ndarray:
@@ -374,7 +374,7 @@ def uncentered_operator(
         `x`, with an operator applied based on the shifted center.
     """
     if center is None:
-        py, px = np.unravel_index(np.argmax(x), x.shape)
+        py, px = cast(tuple[int, int], np.unravel_index(np.argmax(x), x.shape))
     else:
         py, px = center
     cy, cx = np.array(x.shape) // 2

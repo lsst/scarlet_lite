@@ -19,15 +19,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 __all__ = ["Fourier"]
 
 import operator
-from typing import Callable, Sequence, TypeVar
+from typing import Callable, Sequence
 
 import numpy as np
 from scipy import fftpack
-
-TFourier = TypeVar("TFourier", bound="Fourier")
 
 
 def _centered(arr: np.ndarray, newshape: Sequence[int]) -> np.ndarray:
@@ -44,15 +44,15 @@ def _centered(arr: np.ndarray, newshape: Sequence[int]) -> np.ndarray:
     fft standard order (0 frequency and position is
     in the bottom left) to 0 position in the center.
     """
-    newshape = np.asarray(newshape)
+    _newshape = np.array(newshape)
     currshape = np.array(arr.shape)
 
-    if not np.all(newshape <= currshape):
+    if not np.all(_newshape <= currshape):
         msg = "arr must be larger than newshape in both dimensions, received {0}, and {1}"
-        raise ValueError(msg.format(arr.shape, newshape))
+        raise ValueError(msg.format(arr.shape, _newshape))
 
-    startind = (currshape - newshape + 1) // 2
-    endind = startind + newshape
+    startind = (currshape - _newshape + 1) // 2
+    endind = startind + _newshape
     myslice = [slice(startind[k], endind[k]) for k in range(len(endind))]
 
     return arr[tuple(myslice)]
@@ -115,29 +115,27 @@ def _pad(
         If `mode` == "constant" then this is the value to set all of
         the new padded elements to.
     """
+    _newshape = np.asarray(newshape)
     if axes is None:
-        newshape = np.asarray(newshape)
         currshape = np.array(arr.shape)
-        diff = newshape - currshape
+        diff = _newshape - currshape
         startind = (diff + 1) // 2
         endind = diff - startind
         pad_width = list(zip(startind, endind))
     else:
         # only pad the axes that will be transformed
         pad_width = [(0, 0) for _ in arr.shape]
-        try:
-            len(axes)
-        except TypeError:
+        if isinstance(axes, int):
             axes = [axes]
         for a, axis in enumerate(axes):
-            diff = newshape[a] - arr.shape[axis]
+            diff = _newshape[a] - arr.shape[axis]
             startind = (diff + 1) // 2
             endind = diff - startind
             pad_width[axis] = (startind, endind)
     if mode == "constant" and constant_values == 0:
         result = fast_zero_pad(arr, pad_width)
     else:
-        result = np.pad(arr, pad_width, mode=mode)
+        result = np.pad(arr, tuple(pad_width), mode=mode)  # type: ignore
     return result
 
 
@@ -145,7 +143,7 @@ def get_fft_shape(
     im_or_shape1: np.ndarray | Sequence[int],
     im_or_shape2: np.ndarray | Sequence[int],
     padding: int = 3,
-    axes: int | Sequence[int] = None,
+    axes: int | Sequence[int] | None = None,
     use_max: bool = False,
 ) -> tuple:
     """Return the fast fft shapes for each spatial axis
@@ -173,11 +171,11 @@ def get_fft_shape(
         Tuple of the shape to use when the two images are transformed
         into k-space.
     """
-    if hasattr(im_or_shape1, "shape"):
+    if isinstance(im_or_shape1, np.ndarray):
         shape1 = np.asarray(im_or_shape1.shape)
     else:
         shape1 = np.asarray(im_or_shape1)
-    if hasattr(im_or_shape2, "shape"):
+    if isinstance(im_or_shape2, np.ndarray):
         shape2 = np.asarray(im_or_shape2.shape)
     else:
         shape2 = np.asarray(im_or_shape2)
@@ -192,9 +190,7 @@ def get_fft_shape(
         else:
             shape = shape1 + shape2
     else:
-        try:
-            len(axes)
-        except TypeError:
+        if isinstance(axes, int):
             axes = [axes]
         shape = np.zeros(len(axes), dtype="int")
         for n, ax in enumerate(axes):
@@ -243,8 +239,8 @@ class Fourier(object):
         image_fft: np.ndarray,
         fft_shape: Sequence[int],
         image_shape: Sequence[int],
-        axes: int | Sequence[int] = None,
-    ) -> TFourier:
+        axes: int | Sequence[int] | None = None,
+    ) -> Fourier:
         """Generate a new Fourier object from an FFT dictionary
 
         If the fft of an image has been generated but not its
@@ -277,6 +273,8 @@ class Fourier(object):
         """
         if axes is None:
             axes = range(len(image_shape))
+        if isinstance(axes, int):
+            axes = [axes]
         all_axes = range(len(image_shape))
         image = np.fft.irfftn(image_fft, fft_shape, axes=axes)
         # Shift the center of the image from the bottom left to the center
@@ -294,7 +292,7 @@ class Fourier(object):
         return self._image
 
     @property
-    def shape(self) -> tuple[int]:
+    def shape(self) -> tuple[int, ...]:
         """The shape of the real space image"""
         return self._image.shape
 
@@ -313,9 +311,7 @@ class Fourier(object):
         axes:
             The dimension(s) of the array that will be transformed.
         """
-        try:
-            iter(axes)
-        except TypeError:
+        if isinstance(axes, int):
             axes = (axes,)
         all_axes = range(len(self.image.shape))
         fft_key = (tuple(fft_shape), tuple(axes), tuple(all_axes))
@@ -334,15 +330,16 @@ class Fourier(object):
         """Length of the image"""
         return len(self.image)
 
-    def __getitem__(self, index: int | Sequence[int] | slice) -> TFourier:
+    def __getitem__(self, index: int | Sequence[int] | slice) -> Fourier:
         # Make the index a tuple
-        if not hasattr(index, "__getitem__"):
+        if isinstance(index, int):
             index = tuple([index])
 
         # Axes that are removed from the shape of the new object
-        removed = np.array(
-            [n for n, idx in enumerate(index) if not isinstance(idx, slice) and idx is not None]
-        )
+        if isinstance(index, slice):
+            removed = np.array([])
+        else:
+            removed = np.array([n for n, idx in enumerate(index) if idx is not None])
 
         # Create views into the fft transformed values, appropriately adjusting
         # the shapes for the new axes
@@ -355,7 +352,9 @@ class Fourier(object):
             ): kernel[index]
             for key, kernel in self._fft.items()
         }
-        return Fourier(self.image[index], fft_kernels)
+        # mpypy doesn't recognize that tuple[int, ...]
+        # is a valid Sequence[int] for some reason
+        return Fourier(self.image[index], fft_kernels)  # type: ignore
 
 
 def _kspace_operation(

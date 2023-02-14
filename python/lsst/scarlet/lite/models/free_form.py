@@ -21,6 +21,8 @@
 
 __all__ = ["FreeFormComponent"]
 
+from typing import cast
+
 import numpy as np
 
 from ..bbox import Box
@@ -95,9 +97,9 @@ class FreeFormComponent(FactorizedComponent):
         This is the main difference between an `SedComponent` and a
         `FactorizedComponent`, since this component has fewer constraints.
         """
-        from lsst.scarlet.lite.detect_pybind11 import get_connected_multipeak, get_footprints
+        from lsst.scarlet.lite.detect_pybind11 import get_connected_multipeak, get_footprints  # type: ignore
 
-        if self.bg_thresh is not None:
+        if self.bg_thresh is not None and isinstance(self.bg_rms, np.ndarray):
             bg_thresh = self.bg_rms * self.bg_thresh
             # Enforce background thresholding
             model = self.spectrum[:, None, None] * morph[None, :, :]
@@ -111,7 +113,8 @@ class FreeFormComponent(FactorizedComponent):
 
         if self.min_area > 0:
             footprints = get_footprints(morph > 0, 4.0, self.min_area, 0, False)
-            morph = morph * (scarlet_footprints_to_image(footprints, morph.shape) > 0).data
+            footprint_image = scarlet_footprints_to_image(footprints, cast(tuple[int, int], morph.shape))
+            morph = morph * (footprint_image > 0).data
 
         if np.all(morph == 0):
             morph[0, 0] = self.floor

@@ -21,7 +21,7 @@
 
 __all__ = ["FitPsfObservation", "FitPsfBlend"]
 
-from typing import Callable, Sequence, cast
+from typing import Callable, cast
 
 import numpy as np
 
@@ -45,7 +45,7 @@ class FitPsfObservation(Observation):
         model_psf: np.ndarray = None,
         noise_rms: np.ndarray = None,
         bbox: Box = None,
-        bands: Sequence[object] = None,
+        bands: tuple = None,
         padding: int = 3,
     ):
         """Initialize a `FitPsfObservation`
@@ -67,18 +67,18 @@ class FitPsfObservation(Observation):
 
         self.axes = (-2, -1)
 
-        self.fft_shape = get_fft_shape(images[0], psfs[0], padding, self.axes)
+        self.fft_shape = get_fft_shape(self.images.data[0], psfs[0], padding, self.axes)
 
         # Make the DFT of the psf a fittable parameter
-        self._fit_kernel = parameter(self.diff_kernel.fft(self.fft_shape, self.axes))
+        self._fit_kernel = parameter(cast(Fourier, self.diff_kernel).fft(self.fft_shape, self.axes))
 
     def grad_fit_kernel(
         self, input_grad: np.ndarray, kernel: np.ndarray, model_fft: np.ndarray
     ) -> np.ndarray:
         # Transform the upstream gradient into k-space
         grad_fft = Fourier(input_grad)
-        grad_fft = grad_fft.fft(self.fft_shape, self.axes)
-        return grad_fft * model_fft
+        _grad_fft = grad_fft.fft(self.fft_shape, self.axes)
+        return _grad_fft * model_fft
 
     def prox_kernel(self, kernel: np.ndarray) -> np.ndarray:
         # No prox for now
@@ -123,8 +123,8 @@ class FitPsfObservation(Observation):
         return Image(result.image, bands=image.bands, yx0=image.yx0)
 
     def update(self, it: int, input_grad: np.ndarray, model: Image):
-        model = Fourier(model.data[:, ::-1, ::-1])
-        model_fft = model.fft(self.fft_shape, self.axes)
+        _model = Fourier(model.data[:, ::-1, ::-1])
+        model_fft = _model.fft(self.fft_shape, self.axes)
         self._fit_kernel.update(it, input_grad, model_fft)
 
     def parameterize(self, parameterization: Callable) -> None:
@@ -183,16 +183,18 @@ class FitPsfBlend(Blend):
             # Calculate the gradient wrt the on-convolved model
             grad_log_likelihood = self._grad_log_likelihood()
             _grad_log_likelihood = self.observation.convolve(grad_log_likelihood, grad=True)
+            # Check if resizing needs to be performed in this iteration
+            if resize is not None and self.it > 0 and self.it % resize == 0:
+                do_resize = True
+            else:
+                do_resize = False
             # Update each component given the current gradient
             for component in self.components:
-                if not hasattr(component, "overlap"):
-                    component.overlap = component.bbox & self.bbox
-                component.update(it, _grad_log_likelihood[component.overlap].data)
-            # Check to see if any components need to be resized
-            if resize is not None and it > 0 and it % resize == 0:
-                for component in self.components:
-                    if component.resize(self.bbox):
-                        component.overlap = component.bbox & self.bbox
+                overlap = component.bbox & self.bbox
+                component.update(it, _grad_log_likelihood[overlap].data)
+                # Check to see if any components need to be resized
+                if do_resize:
+                    component.resize(self.bbox)
 
             # Update the PSF
             cast(FitPsfObservation, self.observation).update(it, grad_log_likelihood.data, self.get_model())

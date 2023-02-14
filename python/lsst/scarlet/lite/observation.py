@@ -21,7 +21,7 @@
 
 __all__ = ["Observation", "convolve"]
 
-from typing import Sequence, TypeVar
+from typing import cast, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -35,7 +35,7 @@ from .image import Image
 TObservation = TypeVar("TObservation", bound="Observation")
 
 
-def get_filter_coords(filter_values: np.ndarray, center: tuple[int, int] = None) -> np.ndarray:
+def get_filter_coords(filter_values: np.ndarray, center: tuple[int, int] | None = None) -> np.ndarray:
     """Create filter coordinate grid needed for the apply filter function
 
     Parameters
@@ -62,7 +62,8 @@ def get_filter_coords(filter_values: np.ndarray, center: tuple[int, int] = None)
                      with an odd number of rows and columns or
                      calculate `coords` on your own."""
             raise ValueError(msg)
-        center = [filter_values.shape[0] // 2, filter_values.shape[1] // 2]
+        center = tuple([filter_values.shape[0] // 2, filter_values.shape[1] // 2])  # type: ignore
+    center = cast(tuple[int, int], center)
     x = np.arange(filter_values.shape[1])
     y = np.arange(filter_values.shape[0])
     x, y = np.meshgrid(x, y)
@@ -109,7 +110,7 @@ def convolve(image: np.ndarray, psf: np.ndarray, bounds: tuple[int, int, int, in
         The filter bounds required by the ``apply_filter`` C++ method,
         usually obtained by calling `get_filter_bounds`.
     """
-    from lsst.scarlet.lite.operators_pybind11 import apply_filter
+    from lsst.scarlet.lite.operators_pybind11 import apply_filter  # type: ignore
 
     result = np.empty(image.shape, dtype=image.dtype)
     for band in range(len(image)):
@@ -152,13 +153,13 @@ def _set_image_like(images: np.ndarray | Image, bands: tuple | None = None, bbox
     images: Image
         The input images converted into an image.
     """
-    if hasattr(images, "bbox") and hasattr(images, "bands"):
+    if isinstance(images, Image):
         # This is already an image
         return images
 
     if bbox is None:
         bbox = Box(images.shape[-2:])
-    return Image(images, bands=bands, yx0=bbox.origin)
+    return Image(images, bands=bands, yx0=cast(tuple[int, int], bbox.origin))
 
 
 class Observation:
@@ -208,7 +209,7 @@ class Observation:
         model_psf: np.ndarray | None = None,
         noise_rms: np.ndarray | None = None,
         bbox: Box = None,
-        bands: Sequence[object] = None,
+        bands: tuple = None,
         padding: int = 3,
         convolution_mode: str = "fft",
     ):
@@ -239,15 +240,16 @@ class Observation:
         self.model_psf = model_psf
         self.padding = padding
         if model_psf is not None:
-            self.diff_kernel = match_psf(psfs, model_psf, padding=padding)
+            self.diff_kernel: Fourier | None = cast(Fourier, match_psf(psfs, model_psf, padding=padding))
             # The gradient of a convolution is another convolution,
             # but with the flipped and transposed kernel.
             diff_img = self.diff_kernel.image
-            self.grad_kernel = Fourier(diff_img[:, ::-1, ::-1])
+            self.grad_kernel: Fourier | None = Fourier(diff_img[:, ::-1, ::-1])
         else:
-            self.diff_kernel = self.grad_kernel = None
+            self.diff_kernel = None
+            self.grad_kernel = None
 
-        self._convolution_bounds = None
+        self._convolution_bounds: tuple[int, int, int, int] | None = None
 
     @property
     def bands(self) -> tuple:
@@ -295,12 +297,13 @@ class Observation:
                 Fourier(image.data),
                 kernel,
                 axes=(1, 2),
-            ).image
+                return_fourier=False,
+            )
         elif mode == "real":
             result = convolve(image.data, kernel.image, self.convolution_bounds)
         else:
             raise ValueError(f"mode must be either 'fft' or 'real', got {mode}")
-        return Image(result, bands=image.bands, yx0=image.yx0)
+        return Image(cast(np.ndarray, result), bands=image.bands, yx0=image.yx0)
 
     def log_likelihood(self, model: Image) -> float:
         """Calculate the log likelihood of the given model
@@ -321,7 +324,7 @@ class Observation:
     @property
     def shape(self) -> tuple[int, int, int]:
         """The shape of the images, variance, etc."""
-        return self.images.shape
+        return cast(tuple[int, int, int], self.images.shape)
 
     @property
     def n_bands(self) -> int:
@@ -337,6 +340,6 @@ class Observation:
     def convolution_bounds(self) -> tuple[int, int, int, int]:
         """Build the slices needed for convolution in real space"""
         if self._convolution_bounds is None:
-            coords = get_filter_coords(self.diff_kernel[0])
+            coords = get_filter_coords(cast(Fourier, self.diff_kernel).image[0])
             self._convolution_bounds = get_filter_bounds(coords.reshape(-1, 2))
         return self._convolution_bounds

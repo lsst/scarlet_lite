@@ -27,13 +27,12 @@ __all__ = [
     "get_multiresolution_support",
 ]
 
-from typing import Callable, Iterable
+from typing import Callable, Sequence
 
 import numpy as np
-import numpy.typing as npt
 
 
-def bspline_convolve(image: npt.ArrayLike, scale: int) -> np.ndarray:
+def bspline_convolve(image: np.ndarray, scale: int) -> np.ndarray:
     """Convolve an image with a bpsline at a given scale.
 
     This uses the spline
@@ -77,7 +76,7 @@ def bspline_convolve(image: npt.ArrayLike, scale: int) -> np.ndarray:
     return result
 
 
-def get_scales(image_shape: Iterable[int], scales: int = None) -> int:
+def get_scales(image_shape: Sequence[int], scales: int = None) -> int:
     """Get the number of scales to use in the starlet transform.
 
     Parameters

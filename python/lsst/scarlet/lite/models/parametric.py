@@ -35,7 +35,7 @@ __all__ = [
     "EllipticalParametricComponent",
 ]
 
-from typing import Callable, Sequence
+from typing import cast, Callable, Sequence
 
 import numpy as np
 from scipy.special import erf
@@ -81,7 +81,7 @@ class CartesianFrame:
         self._r2 = None
 
     @property
-    def shape(self) -> tuple[int]:
+    def shape(self) -> tuple[int, ...]:
         """Shape of the frame."""
         return self._bbox.shape
 
@@ -324,7 +324,7 @@ class EllipseFrame(CartesianFrame):
         """The radial coordinates of each pixel"""
         if self._radius is None:
             self._radius = np.sqrt(self.r2_grid)
-        return self._radius
+        return cast(np.ndarray, self._radius)
 
     @property
     def r2_grid(self) -> np.ndarray:
@@ -677,7 +677,6 @@ class ParametricComponent(Component):
         self._morph_grad = morph_grad
         self._morph_prox = morph_prox
         self._morph_step = morph_step
-        self._spectrum = spectrum
         self._bbox = bbox
         if prox_spectrum is None:
             self._prox_spectrum = self.prox_spectrum
@@ -758,12 +757,12 @@ class ParametricComponent(Component):
         """The function that calculates the gradient of the
         morphological model
         """
-        return self._morph_step
+        return cast(Callable, self._morph_step)
 
     def get_model(self, frame: CartesianFrame = None) -> Image:
         """Generate the full model for this component"""
         model = self.spectrum[:, None, None] * self._get_morph(frame)[None, :, :]
-        return Image(model, bands=self.bands, yx0=self.bbox.origin[-2:])
+        return Image(model, bands=self.bands, yx0=cast(tuple[int, int], self.bbox.origin[-2:]))
 
     def prox_spectrum(self, spectrum: np.ndarray) -> np.ndarray:
         """Apply a prox-like update to the spectrum

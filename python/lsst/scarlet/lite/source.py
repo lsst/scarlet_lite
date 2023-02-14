@@ -36,17 +36,13 @@ class Source:
 
     Parameters
     ----------
-    components: list[Component]
+    components:
         The components contained in the source.
-    dtype: npt.DTypeLike
-        The dtype of the resulting source model.
-        This is needed in order to ensure that the model matches
-        the same dtype as the observation data.
     """
 
     def __init__(self, components: list[Component]):
         self.components = components
-        self.flux = None
+        self.flux: Image | None = None
 
     @property
     def n_components(self) -> int:
@@ -121,7 +117,7 @@ class Source:
         if use_flux:
             # Return the redistributed flux
             # (calculated by scarlet.lite.measure.weight_sources)
-            return self.flux
+            return self.flux  # type: ignore
 
         model = self.components[0].get_model()
         for component in self.components[1:]:

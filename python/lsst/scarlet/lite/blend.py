@@ -19,9 +19,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 __all__ = ["Blend"]
 
-from typing import Callable, Sequence, TypeVar, cast
+from typing import Callable, Sequence, cast
 
 import numpy as np
 
@@ -30,8 +32,6 @@ from .component import Component, FactorizedComponent
 from .image import Image
 from .observation import Observation
 from .source import Source
-
-TBlend = TypeVar("TBlend", bound="Blend")
 
 
 class Blend:
@@ -68,9 +68,7 @@ class Blend:
 
         # Initialzie the iteration count and loss function
         self.it = 0
-        self.loss = []
-        for component in self.components:
-            component.overlap = component.bbox & self.bbox
+        self.loss: list[float] = []
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -110,11 +108,15 @@ class Blend:
         model = Image(
             np.zeros(self.shape, dtype=self.observation.images.dtype),
             bands=self.observation.bands,
-            yx0=self.observation.bbox.origin[-2:],
+            yx0=cast(tuple[int, int], self.observation.bbox.origin[-2:]),
         )
 
         if use_flux:
             for src in self.sources:
+                if src.flux is None:
+                    raise ValueError(
+                        "Some sources do not have 'flux' attribute set. Run measure.conserve_flux"
+                    )
                 src.flux.insert_into(model)
         else:
             for component in self.components:
@@ -140,7 +142,7 @@ class Blend:
             return self.observation.log_likelihood(self.get_model(convolve=True))
         return self.loss[-1]
 
-    def fit_spectra(self, clip: bool = False) -> TBlend:
+    def fit_spectra(self, clip: bool = False) -> Blend:
         """Fit all of the spectra given their current morphologies
 
         Parameters
@@ -166,19 +168,18 @@ class Blend:
         )
         for idx, component in enumerate(self.components):
             if hasattr(component, "morph") and hasattr(component, "spectrum"):
+                component = cast(FactorizedComponent, component)
                 morphs.append(component.morph)
                 spectra.append(component.spectrum)
                 factorized_indices.append(idx)
             else:
-                if not hasattr(component, "overlap"):
-                    component.overlap = component.bbox & self.bbox
-                model[component.overlap] += component.get_model()[component.overlap]
+                model.insert(component.get_model())
         model = self.observation.convolve(model, mode="real")
 
         boxes = [c.bbox for c in self.components]
         fit_spectra = multifit_spectra(
             self.observation,
-            [Image(morph, yx0=bbox.origin) for morph, bbox in zip(morphs, boxes)],
+            [Image(morph, yx0=cast(tuple[int, int], bbox.origin)) for morph, bbox in zip(morphs, boxes)],
             model,
         )
         for idx in range(len(morphs)):
@@ -197,7 +198,7 @@ class Blend:
                     and hasattr(component, "prox_spectrum")
                     and component.prox_spectrum is not None  # type: ignore
                 ):
-                    component.prox_spectrum(component.spectrum)
+                    component.prox_spectrum(component.spectrum)  # type: ignore
 
         if clip:
             # Remove components with no positive flux
@@ -244,16 +245,17 @@ class Blend:
         while self.it < max_iter:
             # Calculate the gradient wrt the on-convolved model
             grad_log_likelihood = self._grad_log_likelihood()
+            if resize is not None and self.it > 0 and self.it % resize == 0:
+                do_resize = True
+            else:
+                do_resize = False
             # Update each component given the current gradient
             for component in self.components:
-                if not hasattr(component, "overlap"):
-                    component.overlap = component.bbox & self.bbox
-                component.update(self.it, grad_log_likelihood[component.overlap].data)
-            # Check to see if any components need to be resized
-            if resize is not None and self.it > 0 and self.it % resize == 0:
-                for component in self.components:
-                    if component.resize(self.bbox):
-                        component.overlap = component.bbox & self.bbox
+                overlap = component.bbox & self.bbox
+                component.update(self.it, grad_log_likelihood[overlap].data)
+                # Check to see if any components need to be resized
+                if do_resize:
+                    component.resize(self.bbox)
             # Stopping criteria
             if self.it > min_iter and np.abs(self.loss[-1] - self.loss[-2]) < e_rel * np.abs(self.loss[-1]):
                 break

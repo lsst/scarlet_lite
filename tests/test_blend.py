@@ -36,7 +36,7 @@ from utils import ObservationData, ScarletTestCase
 class DummyCubeComponent(Component):
     def __init__(self, model: Image):
         super().__init__(model.bands, model.bbox)
-        self._model = Parameter(model.data, {})
+        self._model = Parameter(model.data, {}, 0)
 
     @property
     def data(self) -> np.ndarray:

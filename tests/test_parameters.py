@@ -59,7 +59,7 @@ class TestParameters(ScarletTestCase):
         # Test copy method
         y = np.zeros((3, 5), dtype=float)
         y[1, 3] = 1
-        param = Parameter(x, {"y": y})
+        param = Parameter(x, {"y": y}, 0)
         self.assertIsNot(param.copy().x, x)
         assert_array_equal(param.copy().x, x)
         self.assertIsNot(param.copy().helpers["y"], y)
@@ -72,7 +72,7 @@ class TestParameters(ScarletTestCase):
         x = np.arange(15, dtype=float).reshape(3, 5)
         y = np.zeros((3, 5), dtype=float)
         y[1, 3] = 1
-        param = Parameter(x, {"y": y})
+        param = Parameter(x, {"y": y}, 0)
 
         # Test growing in all dimensions
         old_box = Box((3, 5), (21, 15))
@@ -83,7 +83,7 @@ class TestParameters(ScarletTestCase):
         assert_array_equal(param.x, truth)
 
         # Test shrinking in all directions
-        param = Parameter(x, {"y": y})
+        param = Parameter(x, {"y": y}, 0)
         old_box = Box((3, 5), (21, 15))
         new_box = Box((1, 3), (22, 16))
         param.resize(old_box, new_box)

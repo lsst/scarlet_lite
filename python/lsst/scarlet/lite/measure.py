@@ -1,3 +1,26 @@
+# This file is part of scarlet_lite.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+from typing import cast
+
 import numpy as np
 
 from .bbox import Box
@@ -38,7 +61,7 @@ def calculate_snr(
     overlap = images.bbox & bbox
     noise = variance[overlap].data
     img = images[overlap].data
-    _psfs = Image(psfs, bands=images.bands, yx0=bbox.origin)[overlap].data
+    _psfs = Image(psfs, bands=images.bands, yx0=cast(tuple[int, int], bbox.origin))[overlap].data
     numerator = img * _psfs
     denominator = (_psfs * noise) * _psfs
     return np.sum(numerator) / np.sqrt(np.sum(denominator))
@@ -76,7 +99,7 @@ def conserve_flux(blend: Blend, mask_footprint: bool = True) -> None:
 
     for src in blend.sources:
         if src.is_null:
-            src.flux = Image.from_box(Box((0, 0)), bands=observation.bands)
+            src.flux = Image.from_box(Box((0, 0)), bands=observation.bands)  # type: ignore
             continue
         src_model = src.get_model()
 

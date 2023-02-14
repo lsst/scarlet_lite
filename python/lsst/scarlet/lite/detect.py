@@ -1,8 +1,31 @@
+# This file is part of scarlet_lite.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+from __future__ import annotations
+
 import logging
-from typing import Sequence, TypeVar
+from typing import cast, Sequence
 
 import numpy as np
-from lsst.scarlet.lite.detect_pybind11 import Footprint
+from lsst.scarlet.lite.detect_pybind11 import Footprint  # type: ignore
 
 from .bbox import Box
 from .image import Image
@@ -10,7 +33,6 @@ from .utils import continue_class
 from .wavelet import get_multiresolution_support, starlet_transform
 
 logger = logging.getLogger("scarlet.detect")
-TFootprint = TypeVar("TFootprint", bound="Footprint")
 
 
 def bounds_to_bbox(bounds: tuple[int, int, int, int]) -> Box:
@@ -32,7 +54,7 @@ def bounds_to_bbox(bounds: tuple[int, int, int, int]) -> Box:
 
 
 @continue_class
-class Footprint:  # noqa: F811
+class Footprint:  # type: ignore # noqa
     @property
     def bbox(self) -> Box:
         """Bounding box for the Footprint
@@ -42,14 +64,14 @@ class Footprint:  # noqa: F811
         bbox:
             The minimal `Box` that contains the entire `Footprint`.
         """
-        return bounds_to_bbox(self.bounds)
+        return bounds_to_bbox(self.bounds)  # type: ignore
 
     @property
     def yx0(self) -> tuple[int, int]:
         """Origin in y, x of the lower left corner of the footprint"""
-        return self.bounds[0], self.bounds[2]
+        return self.bounds[0], self.bounds[2]  # type: ignore
 
-    def intersection(self, other: TFootprint) -> Image | None:
+    def intersection(self, other: Footprint) -> Image | None:
         """The intersection of two footprints
 
         Parameters
@@ -62,11 +84,11 @@ class Footprint:  # noqa: F811
         intersection:
             The intersection of two footprints.
         """
-        footprint1 = Image(self.footprint, yx0=self.yx0)
-        footprint2 = Image(other.footprint, yx0=other.yx0)
+        footprint1 = Image(self.footprint, yx0=self.yx0)  # type: ignore
+        footprint2 = Image(other.footprint, yx0=other.yx0) # type: ignore # noqa
         return footprint1 & footprint2
 
-    def union(self, other: TFootprint) -> Image | None:
+    def union(self, other: Footprint) -> Image | None:
         """The intersection of two footprints
 
         Parameters
@@ -79,12 +101,12 @@ class Footprint:  # noqa: F811
         union:
             The union of two footprints.
         """
-        footprint1 = Image(self.footprint, yx0=self.yx0)
+        footprint1 = Image(self.footprint, yx0=self.yx0)  # type: ignore
         footprint2 = Image(other.footprint, yx0=other.yx0)
         return footprint1 | footprint2
 
 
-def scarlet_footprints_to_image(footprints: Sequence[Footprint], shape: tuple[int, int]) -> np.ndarray:
+def scarlet_footprints_to_image(footprints: Sequence[Footprint], shape: tuple[int, int]) -> Image:
     """Convert a set of scarlet footprints to a pixelized image.
 
     Parameters
@@ -102,7 +124,7 @@ def scarlet_footprints_to_image(footprints: Sequence[Footprint], shape: tuple[in
     result = Image.from_box(Box(shape), dtype=int)
     for k, footprint in enumerate(footprints):
         bbox = bounds_to_bbox(footprint.bounds)
-        fp_image = Image(footprint.footprint, yx0=bbox.origin)
+        fp_image = Image(footprint.footprint, yx0=cast(tuple[int, int], bbox.origin))
         result = result + fp_image * (k + 1)
     return result
 

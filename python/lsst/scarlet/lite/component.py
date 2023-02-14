@@ -28,7 +28,7 @@ __all__ = [
 
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import Callable
+from typing import Callable, cast
 
 import numpy as np
 
@@ -205,8 +205,8 @@ class FactorizedComponent(Component):
         if _center is None:
             return None
         center = (
-            self._center[0] - self.bbox.origin[-2],
-            self._center[1] - self.bbox.origin[-1],
+            _center[0] - self.bbox.origin[-2],
+            _center[1] - self.bbox.origin[-1],
         )
         return center
 
@@ -232,7 +232,7 @@ class FactorizedComponent(Component):
         spectrum = self.spectrum
         morph = self.morph
         model = spectrum[:, None, None] * morph[None, :, :]
-        return Image(model, bands=self.bands, yx0=self.bbox.origin)
+        return Image(model, bands=self.bands, yx0=cast(tuple[int, int], self.bbox.origin))
 
     def grad_spectrum(self, input_grad: np.ndarray, spectrum: np.ndarray, morph: np.ndarray):
         """Gradient of the spectrum wrt. the component model"""
@@ -252,7 +252,7 @@ class FactorizedComponent(Component):
         """Apply a prox-like update to the morphology"""
         # monotonicity
         if self.monotonicity is not None:
-            morph = self.monotonicity(morph, self.component_center)
+            morph = self.monotonicity(morph, cast(tuple[int, int], self.component_center))
 
         if self.bg_thresh is not None and self.bg_rms is not None:
             bg_thresh = self.bg_rms * self.bg_thresh

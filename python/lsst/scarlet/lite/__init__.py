@@ -4,7 +4,7 @@ from .blend import *
 from .component import *
 
 try:
-    import display
+    from . import display
     import matplotlib
 except ImportError:
     pass

@@ -19,6 +19,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 __all__ = [
     "parameter",
     "Parameter",
@@ -30,20 +32,33 @@ __all__ = [
     "DEFAULT_ADAPROX_FACTOR",
 ]
 
-from typing import Callable, Sequence, TypeVar
+from typing import cast, Callable, Sequence
 
 import numpy as np
 import numpy.typing as npt
 
 from .bbox import Box
 
-TParameter = TypeVar("TParameter", bound="Parameter")
-TFistaParameter = TypeVar("TFistaParameter", bound="FistaParameter")
-TAdaproxParameter = TypeVar("TAdaproxParameter", bound="AdaproxParameter")
-
 
 # The default factor used for adaprox parameter steps
 DEFAULT_ADAPROX_FACTOR = 1e-2
+
+
+def step_function_wrapper(step: float) -> Callable:
+    """Wrapper to make a numerical step into a step function
+
+    Parameters
+    ----------
+    step:
+        The step to take for a given array.
+
+    Returns
+    -------
+    step_function:
+        The step function that takes an array and returns the
+        numerical step.
+    """
+    return lambda x: step
 
 
 class Parameter:
@@ -56,11 +71,45 @@ class Parameter:
     helpers:
         A dictionary of helper arrays that are used by an optimizer to
         persist values like the gradient of `x`, the Hessian of `x`, etc.
+    step:
+        A numerical step value or function to calculate the step for a
+        given `x``.
+    grad:
+        A function to calcualte the gradient of `x`.
+    prox:
+        A function to take the proximal operator of `x`.
     """
 
-    def __init__(self, x, helpers: dict[str, np.ndarray]):
+    def __init__(
+        self,
+        x: np.ndarray,
+        helpers: dict[str, np.ndarray],
+        step: Callable | float,
+        grad: Callable | None = None,
+        prox: Callable | None = None,
+    ):
         self.x = x
         self.helpers = helpers
+
+        if isinstance(step, float):
+            _step = step_function_wrapper(step)
+        else:
+            _step = step
+
+        self._step = _step
+        self.grad = grad
+        self.prox = prox
+
+    @property
+    def step(self) -> float:
+        """Calcualte the step
+
+        Return
+        ------
+        step:
+            The numerical step if no iteration is given.
+        """
+        return self._step(self.x)
 
     @property
     def shape(self) -> tuple[int, ...]:
@@ -72,10 +121,10 @@ class Parameter:
         """The numpy dtype of the array that is being fit."""
         return self.x.dtype
 
-    def copy(self) -> TParameter:
+    def copy(self) -> Parameter:
         """Copy this parameter, including all of the helper arrays."""
         helpers = {k: v.copy() for k, v in self.helpers.items()}
-        return Parameter(self.x.copy(), helpers)
+        return Parameter(self.x.copy(), helpers, 0)
 
     def update(self, it: int, input_grad: np.ndarray, *args):
         """Update the parameter in one iteration.
@@ -129,7 +178,7 @@ def parameter(x: np.ndarray | Parameter) -> Parameter:
     """
     if isinstance(x, Parameter):
         return x
-    return Parameter(x, {})
+    return Parameter(x, {}, 0)
 
 
 class FistaParameter(Parameter):
@@ -154,11 +203,10 @@ class FistaParameter(Parameter):
         super().__init__(
             x,
             {"z": z0},
+            step,
+            grad,
+            prox,
         )
-
-        self.step = step
-        self.grad = grad
-        self.prox = prox
         self.t = t0
 
     def update(self, it: int, input_grad: np.ndarray, *args):
@@ -170,8 +218,11 @@ class FistaParameter(Parameter):
         _x = self.x
         _z = self.helpers["z"]
 
-        y = _z - step * self.grad(input_grad, _x, *args)
-        x = self.prox(y)
+        y = _z - step * cast(Callable, self.grad)(input_grad, _x, *args)
+        if self.prox is not None:
+            x = self.prox(y)
+        else:
+            x = y
         t = 0.5 * (1 + np.sqrt(1 + 4 * self.t**2))
         omega = 1 + (self.t - 1) / t
         self.helpers["z"] = _x + omega * (x - _x)
@@ -312,8 +363,8 @@ class AdaproxParameter(Parameter):
         self,
         x: np.ndarray,
         step: Callable | float,
-        grad: Callable = None,
-        prox: Callable = None,
+        grad: Callable | None = None,
+        prox: Callable | None = None,
         b1: float = 0.9,
         b2: float = 0.999,
         eps: float = 1e-8,
@@ -342,26 +393,20 @@ class AdaproxParameter(Parameter):
                 "v": v0,
                 "vhat": vhat0,
             },
+            step,
+            grad,
+            prox,
         )
 
-        if not hasattr(b1, "__getitem__"):
-            b1 = SingleItemArray(b1)
+        if isinstance(b1, float):
+            _b1 = SingleItemArray(b1)
+        else:
+            _b1 = b1
 
-        self.b1 = b1
+        self.b1 = _b1
         self.b2 = b2
         self.eps = eps
         self.p = p
-
-        if not hasattr(step, "__call__"):
-
-            def _step(x):
-                return step
-
-            self.step = _step
-        else:
-            self.step = step
-        self.grad = grad
-        self.prox = prox
 
         self.phi_psi = phi_psi[scheme]
         self.e_rel = prox_e_rel
@@ -373,7 +418,7 @@ class AdaproxParameter(Parameter):
         """
         _x = self.x
         # Calculate the gradient
-        grad = self.grad(input_grad, _x, *args)
+        grad = cast(Callable, self.grad)(input_grad, _x, *args)
         # Get the update for the parameter
         phi, psi = self.phi_psi(
             it,
@@ -387,7 +432,7 @@ class AdaproxParameter(Parameter):
             self.p,
         )
         # Calculate the step size
-        step = self.step(_x)
+        step = self.step
         if it > 0:
             _x += -step * phi / psi
         else:
@@ -396,14 +441,14 @@ class AdaproxParameter(Parameter):
             # is often much larger than desired.
             _x += -step * phi / psi / 10
 
-        self.x = self.prox(_x)
+        self.x = cast(Callable, self.prox)(_x)
 
 
 class FixedParameter(Parameter):
     """A parameter that is not updated"""
 
     def __init__(self, x: np.ndarray):
-        super().__init__(x, {})
+        super().__init__(x, {}, 0)
 
     def update(self, it: int, input_grad: np.ndarray, *args):
         pass
@@ -413,7 +458,7 @@ def relative_step(
     x: np.ndarray,
     factor: float = 0.1,
     minimum: float = 0,
-    axis: int | Sequence[int] = None,
+    axis: int | Sequence[int] | None = None,
 ):
     """Step size set at `factor` times the mean of `X` in direction `axis`"""
     return np.maximum(minimum, factor * x.mean(axis=axis))

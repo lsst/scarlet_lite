@@ -1,9 +1,29 @@
+# This file is part of scarlet_lite.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 from typing import Sequence
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import numpy.typing as npt
 from astropy.visualization.lupton_rgb import AsinhMapping, LinearMapping, Mapping
 from matplotlib.patches import Rectangle
 from matplotlib.ticker import MaxNLocator
@@ -97,7 +117,7 @@ def channels_to_rgb(channels: int) -> np.ndarray:
 
 
 class LinearPercentileNorm(LinearMapping):
-    def __init__(self, img: npt.ArrayLike, percentiles: tuple[int, int] = None):
+    def __init__(self, img: np.ndarray, percentiles: tuple[int, int] = None):
         """Create norm that is linear between lower and upper percentile of img
         Parameters
         ----------
@@ -116,7 +136,7 @@ class LinearPercentileNorm(LinearMapping):
 
 
 class AsinhPercentileNorm(AsinhMapping):
-    def __init__(self, img: npt.ArrayLike, percentiles: tuple[int, int] = None):
+    def __init__(self, img: np.ndarray, percentiles: tuple[int, int] = None):
         """Create norm that is linear between lower and upper percentile of img
         Parameters
         ----------
@@ -290,7 +310,7 @@ def show_observation(
         ax = (ax,)
 
     # Mask any pixels with zero weight in all bands
-    mask = np.sum(observation.weights, axis=0) == 0
+    mask = np.sum(observation.weights.data, axis=0) == 0
     # if there are no masked pixels, do not use a mask
     if np.all(mask == 0):
         mask = None
@@ -421,7 +441,7 @@ def show_scene(
 
     # Mask any pixels with zero weight in all bands
     if observation is not None:
-        mask = np.sum(observation.weights, axis=0) == 0
+        mask = np.sum(observation.weights.data, axis=0) == 0
         # if there are no masked pixels, do not use a mask
         if np.all(mask == 0):
             mask = None
@@ -603,6 +623,8 @@ def show_sources(
             skipped += 1
             continue
         if use_flux:
+            if src.flux is None:
+                raise ValueError(f"Flux has not been calculated for src {k}, rerun measure.conserve_flux")
             src_box = src.flux.bbox
         else:
             src_box = src.bbox
@@ -681,7 +703,7 @@ def show_sources(
             panel += 1
 
         if show_spectrum:
-            spectra = [model.sum(axis=(1, 2))]
+            spectra = [np.sum(model.data, axis=(1, 2))]
 
             for spectrum in spectra:
                 ax[k - skipped][panel].plot(spectrum)
@@ -735,10 +757,10 @@ def compare_spectra(
             if sources[k].is_null:
                 continue
             if use_template or not hasattr(sources[k], "flux"):
-                spectrum = np.sum(sources[k].get_model(), axis=(1, 2))
+                spectrum = np.sum(sources[k].get_model().data, axis=(1, 2))
                 ax[row][column].plot(spectrum, ".-", label=key + " model")
             if use_flux and hasattr(sources[k], "flux"):
-                spectrum = np.sum(sources[k].get_model(use_flux=True), axis=(1, 2))
+                spectrum = np.sum(sources[k].get_model(use_flux=True).data, axis=(1, 2))
                 ax[row][column].plot(spectrum, ".--", label=key + " flux")
         panel += 1
     handles, labels = ax[0][0].get_legend_handles_labels()
