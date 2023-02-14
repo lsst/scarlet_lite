@@ -226,10 +226,10 @@ class Fourier(object):
     def __init__(
         self,
         image: np.ndarray,
-        image_fft: dict[Sequence[Sequence[int]], np.ndarray] = None,
+        image_fft: dict[Sequence[Sequence[int]], np.ndarray] | None = None,
     ):
         if image_fft is None:
-            self._fft = {}
+            self._fft: dict[Sequence[Sequence[int]], np.ndarray] = {}
         else:
             self._fft = image_fft
         self._image = image

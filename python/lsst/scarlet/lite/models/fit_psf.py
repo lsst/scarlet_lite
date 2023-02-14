@@ -42,10 +42,10 @@ class FitPsfObservation(Observation):
         variance: np.ndarray | Image,
         weights: np.ndarray | Image,
         psfs: np.ndarray,
-        model_psf: np.ndarray = None,
-        noise_rms: np.ndarray = None,
-        bbox: Box = None,
-        bands: tuple = None,
+        model_psf: np.ndarray | None = None,
+        noise_rms: np.ndarray | None = None,
+        bbox: Box | None = None,
+        bands: tuple | None = None,
         padding: int = 3,
     ):
         """Initialize a `FitPsfObservation`

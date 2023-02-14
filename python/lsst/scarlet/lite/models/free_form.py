@@ -59,10 +59,10 @@ class FreeFormComponent(FactorizedComponent):
         spectrum: np.ndarray | Parameter,
         morph: np.ndarray | Parameter,
         model_bbox: Box,
-        bg_thresh: float = None,
-        bg_rms: np.ndarray = None,
+        bg_thresh: float | None = None,
+        bg_rms: np.ndarray | None = None,
         floor: float = 1e-20,
-        peaks: list[tuple[int, int]] = None,
+        peaks: list[tuple[int, int]] | None = None,
         min_area: float = 0,
     ):
         super().__init__(

@@ -208,8 +208,8 @@ class Observation:
         psfs: np.ndarray,
         model_psf: np.ndarray | None = None,
         noise_rms: np.ndarray | None = None,
-        bbox: Box = None,
-        bands: tuple = None,
+        bbox: Box | None = None,
+        bands: tuple | None = None,
         padding: int = 3,
         convolution_mode: str = "fft",
     ):
@@ -261,7 +261,7 @@ class Observation:
         """The bounding box for the full observation."""
         return self.images.bbox
 
-    def convolve(self, image: Image, mode: str = None, grad: bool = False) -> Image:
+    def convolve(self, image: Image, mode: str | None = None, grad: bool = False) -> Image:
         """Convolve the model into the observed seeing in each band.
 
         Parameters

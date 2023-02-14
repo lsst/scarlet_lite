@@ -51,7 +51,7 @@ def integrated_gaussian_psf(x: np.ndarray, sigma: float) -> np.ndarray:
 
 
 def integrated_circular_gaussian(
-    x: np.ndarray = None, y: np.ndarray = None, sigma: float = 0.8
+    x: np.ndarray | None = None, y: np.ndarray | None = None, sigma: float = 0.8
 ) -> np.ndarray:
     """Create a circular Gaussian that is integrated over pixels
 

@@ -343,8 +343,8 @@ def prox_monotonic_mask(
 def uncentered_operator(
     x: np.ndarray,
     func: Callable,
-    center: tuple[int, int] = None,
-    fill: float = None,
+    center: tuple[int, int] | None = None,
+    fill: float | None = None,
     **kwargs,
 ) -> np.ndarray:
     """Only apply the operator on a centered patch
@@ -430,8 +430,8 @@ def prox_sdss_symmetry(x: np.ndarray):
 
 def prox_uncentered_symmetry(
     x: np.ndarray,
-    center: tuple[int, int] = None,
-    fill: float = None,
+    center: tuple[int, int] | None = None,
+    fill: float | None = None,
 ) -> np.ndarray:
     """Symmetry with off-center peak
 

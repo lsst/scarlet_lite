@@ -73,7 +73,7 @@ def init_monotonic_morph(
     full_box: Box,
     padding: int = 5,
     normalize: bool = True,
-    monotonicity: Monotonicity = None,
+    monotonicity: Monotonicity | None = None,
     thresh: float = 0,
 ) -> tuple[Box, np.ndarray | None]:
     """Initialize a morphology for a monotonic source
@@ -142,7 +142,7 @@ def init_monotonic_morph(
 def multifit_spectra(
     observation: Observation,
     morphs: Sequence[Image],
-    model: Image = None,
+    model: Image | None = None,
 ) -> np.ndarray:
     """Fit the spectra of multiple components simultaneously
 
@@ -362,7 +362,7 @@ class FactorizedInitialization(ABC):
         return FactorizedComponent(
             self.observation.bands,
             spectrum,
-            morph,
+            cast(np.ndarray, morph),
             bbox,
             center,
             self.observation.noise_rms,
@@ -422,7 +422,7 @@ class FactorizedChi2Initialization(FactorizedInitialization):
         self,
         observation: Observation,
         centers: Sequence[tuple[int, int]],
-        detect: np.ndarray = None,
+        detect: np.ndarray | None = None,
         min_snr: float = 50,
         monotonicity: Monotonicity | None = None,
         disk_percentile: float = 25,
@@ -576,7 +576,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
         disk_padding: int = 5,
         use_psf: bool = True,
         scales: int = 5,
-        wavelets: np.ndarray = None,
+        wavelets: np.ndarray | None = None,
         monotonicity: Monotonicity | None = None,
         min_snr: float = 50,
     ):
@@ -651,8 +651,8 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                 bulge_spectrum, disk_spectrum = multifit_spectra(
                     observation,
                     [
-                        Image(bulge_morph, yx0=cast(tuple[int, int], bulge_box.origin)),
-                        Image(disk_morph, yx0=cast(tuple[int, int], disk_box.origin)),
+                        Image(cast(np.ndarray, bulge_morph), yx0=cast(tuple[int, int], bulge_box.origin)),
+                        Image(cast(np.ndarray, disk_morph), yx0=cast(tuple[int, int], disk_box.origin)),
                     ],
                 )
 
@@ -662,7 +662,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                         FactorizedComponent(
                             observation.bands,
                             bulge_spectrum,
-                            bulge_morph,
+                            cast(np.ndarray, bulge_morph),
                             bulge_box,
                             center,
                             monotonicity=self.monotonicity,
@@ -675,7 +675,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                         FactorizedComponent(
                             observation.bands,
                             disk_spectrum,
-                            disk_morph,
+                            cast(np.ndarray, disk_morph),
                             disk_box,
                             center,
                             monotonicity=self.monotonicity,

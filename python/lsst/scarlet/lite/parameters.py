@@ -191,10 +191,10 @@ class FistaParameter(Parameter):
         self,
         x: np.ndarray,
         step: float,
-        grad: Callable = None,
-        prox: Callable = None,
+        grad: Callable | None = None,
+        prox: Callable | None = None,
         t0: float = 1,
-        z0: np.ndarray = None,
+        z0: np.ndarray | None = None,
     ):
         if z0 is None:
             z0 = x
@@ -368,9 +368,9 @@ class AdaproxParameter(Parameter):
         b2: float = 0.999,
         eps: float = 1e-8,
         p: float = 0.25,
-        m0: np.ndarray = None,
-        v0: np.ndarray = None,
-        vhat0: np.ndarray = None,
+        m0: np.ndarray | None = None,
+        v0: np.ndarray | None = None,
+        vhat0: np.ndarray | None = None,
         scheme: str = "amsgrad",
         prox_e_rel: float = 1e-6,
     ):

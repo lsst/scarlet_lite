@@ -367,12 +367,13 @@ class Image:
         self,
         data: np.ndarray,
         bands: Sequence | None = None,
-        yx0: tuple[int, int] = None,
-        indices: dict[tuple, tuple[tuple, tuple]] = None,
+        yx0: tuple[int, int] | None = None,
+        indices: dict[tuple, tuple[tuple, tuple]] | None = None,
         slices: dict[
             tuple[tuple[int, ...], tuple[int, ...]],
             tuple[tuple[slice, ...], tuple[slice, ...]],
-        ] = None,
+        ]
+        | None = None,
     ):
         if bands is None or len(bands) == 0:
             # Using an empty tuple for the bands will result in a 2D image
@@ -617,8 +618,8 @@ class Image:
 
     def project(
         self,
-        bands: object | tuple[object] = None,
-        bbox: Box = None,
+        bands: object | tuple[object] | None = None,
+        bbox: Box | None = None,
     ) -> Image:
         """Project this image into a differnt set of bands
 
@@ -744,10 +745,10 @@ class Image:
 
     def copy_with(
         self,
-        data: np.ndarray = None,
-        order: str = None,
-        bands: tuple[str, ...] = None,
-        yx0: tuple[int, int] = None,
+        data: np.ndarray | None = None,
+        order: str | None = None,
+        bands: tuple[str, ...] | None = None,
+        yx0: tuple[int, int] | None = None,
     ):
         """Copy of this image with some parameters updated.
 
@@ -1129,7 +1130,7 @@ class Image:
         x_index = slice(x_start, x_stop)
         return y_index, x_index
 
-    def _get_sliced(self, indices: Any, value: Image = None) -> Image:
+    def _get_sliced(self, indices: Any, value: Image | None = None) -> Image:
         """Select a subset of an image
 
         Parameters

@@ -172,7 +172,7 @@ class Box:
         Minimum corner coordinate of the box
     """
 
-    def __init__(self, shape: tuple[int, ...], origin: tuple[int, ...] = None):
+    def __init__(self, shape: tuple[int, ...], origin: tuple[int, ...] | None = None):
         self.shape = shape
         if origin is None:
             origin = (0,) * len(shape)

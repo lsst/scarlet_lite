@@ -117,7 +117,7 @@ def channels_to_rgb(channels: int) -> np.ndarray:
 
 
 class LinearPercentileNorm(LinearMapping):
-    def __init__(self, img: np.ndarray, percentiles: tuple[int, int] = None):
+    def __init__(self, img: np.ndarray, percentiles: tuple[int, int] | None = None):
         """Create norm that is linear between lower and upper percentile of img
         Parameters
         ----------
@@ -136,7 +136,7 @@ class LinearPercentileNorm(LinearMapping):
 
 
 class AsinhPercentileNorm(AsinhMapping):
-    def __init__(self, img: np.ndarray, percentiles: tuple[int, int] = None):
+    def __init__(self, img: np.ndarray, percentiles: tuple[int, int] | None = None):
         """Create norm that is linear between lower and upper percentile of img
         Parameters
         ----------
@@ -157,7 +157,9 @@ class AsinhPercentileNorm(AsinhMapping):
         super().__init__(minimum=vmin, stretch=stretch, Q=beta)
 
 
-def img_to_3channel(img: np.ndarray, channel_map: np.ndarray = None, fill_value: float = 0) -> np.ndarray:
+def img_to_3channel(
+    img: np.ndarray, channel_map: np.ndarray | None = None, fill_value: float = 0
+) -> np.ndarray:
     """Convert multi-band image cube into 3 RGB channels
 
     Parameters
@@ -201,10 +203,10 @@ def img_to_3channel(img: np.ndarray, channel_map: np.ndarray = None, fill_value:
 
 def img_to_rgb(
     img: np.ndarray | Image,
-    channel_map: np.ndarray = None,
+    channel_map: np.ndarray | None = None,
     fill_value: float = 0,
-    norm: Mapping = None,
-    mask: np.ndarray = None,
+    norm: Mapping | None = None,
+    mask: np.ndarray | None = None,
 ) -> np.ndarray:
     """Convert images to normalized RGB.
     If normalized values are outside of the range [0..255], they will be
@@ -239,7 +241,9 @@ def img_to_rgb(
     return rgb
 
 
-def show_likelihood(blend: Blend, figsize: tuple[float, float] = None, **kwargs) -> matplotlib.pyplot.Figure:
+def show_likelihood(
+    blend: Blend, figsize: tuple[float, float] | None = None, **kwargs
+) -> matplotlib.pyplot.Figure:
     """Display a plot of the likelihood in each iteration for a blend
 
     Parameters
@@ -290,11 +294,11 @@ def _add_markers(
 
 def show_observation(
     observation: Observation,
-    norm: Mapping = None,
-    channel_map: np.ndarray = None,
-    centers: Sequence = None,
+    norm: Mapping | None = None,
+    channel_map: np.ndarray | None = None,
+    centers: Sequence | None = None,
     psf_scaling: str | None = None,
-    figsize: tuple[float, float] = None,
+    figsize: tuple[float, float] | None = None,
 ):
     """Plot observation in standardized form."""
     if psf_scaling is None:
@@ -361,18 +365,18 @@ def show_observation(
 
 def show_scene(
     blend: Blend,
-    norm: Mapping = None,
-    channel_map: np.ndarray = None,
+    norm: Mapping | None = None,
+    channel_map: np.ndarray | None = None,
     show_model: bool = True,
     show_observed: bool = False,
     show_rendered: bool = False,
     show_residual: bool = False,
     add_labels: bool = True,
     add_boxes: bool = False,
-    figsize: tuple[float, float] = None,
+    figsize: tuple[float, float] | None = None,
     linear: bool = True,
     use_flux: bool = False,
-    box_kwargs: dict = None,
+    box_kwargs: dict | None = None,
 ) -> matplotlib.pyplot.Figure:
     """Plot all sources to recreate the scence.
 
@@ -548,14 +552,14 @@ def get_extent(bbox: Box) -> tuple[int, int, int, int]:
 
 def show_sources(
     blend: Blend,
-    sources: list[Source] = None,
-    norm: Mapping = None,
-    channel_map: np.ndarray = None,
+    sources: list[Source] | None = None,
+    norm: Mapping | None = None,
+    channel_map: np.ndarray | None = None,
     show_model: bool = True,
     show_observed: bool = False,
     show_rendered: bool = False,
     show_spectrum: bool = True,
-    figsize: tuple[float, float] = None,
+    figsize: tuple[float, float] | None = None,
     model_mask: bool = True,
     add_markers: bool = True,
     add_boxes: bool = False,

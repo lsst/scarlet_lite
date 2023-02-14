@@ -129,7 +129,7 @@ def scarlet_footprints_to_image(footprints: Sequence[Footprint], shape: tuple[in
     return result
 
 
-def get_wavelets(images: np.ndarray, variance: np.ndarray, scales: int = None) -> np.ndarray:
+def get_wavelets(images: np.ndarray, variance: np.ndarray, scales: int | None = None) -> np.ndarray:
     """Calculate wavelet coefficents given a set of images and their variances
 
     Parameters

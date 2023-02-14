@@ -290,7 +290,10 @@ class FactorizedComponent(Component):
         if np.sum(significant) == 0:
             # There are no significant pixels,
             # so make a small box around the center
-            new_box = Box((1, 1), self.center).grow(self.padding) & model_box
+            center = self.center
+            if center is None:
+                center = (0, 0)
+            new_box = Box((1, 1), center).grow(self.padding) & model_box
         else:
             new_box = (
                 Box.from_data(significant, min_value=0).grow(self.padding) + self.bbox.origin
@@ -345,7 +348,7 @@ def default_fista_parameterization(component: Component):
         raise NotImplementedError(f"Unrecognized component type {component}")
 
 
-def default_adaprox_parameterization(component: Component, noise_rms: float = None):
+def default_adaprox_parameterization(component: Component, noise_rms: float | None = None):
     """Initialize a factorized component to use Proximal ADAM
     for optimization
     """

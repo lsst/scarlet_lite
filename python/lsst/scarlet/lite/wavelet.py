@@ -76,7 +76,7 @@ def bspline_convolve(image: np.ndarray, scale: int) -> np.ndarray:
     return result
 
 
-def get_scales(image_shape: Sequence[int], scales: int = None) -> int:
+def get_scales(image_shape: Sequence[int], scales: int | None = None) -> int:
     """Get the number of scales to use in the starlet transform.
 
     Parameters
@@ -103,9 +103,9 @@ def get_scales(image_shape: Sequence[int], scales: int = None) -> int:
 
 def starlet_transform(
     image: np.ndarray,
-    scales: int = None,
+    scales: int | None = None,
     generation: int = 2,
-    convolve2d: Callable = None,
+    convolve2d: Callable | None = None,
 ) -> np.ndarray:
     """Perform a scarlet transform, or 2nd gen starlet transform.
 
@@ -157,9 +157,9 @@ def starlet_transform(
 
 def multiband_starlet_transform(
     image: np.ndarray,
-    scales: int = None,
+    scales: int | None = None,
     generation: int = 2,
-    convolve2d: Callable = None,
+    convolve2d: Callable | None = None,
 ) -> np.ndarray:
     """Perform a starlet transform of a multiband image.
 
@@ -178,7 +178,7 @@ def multiband_starlet_transform(
 def starlet_reconstruction(
     starlets: np.ndarray,
     generation: int = 2,
-    convolve2d: Callable = None,
+    convolve2d: Callable | None = None,
 ) -> np.ndarray:
     """Reconstruct an image from a dictionary of starlets
 
@@ -215,7 +215,7 @@ def starlet_reconstruction(
 def multiband_starlet_reconstruction(
     starlets: np.ndarray,
     generation: int = 2,
-    convolve2d: Callable = None,
+    convolve2d: Callable | None = None,
 ) -> np.ndarray:
     """Reconstruct a multiband image.
 
@@ -322,7 +322,7 @@ def get_multiresolution_support(
 
 def apply_wavelet_denoising(
     image: np.ndarray,
-    sigma: float = None,
+    sigma: float | None = None,
     sigma_scaling: float = 3,
     epsilon: float = 1e-1,
     max_iter: int = 20,

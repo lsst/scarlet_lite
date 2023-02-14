@@ -164,7 +164,7 @@ class EllipseFrame(CartesianFrame):
         self._rMin = r_min
         # Store the scaled radius**2 and radius
         self._radius2 = self._xa**2 + self._yb**2
-        self._radius = None
+        self._radius: np.ndarray | None = None
 
     def grad_x0(self, input_grad: np.ndarray, use_r2: bool) -> float:
         """The gradient of either the radius or radius**2 wrt. the x-center
@@ -324,7 +324,7 @@ class EllipseFrame(CartesianFrame):
         """The radial coordinates of each pixel"""
         if self._radius is None:
             self._radius = np.sqrt(self.r2_grid)
-        return cast(np.ndarray, self._radius)
+        return self._radius
 
     @property
     def r2_grid(self) -> np.ndarray:
@@ -666,7 +666,7 @@ class ParametricComponent(Component):
         morph_grad: Callable,
         morph_prox: Callable,
         morph_step: Callable | np.ndarray,
-        prox_spectrum: Callable = None,
+        prox_spectrum: Callable | None = None,
         floor: float = 1e-20,
     ):
         super().__init__(bands=bands, bbox=bbox)
@@ -679,7 +679,7 @@ class ParametricComponent(Component):
         self._morph_step = morph_step
         self._bbox = bbox
         if prox_spectrum is None:
-            self._prox_spectrum = self.prox_spectrum
+            self._prox_spectrum: Callable = self.prox_spectrum
         else:
             self._prox_spectrum = prox_spectrum
         self.floor = floor
@@ -714,7 +714,7 @@ class ParametricComponent(Component):
         """The parameters used to model the radial function"""
         return self._params.x
 
-    def _get_morph(self, frame: CartesianFrame = None) -> np.ndarray:
+    def _get_morph(self, frame: CartesianFrame | None = None) -> np.ndarray:
         """The 2D image of the morphology
 
         This callable generates an image of the morphology
@@ -736,7 +736,7 @@ class ParametricComponent(Component):
         return self._func(self.radial_params, frame)
 
     @property
-    def morph(self, frame: CartesianFrame = None) -> np.ndarray:
+    def morph(self, frame: CartesianFrame | None = None) -> np.ndarray:
         """The morphological model"""
         return self._get_morph(frame)
 
@@ -759,7 +759,7 @@ class ParametricComponent(Component):
         """
         return cast(Callable, self._morph_step)
 
-    def get_model(self, frame: CartesianFrame = None) -> Image:
+    def get_model(self, frame: CartesianFrame | None = None) -> Image:
         """Generate the full model for this component"""
         model = self.spectrum[:, None, None] * self._get_morph(frame)[None, :, :]
         return Image(model, bands=self.bands, yx0=cast(tuple[int, int], self.bbox.origin[-2:]))
@@ -871,7 +871,7 @@ class EllipticalParametricComponent(ParametricComponent):
         morph_grad: Callable,
         morph_prox: Callable,
         morph_step: Callable | np.ndarray,
-        prox_spectrum: Callable = None,
+        prox_spectrum: Callable | None = None,
         floor: float = 1e-20,
     ):
         super().__init__(
