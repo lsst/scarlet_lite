@@ -362,7 +362,7 @@ class FactorizedInitialization(ABC):
         return FactorizedComponent(
             self.observation.bands,
             spectrum,
-            cast(np.ndarray, morph),
+            morph,
             bbox,
             center,
             self.observation.noise_rms,
@@ -651,8 +651,8 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                 bulge_spectrum, disk_spectrum = multifit_spectra(
                     observation,
                     [
-                        Image(cast(np.ndarray, bulge_morph), yx0=cast(tuple[int, int], bulge_box.origin)),
-                        Image(cast(np.ndarray, disk_morph), yx0=cast(tuple[int, int], disk_box.origin)),
+                        Image(bulge_morph, yx0=cast(tuple[int, int], bulge_box.origin)),
+                        Image(disk_morph, yx0=cast(tuple[int, int], disk_box.origin)),
                     ],
                 )
 
@@ -662,7 +662,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                         FactorizedComponent(
                             observation.bands,
                             bulge_spectrum,
-                            cast(np.ndarray, bulge_morph),
+                            bulge_morph,
                             bulge_box,
                             center,
                             monotonicity=self.monotonicity,
@@ -675,7 +675,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                         FactorizedComponent(
                             observation.bands,
                             disk_spectrum,
-                            cast(np.ndarray, disk_morph),
+                            disk_morph,
                             disk_box,
                             center,
                             monotonicity=self.monotonicity,
