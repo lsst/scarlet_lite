@@ -1,0 +1,37 @@
+__pycache__/
+*.py[cod]
+build/
+var/
+dist/
+*.egg-info
+*.eggs
+*.so
+.ipynb_checkpoints/
+tmp/
+include/
+_eupspkg/
+
+.sconsign.dblite
+config.log
+.sconf_temp
+*.o
+*.os
+*.cfgc
+*.pyc
+*_wrap.cc
+*Lib.py
+
+# Built by sconsUtils
+version.py
+bin/
+
+# Pytest
+tests/.tests
+pytest_session.txt
+.cache/
+.pytest_cache
+.coverage
+
+# IDEs
+.idea
+.vscode

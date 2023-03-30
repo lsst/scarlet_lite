@@ -1,9 +1,5 @@
-numpy >= 1.17
-proxmin>=0.6.11
-pydantic
-pytest
+numpy >= 1.18
 scipy
-
-[plotting]
+pydantic
 matplotlib
 astropy
