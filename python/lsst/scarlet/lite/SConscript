@@ -1,0 +1,3 @@
+# -*- python -*-
+from lsst.sconsUtils import scripts
+scripts.BasicSConscript.pybind11(["detect_pybind11", "operators_pybind11"], addUnderscore=False, libs=[])

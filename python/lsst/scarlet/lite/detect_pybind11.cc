@@ -126,7 +126,6 @@ bool sortBrightness(Peak a, Peak b){
 // created by `get_connected_pixels`.
 template <typename M>
 std::vector<Peak> get_peaks(
-    //Eigen::Ref<const M> image,
     M& image,
     const double min_separation,
     const int y0,
@@ -204,13 +203,13 @@ std::vector<Peak> get_peaks(
 class Footprint {
 public:
     Footprint(MatrixB footprint, std::vector<Peak> peaks, Bounds bounds){
-        _footprint = footprint;
+        _data = footprint;
         this->peaks = peaks;
         _bounds = bounds;
     }
 
     MatrixB getFootprint(){
-        return _footprint;
+        return _data;
     }
 
     std::vector<Peak> peaks;
@@ -220,7 +219,7 @@ public:
     }
 
 private:
-    MatrixB _footprint;
+    MatrixB _data;
     Bounds _bounds;
 };
 
@@ -248,7 +247,7 @@ std::vector<Footprint> get_footprints(
     Eigen::Ref<const M> image,
     const double min_separation,
     const int min_area,
-    const int thresh,
+    const double thresh,
     const bool find_peaks=true
 ){
     const int height = image.rows();
@@ -326,7 +325,7 @@ PYBIND11_MODULE(detect_pybind11, mod) {
   py::class_<Footprint>(mod, "Footprint")
         .def(py::init<MatrixB, std::vector<Peak>, Bounds>(),
              "footprint"_a, "peaks"_a, "bounds"_a)
-        .def_property_readonly("footprint", &Footprint::getFootprint)
+        .def_property_readonly("data", &Footprint::getFootprint)
         .def_readwrite("peaks", &Footprint::peaks)
         .def_property_readonly("bounds", &Footprint::getBounds);
 
