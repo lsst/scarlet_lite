@@ -1,0 +1,41 @@
+name: docs
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build_sphinx_docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          # Need to clone everything for the git tags.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+          cache: "pip"
+          cache-dependency-path: "setup.cfg"
+
+      - name: Update pip/wheel infrastructure
+        run: |
+          python -m pip install --upgrade pip
+          pip install wheel
+
+      - name: Build and install
+        run: pip install -v -e .
+
+      - name: Show compiled files
+        run: ls python/lsst/scarlet/lite
+
+      - name: Install documenteer
+        run: pip install 'documenteer[pipelines]<0.7'
+
+      - name: Build documentation
+        working-directory: ./doc
+        run: package-docs build
