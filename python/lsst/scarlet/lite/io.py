@@ -6,9 +6,15 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 import numpy as np
-from lsst.scarlet.lite import Blend, Box, Component, FactorizedComponent, Image, Observation, Source
-from lsst.scarlet.lite.parameters import FixedParameter
 from numpy.typing import DTypeLike
+
+from .bbox import Box
+from .blend import Blend
+from .component import Component, FactorizedComponent
+from .image import Image
+from .observation import Observation
+from .parameters import FixedParameter
+from .source import Source
 
 __all__ = [
     "ScarletComponentData",
