@@ -3,18 +3,10 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
-from lsst.scarlet.lite import (
-    Blend,
-    Box,
-    Component,
-    FactorizedComponent,
-    Image,
-    Observation,
-    Source,
-)
+from lsst.scarlet.lite import Blend, Box, Component, FactorizedComponent, Image, Observation, Source
 from lsst.scarlet.lite.parameters import FixedParameter
 from numpy.typing import DTypeLike
 
@@ -189,17 +181,10 @@ class ScarletSourceData:
             The object encoded as a JSON compatible dict
         """
         result = {
-            "components": [],
-            "factorized": [],
+            "components": [component.as_dict() for component in self.components],
+            "factorized": [component.as_dict() for component in self.factorized_components],
             "peak_id": self.peak_id,
         }
-        for component in self.components:
-            reduced = component.as_dict()
-            result["components"].append(reduced)
-
-        for component in self.factorized_components:
-            reduced = component.as_dict()
-            result["factorized"].append(reduced)
         return result
 
     @classmethod
@@ -310,7 +295,7 @@ class ScarletBlendData:
 class ScarletModelData:
     """A container that propagates scarlet models for an entire catalog."""
 
-    def __init__(self, bands: list[Any], psf: np.ndarray, blends: dict[int, ScarletBlendData] = None):
+    def __init__(self, bands: list[Any], psf: np.ndarray, blends: dict[int, ScarletBlendData] | None = None):
         """Initialize an instance
 
         Parameters
@@ -384,7 +369,7 @@ class ComponentCube(Component):
     this class can be removed.
     """
 
-    def __init__(self, bands: tuple[Any], bbox: Box, model: Image, center: tuple[int, int]):
+    def __init__(self, bands: tuple[Any, ...], bbox: Box, model: Image, center: tuple[int, int]):
         """Initialization
 
         Parameters
@@ -410,6 +395,16 @@ class ComponentCube(Component):
             The model as a 3D `(band, y, x)` array.
         """
         return self._model
+
+    def resize(self, model_box: Box) -> bool:
+        """Test whether or not the component needs to be resized"""
+        return False
+
+    def update(self, it: int, input_grad: np.ndarray) -> None:
+        """Implementation of unused abstract method"""
+
+    def parameterize(self, parameterization: Callable) -> None:
+        """Implementation of unused abstract method"""
 
 
 class DummyObservation(Observation):
@@ -443,7 +438,7 @@ class DummyObservation(Observation):
             weights=dummy_image,
             psfs=psfs,
             model_psf=model_psf,
-            noise_rms=0,
+            noise_rms=np.zeros((len(bands),), dtype=dtype),
             bbox=bbox,
             bands=bands,
             convolution_mode="real",
@@ -482,7 +477,7 @@ def minimal_data_to_scarlet(
     return data_to_scarlet(blend_data, observation)
 
 
-def data_to_scarlet(blend_data: ScarletBlendData, observation: Observation = None) -> Blend:
+def data_to_scarlet(blend_data: ScarletBlendData, observation: Observation) -> Blend:
     """Convert the storage data model into a scarlet lite blend
 
     Parameters
@@ -501,41 +496,40 @@ def data_to_scarlet(blend_data: ScarletBlendData, observation: Observation = Non
     """
     sources = []
     for source_id, source_data in blend_data.sources.items():
-        components = []
+        components: list[Component] = []
         for component_data in source_data.components:
             bbox = Box(component_data.shape, origin=component_data.origin)
             model = component_data.model
             component = ComponentCube(
                 bands=observation.bands,
                 bbox=bbox,
-                model=model,
+                model=Image(model, yx0=bbox.origin, bands=observation.bands),  # type: ignore
                 center=(int(np.round(component_data.peak[0])), int(np.round(component_data.peak[0]))),
             )
             components.append(component)
-        for component_data in source_data.factorized_components:
-            bbox = Box(component_data.shape, origin=component_data.origin)
+        for factorized_data in source_data.factorized_components:
+            bbox = Box(factorized_data.shape, origin=factorized_data.origin)
             # Add dummy values for properties only needed for
             # model fitting.
-            spectrum = component_data.spectrum
-            spectrum = FixedParameter(spectrum)
-            morph = FixedParameter(component_data.morph)
+            spectrum = FixedParameter(factorized_data.spectrum)
+            morph = FixedParameter(factorized_data.morph)
             # Note: since we aren't fitting a model, we don't need to
             # set the RMS of the background.
             # We set it to NaN just to be safe.
-            component = FactorizedComponent(
+            factorized = FactorizedComponent(
                 bands=observation.bands,
                 spectrum=spectrum,
                 morph=morph,
-                peak=tuple(component_data.peak),
+                peak=tuple(int(np.round(p)) for p in factorized_data.peak),  # type: ignore
                 bbox=bbox,
-                bg_rms=np.nan,
+                bg_rms=np.full((len(observation.bands),), np.nan),
             )
-            components.append(component)
+            components.append(factorized)
 
         source = Source(components=components)
         # Store identifiers for the source
-        source.recordId = source_id
-        source.peak_id = source_data.peak_id
+        source.record_id = source_id  # type: ignore
+        source.peak_id = source_data.peak_id  # type: ignore
         sources.append(source)
 
     return Blend(sources=sources, observation=observation)
@@ -559,31 +553,33 @@ def scarlet_to_data(blend: Blend, psf_center: tuple[int, int]) -> ScarletBlendDa
     sources = {}
     for source in blend.sources:
         components = []
+        factorized = []
         for component in source.components:
             if isinstance(component, FactorizedComponent):
-                component_data = ScarletFactorizedComponentData(
-                    origin=component.bbox.origin,
-                    peak=component.peak,
+                factorized_data = ScarletFactorizedComponentData(
+                    origin=component.bbox.origin,  # type: ignore
+                    peak=component.peak,  # type: ignore
                     spectrum=component.spectrum,
                     morph=component.morph,
                 )
+                factorized.append(factorized_data)
             else:
                 component_data = ScarletComponentData(
-                    origin=component.bbox.origin,
-                    peak=component.peak,
-                    model=component.get_model(),
+                    origin=component.bbox.origin,  # type: ignore
+                    peak=component.peak,  # type: ignore
+                    model=component.get_model().data,
                 )
-            components.append(component_data)
+                components.append(component_data)
         source_data = ScarletSourceData(
-            components=[],
-            factorized_components=components,
-            peak_id=source.peak_id,
+            components=components,
+            factorized_components=factorized,
+            peak_id=source.peak_id,  # type: ignore
         )
-        sources[source.record_id] = source_data
+        sources[source.record_id] = source_data  # type: ignore
 
     blend_data = ScarletBlendData(
-        origin=blend.bbox.origin,
-        shape=blend.bbox.shape,
+        origin=blend.bbox.origin,  # type: ignore
+        shape=blend.bbox.shape,  # type: ignore
         sources=sources,
         psf_center=psf_center,
         psf=blend.observation.psfs,
