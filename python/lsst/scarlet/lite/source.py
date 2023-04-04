@@ -52,8 +52,8 @@ class Source:
     @property
     def center(self) -> tuple[int, int] | None:
         """The center of the source in the full Blend."""
-        if not self.is_null and hasattr(self.components[0], "center"):
-            return self.components[0].center  # type: ignore
+        if not self.is_null and hasattr(self.components[0], "peak"):
+            return self.components[0].peak  # type: ignore
         return None
 
     @property

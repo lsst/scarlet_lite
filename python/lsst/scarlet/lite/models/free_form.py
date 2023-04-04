@@ -70,7 +70,7 @@ class FreeFormComponent(FactorizedComponent):
             spectrum=spectrum,
             morph=morph,
             bbox=model_bbox,
-            center=None,
+            peak=None,
             bg_rms=bg_rms,
             bg_thresh=bg_thresh,
             floor=floor,
@@ -127,7 +127,7 @@ class FreeFormComponent(FactorizedComponent):
     def __str__(self):
         return (
             f"FreeFormComponent(\n    bands={self.bands}\n    "
-            f"spectrum={self.spectrum})\n    center={self.center}\n    "
+            f"spectrum={self.spectrum})\n    center={self.peak}\n    "
             f"morph_shape={self.morph.shape}"
         )
 

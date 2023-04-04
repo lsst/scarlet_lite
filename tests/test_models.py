@@ -314,13 +314,13 @@ class TestParametric(ScarletTestCase):
 
         # Check properties of a component
         component = cast(ParametricComponent, blend.components[0])
-        self.assertTupleEqual(component.center, tuple(self.centers[0]))
+        self.assertTupleEqual(component.peak, tuple(self.centers[0]))
         self.assertEqual(component.y0, component._params.x[0])
         self.assertEqual(component.x0, component._params.x[1])
         assert_array_equal(component.morph_step, np.array([1e-2, 1e-2, 1e-2]))
 
         component = cast(EllipticalParametricComponent, blend.components[1])
-        self.assertTupleEqual(component.center, tuple(self.centers[0]))
+        self.assertTupleEqual(component.peak, tuple(self.centers[0]))
         self.assertEqual(component.y0, component._params.x[0])
         self.assertEqual(component.x0, component._params.x[1])
         assert_array_equal(component.semi_major, component._params.x[2])

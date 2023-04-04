@@ -11,11 +11,11 @@ from lsst.scarlet.lite import (
     Box,
     Component,
     FactorizedComponent,
-    FixedParameter,
     Image,
     Observation,
     Source,
 )
+from lsst.scarlet.lite.parameters import FixedParameter
 from numpy.typing import DTypeLike
 
 __all__ = [
@@ -44,17 +44,19 @@ class ScarletComponentData:
     ----------
     origin:
         The lower bound of the components bounding box.
-    shape:
-        The shape of the bounding box.
-    center:
-        The center of the component.
+    peak:
+        The peak of the component.
     model:
         The model for the component.
     """
 
     origin: tuple[int, int]
-    center: tuple[float, float]
+    peak: tuple[float, float]
     model: np.ndarray
+
+    @property
+    def shape(self):
+        return self.model.shape
 
     def as_dict(self) -> dict:
         """Return the object encoded into a dict for JSON serialization
@@ -67,7 +69,7 @@ class ScarletComponentData:
         return {
             "origin": self.origin,
             "shape": self.model.shape,
-            "center": self.center,
+            "peak": self.peak,
             "model": tuple(self.model.flatten().astype(float)),
         }
 
@@ -79,6 +81,8 @@ class ScarletComponentData:
         ----------
         data:
             Dictionary representation of the object
+        dtype:
+            Datatype of the resulting model.
 
         Returns
         -------
@@ -100,20 +104,22 @@ class ScarletFactorizedComponentData:
     ----------
     origin:
         The lower bound of the component's bounding box.
-    shape:
-        The shape of the component's bounding box.
-    center:
-        The ``(y, x)`` center of the component.
-    sed:
+    peak:
+        The ``(y, x)`` peak of the component.
+    spectrum:
         The SED of the component.
     morph:
         The 2D morphology of the component.
     """
 
     origin: tuple[int, int]
-    center: tuple[float, float]
-    sed: np.ndarray
+    peak: tuple[float, float]
+    spectrum: np.ndarray
     morph: np.ndarray
+
+    @property
+    def shape(self):
+        return self.morph.shape
 
     def as_dict(self) -> dict:
         """Return the object encoded into a dict for JSON serialization
@@ -124,10 +130,10 @@ class ScarletFactorizedComponentData:
             The object encoded as a JSON compatible dict
         """
         return {
-            "origin": self.origin,
-            "shape": self.morph.shape,
-            "center": self.center,
-            "sed": tuple(self.sed.astype(float)),
+            "origin": tuple(int(o) for o in self.origin),
+            "shape": tuple(int(s) for s in self.morph.shape),
+            "peak": tuple(int(p) for p in self.peak),
+            "spectrum": tuple(self.spectrum.astype(float)),
             "morph": tuple(self.morph.flatten().astype(float)),
         }
 
@@ -138,18 +144,20 @@ class ScarletFactorizedComponentData:
 
         Parameters
         ----------
-        data : `dict`
+        data:
             Dictionary representation of the object
+        dtype:
+            Datatype of the resulting model.
 
         Returns
         -------
-        result : `ScarletFactorizedComponentData`
+        result:
             The reconstructed object
         """
         data_shallow_copy = dict(data)
         data_shallow_copy["origin"] = tuple(data["origin"])
         shape = tuple(data_shallow_copy.pop("shape"))
-        data_shallow_copy["sed"] = np.array(data["sed"]).astype(dtype)
+        data_shallow_copy["spectrum"] = np.array(data["spectrum"]).astype(dtype)
         data_shallow_copy["morph"] = np.array(data["morph"]).reshape(shape).astype(dtype)
         return cls(**data_shallow_copy)
 
@@ -160,11 +168,11 @@ class ScarletSourceData:
 
     Attributes
     ----------
-    components : `list` of `ScarletComponentData`
+    components:
         The components contained in the source that are not factorized.
-    factorized_components : `list` of `ScarletFactorizedComponentData`
+    factorized_components:
         The components contained in the source that are factorized.
-    peak_id : `int`
+    peak_id:
         The peak ID of the source in it's parent's footprint peak catalog.
     """
 
@@ -177,7 +185,7 @@ class ScarletSourceData:
 
         Returns
         -------
-        result : `dict`
+        result:
             The object encoded as a JSON compatible dict
         """
         result = {
@@ -186,40 +194,42 @@ class ScarletSourceData:
             "peak_id": self.peak_id,
         }
         for component in self.components:
-            reduced = component.asDict()
+            reduced = component.as_dict()
             result["components"].append(reduced)
 
         for component in self.factorized_components:
-            reduced = component.asDict()
+            reduced = component.as_dict()
             result["factorized"].append(reduced)
         return result
 
     @classmethod
-    def from_dict(cls, data: dict, dtype: DTypeLike = np.float32) -> "ScarletSourceData":
+    def from_dict(cls, data: dict, dtype: DTypeLike = np.float32) -> ScarletSourceData:
         """Reconstruct `ScarletSourceData` from JSON compatible
         dict.
 
         Parameters
         ----------
-        data : `dict`
+        data:
             Dictionary representation of the object
+        dtype:
+            Datatype of the resulting model.
 
         Returns
         -------
-        result : `ScarletSourceData`
+        result:
             The reconstructed object
         """
         data_shallow_copy = dict(data)
         del data_shallow_copy["factorized"]
         components = []
         for component in data["components"]:
-            component = ScarletComponentData.fromDict(component, dtype=dtype)
+            component = ScarletComponentData.from_dict(component, dtype=dtype)
             components.append(component)
         data_shallow_copy["components"] = components
 
         factorized = []
         for component in data["factorized"]:
-            component = ScarletFactorizedComponentData.fromDict(component, dtype=dtype)
+            component = ScarletFactorizedComponentData.from_dict(component, dtype=dtype)
             factorized.append(component)
         data_shallow_copy["factorized_components"] = factorized
         data_shallow_copy["peak_id"] = int(data["peak_id"])
@@ -247,17 +257,24 @@ class ScarletBlendData:
     shape: tuple[int, int]
     sources: dict[int, ScarletSourceData]
     psf_center: tuple[float, float]
+    psf: np.ndarray
 
     def as_dict(self) -> dict:
         """Return the object encoded into a dict for JSON serialization
 
         Returns
         -------
-        result : `dict`
+        result:
             The object encoded as a JSON compatible dict
         """
-        result: dict[str, Any] = {"origin": self.origin, "shape": self.shape, "psf_center": self.psf_center}
-        result["sources"] = {id: source.asDict() for id, source in self.sources.items()}
+        result = {
+            "origin": self.origin,
+            "shape": self.shape,
+            "psf_center": self.psf_center,
+            "psf_shape": self.psf.shape,
+            "psf": tuple(self.psf.flatten().astype(float)),
+            "sources": {bid: source.as_dict() for bid, source in self.sources.items()},
+        }
         return result
 
     @classmethod
@@ -269,6 +286,8 @@ class ScarletBlendData:
         ----------
         data:
             Dictionary representation of the object
+        dtype:
+            Datatype of the resulting model.
 
         Returns
         -------
@@ -278,9 +297,12 @@ class ScarletBlendData:
         data_shallow_copy = dict(data)
         data_shallow_copy["origin"] = tuple(data["origin"])
         data_shallow_copy["shape"] = tuple(data["shape"])
+        psf_shape = data_shallow_copy.pop("psf_shape")
         data_shallow_copy["psf_center"] = tuple(data["psf_center"])
+        data_shallow_copy["psf"] = np.array(data["psf"]).reshape(psf_shape).astype(dtype)
         data_shallow_copy["sources"] = {
-            int(id): ScarletSourceData.fromDict(source, dtype=dtype) for id, source in data["sources"].items()
+            int(bid): ScarletSourceData.from_dict(source, dtype=dtype)
+            for bid, source in data["sources"].items()
         }
         return cls(**data_shallow_copy)
 
@@ -288,7 +310,7 @@ class ScarletBlendData:
 class ScarletModelData:
     """A container that propagates scarlet models for an entire catalog."""
 
-    def __init__(self, bands: list[Any], psf: list[np.ndarray], blends: dict[int, ScarletBlendData] = None):
+    def __init__(self, bands: list[Any], psf: np.ndarray, blends: dict[int, ScarletBlendData] = None):
         """Initialize an instance
 
         Parameters
@@ -323,7 +345,7 @@ class ScarletModelData:
             "bands": self.bands,
             "psfShape": self.psf.shape,
             "psf": list(self.psf.flatten()),
-            "blends": {id: blend.asDict() for id, blend in self.blends.items()},
+            "blends": {bid: blend.as_dict() for bid, blend in self.blends.items()},
         }
         return json.dumps(result)
 
@@ -333,12 +355,12 @@ class ScarletModelData:
 
         Parameters
         ----------
-        inMemoryDataset : `Mapping`
+        data:
             The result of json.load(s) on a JSON persisted ScarletModelData
 
         Returns
         -------
-        result : `ScarletModelData`
+        result:
             The `ScarletModelData` that was loaded the from the input object
         """
         data_shallow_copy = dict(data)
@@ -347,7 +369,7 @@ class ScarletModelData:
         )
         data_shallow_copy["psf"] = model_psf
         data_shallow_copy["blends"] = {
-            int(id): ScarletBlendData.fromDict(blend) for id, blend in data["blends"].items()
+            int(bid): ScarletBlendData.from_dict(blend) for bid, blend in data["blends"].items()
         }
         return cls(**data_shallow_copy)
 
@@ -402,7 +424,7 @@ class DummyObservation(Observation):
     ----------
     psfs:
         The array of PSF images in each band
-    psf_model:
+    model_psf:
         The image of the model PSF.
     bbox:
         The bounding box of the full observation.
@@ -411,9 +433,9 @@ class DummyObservation(Observation):
     """
 
     def __init__(
-        self, bands: list[Any], psfs: np.ndarray, model_psf: np.ndarray, bbox: Box, dtype: DTypeLike
+        self, bands: tuple[Any], psfs: np.ndarray, model_psf: np.ndarray, bbox: Box, dtype: DTypeLike
     ):
-        dummy_image = np.zeros([], dtype=dtype)
+        dummy_image = np.zeros((len(bands),) + bbox.shape, dtype=dtype)
 
         super().__init__(
             images=dummy_image,
@@ -428,11 +450,17 @@ class DummyObservation(Observation):
         )
 
 
-def data_to_scarlet(bands: list[Any], blend_data: ScarletBlendData, dtype=np.float32) -> Blend:
+def minimal_data_to_scarlet(
+    bands: tuple[Any], model_psf: np.ndarray, blend_data: ScarletBlendData, dtype: DTypeLike
+) -> Blend:
     """Convert the storage data model into a scarlet lite blend
 
     Parameters
     ----------
+    bands:
+        The bands from the observations, in order.
+    model_psf:
+        PSF in model space (usually a nyquist sampled circular Gaussian).
     blend_data:
         Persistable data for the entire blend.
     dtype:
@@ -444,6 +472,33 @@ def data_to_scarlet(bands: list[Any], blend_data: ScarletBlendData, dtype=np.flo
         A scarlet blend model extracted from persisted data.
     """
     model_box = Box(blend_data.shape, origin=(0, 0))
+    observation = DummyObservation(
+        bands=bands,
+        psfs=blend_data.psf,
+        model_psf=model_psf,
+        bbox=model_box,
+        dtype=dtype,
+    )
+    return data_to_scarlet(blend_data, observation)
+
+
+def data_to_scarlet(blend_data: ScarletBlendData, observation: Observation = None) -> Blend:
+    """Convert the storage data model into a scarlet lite blend
+
+    Parameters
+    ----------
+    blend_data:
+        Persistable data for the entire blend.
+    observation:
+        The observation that contains the blend.
+        If `observation` is ``None`` then a `DummyObservation` containing
+        no image data is initialized.
+
+    Returns
+    -------
+    blend:
+        A scarlet blend model extracted from persisted data.
+    """
     sources = []
     for source_id, source_data in blend_data.sources.items():
         components = []
@@ -451,42 +506,42 @@ def data_to_scarlet(bands: list[Any], blend_data: ScarletBlendData, dtype=np.flo
             bbox = Box(component_data.shape, origin=component_data.origin)
             model = component_data.model
             component = ComponentCube(
-                bands=bands,
+                bands=observation.bands,
                 bbox=bbox,
                 model=model,
-                center=tuple(component_data.center),
+                center=(int(np.round(component_data.peak[0])), int(np.round(component_data.peak[0]))),
             )
             components.append(component)
         for component_data in source_data.factorized_components:
             bbox = Box(component_data.shape, origin=component_data.origin)
             # Add dummy values for properties only needed for
             # model fitting.
-            sed = component_data.sed
-            sed = FixedParameter(sed)
+            spectrum = component_data.spectrum
+            spectrum = FixedParameter(spectrum)
             morph = FixedParameter(component_data.morph)
             # Note: since we aren't fitting a model, we don't need to
             # set the RMS of the background.
             # We set it to NaN just to be safe.
             component = FactorizedComponent(
-                sed=sed,
+                bands=observation.bands,
+                spectrum=spectrum,
                 morph=morph,
-                center=tuple(component_data.center),
+                peak=tuple(component_data.peak),
                 bbox=bbox,
-                model_bbox=model_box,
                 bg_rms=np.nan,
             )
             components.append(component)
 
-        source = Source(components=components, dtype=dtype)
+        source = Source(components=components)
         # Store identifiers for the source
         source.recordId = source_id
         source.peak_id = source_data.peak_id
         sources.append(source)
 
-    return Blend(sources=sources, observation=None)
+    return Blend(sources=sources, observation=observation)
 
 
-def scarlet_to_data(blend: Blend, psf_center: tuple[int, int], origin: tuple[int, int]) -> ScarletBlendData:
+def scarlet_to_data(blend: Blend, psf_center: tuple[int, int]) -> ScarletBlendData:
     """Convert a scarlet lite blend into a persistable data object
 
     Parameters
@@ -495,8 +550,6 @@ def scarlet_to_data(blend: Blend, psf_center: tuple[int, int], origin: tuple[int
         The blend that is being persisted.
     psf_center:
         The center of the PSF.
-    origin:
-        The lower coordinate of the entire blend.
 
     Returns
     -------
@@ -510,14 +563,14 @@ def scarlet_to_data(blend: Blend, psf_center: tuple[int, int], origin: tuple[int
             if isinstance(component, FactorizedComponent):
                 component_data = ScarletFactorizedComponentData(
                     origin=component.bbox.origin,
-                    center=component.center,
-                    sed=component.sed,
+                    peak=component.peak,
+                    spectrum=component.spectrum,
                     morph=component.morph,
                 )
             else:
                 component_data = ScarletComponentData(
                     origin=component.bbox.origin,
-                    center=component.center,
+                    peak=component.peak,
                     model=component.get_model(),
                 )
             components.append(component_data)
@@ -526,13 +579,14 @@ def scarlet_to_data(blend: Blend, psf_center: tuple[int, int], origin: tuple[int
             factorized_components=components,
             peak_id=source.peak_id,
         )
-        sources[source.recordId] = source_data
+        sources[source.record_id] = source_data
 
     blend_data = ScarletBlendData(
         origin=blend.bbox.origin,
         shape=blend.bbox.shape,
         sources=sources,
         psf_center=psf_center,
+        psf=blend.observation.psfs,
     )
 
     return blend_data

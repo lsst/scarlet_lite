@@ -124,8 +124,8 @@ class FactorizedComponent(Component):
         The parameter to store and update the spectrum.
     morph:
         The parameter to store and update the morphology.
-    center:
-        Center of the source.
+    peak:
+        Location of the peak for the source.
     bbox:
         The `Box` in the `model_bbox` that contains the source.
     bg_rms:
@@ -145,7 +145,7 @@ class FactorizedComponent(Component):
         spectrum: Parameter | np.ndarray,
         morph: Parameter | np.ndarray,
         bbox: Box,
-        center: tuple[int, int] | None = None,
+        peak: tuple[int, int] | None = None,
         bg_rms: np.ndarray | None = None,
         bg_thresh: float | None = 0.25,
         floor: float = 1e-20,
@@ -159,7 +159,7 @@ class FactorizedComponent(Component):
         )
         self._spectrum = parameter(spectrum)
         self._morph = parameter(morph)
-        self._center = center
+        self._peak = peak
         self.bg_rms = bg_rms
         self.bg_thresh = bg_thresh
 
@@ -168,15 +168,15 @@ class FactorizedComponent(Component):
         self.padding = padding
 
     @property
-    def center(self) -> tuple[int, int] | None:
-        """The center of the component
+    def peak(self) -> tuple[int, int] | None:
+        """The peak of the component
 
         Returns
         -------
-        center:
-            The center of the component
+        peak:
+            The peak of the component
         """
-        return self._center
+        return self._peak
 
     @property
     def component_center(self) -> tuple[int, int] | None:
@@ -192,7 +192,7 @@ class FactorizedComponent(Component):
         center:
             The center of the component in its bounding box
         """
-        _center = self.center
+        _center = self.peak
         if _center is None:
             return None
         center = (
@@ -256,14 +256,14 @@ class FactorizedComponent(Component):
 
         # prevent divergent morphology
         shape = morph.shape
-        if self.center is None:
-            center = (shape[0] // 2, shape[1] // 2)
+        if self.peak is None:
+            peak = (shape[0] // 2, shape[1] // 2)
         else:
-            center = (
-                self.center[0] - self.bbox.origin[-2],
-                self.center[1] - self.bbox.origin[-1],
+            peak = (
+                self.peak[0] - self.bbox.origin[-2],
+                self.peak[1] - self.bbox.origin[-1],
             )
-        morph[center] = np.max([morph[center], self.floor])
+        morph[peak] = np.max([morph[peak], self.floor])
         # Normalize the morphology
         morph[:] = morph / np.max(morph)
         return morph
@@ -281,7 +281,7 @@ class FactorizedComponent(Component):
         if np.sum(significant) == 0:
             # There are no significant pixels,
             # so make a small box around the center
-            center = self.center
+            center = self.peak
             if center is None:
                 center = (0, 0)
             new_box = Box((1, 1), center).grow(self.padding) & model_box
@@ -325,7 +325,7 @@ class FactorizedComponent(Component):
 
     def __str__(self):
         result = (
-            f"FactorizedComponent<\n    bands={self.bands},\n    center={self.center},\n    "
+            f"FactorizedComponent<\n    bands={self.bands},\n    center={self.peak},\n    "
             f"spectrum={self.spectrum},\n    morph_shape={self.morph.shape}\n>"
         )
         return result
