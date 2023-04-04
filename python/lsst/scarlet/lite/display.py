@@ -578,8 +578,8 @@ def show_scene(
                     )
                     ax[panel].add_artist(rect)
 
-        if add_labels and hasattr(src, "center") and src.center is not None:
-            center = src.center
+        if add_labels and hasattr(src, "center") and src.peak is not None:
+            center = src.peak
             panel = 0
             if show_model:
                 ax[panel].text(*center[::-1], k, color="w", ha="center", va="center")

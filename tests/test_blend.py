@@ -120,7 +120,7 @@ class TestBlend(ScarletTestCase):
                     spectrum=spectrum,
                     morph=morph,
                     bbox=data_morph.bbox,
-                    center=center,
+                    peak=center,
                 )
             )
 

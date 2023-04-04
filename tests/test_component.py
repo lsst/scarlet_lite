@@ -84,14 +84,14 @@ class TestFactorizedComponent(ScarletTestCase):
         self.assertIsInstance(component._morph, Parameter)
         assert_array_equal(component.morph, self.morph)
         self.assertBoxEqual(component.bbox, self.component.bbox)
-        self.assertIsNone(component.center)
+        self.assertIsNone(component.peak)
         self.assertIsNone(component.bg_rms)
         self.assertEqual(component.bg_thresh, 0.25)
         self.assertEqual(component.floor, 1e-20)
         self.assertTupleEqual(component.shape, (3, 4, 5))
 
         # Test that parameters are passed through
-        center = self.component.center
+        center = self.component.peak
         bg_rms = np.arange(5) / 10
         bg_thresh = 0.9
         floor = 1e-10
@@ -107,7 +107,7 @@ class TestFactorizedComponent(ScarletTestCase):
             floor,
         )
 
-        self.assertTupleEqual(component.center, center)
+        self.assertTupleEqual(component.peak, center)
         assert_array_equal(component.bg_rms, bg_rms)  # type: ignore
         self.assertEqual(component.bg_thresh, bg_thresh)
         self.assertEqual(component.floor, floor)

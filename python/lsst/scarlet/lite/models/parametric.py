@@ -690,7 +690,7 @@ class ParametricComponent(Component):
         self.floor = floor
 
     @property
-    def center(self) -> tuple[float, float]:
+    def peak(self) -> tuple[float, float]:
         """The center of the component"""
         return self.y0, self.x0
 
