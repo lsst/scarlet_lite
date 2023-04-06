@@ -16,3 +16,4 @@ from .image import *
 from .observation import *
 from .parameters import *
 from .source import *
+from .version import *
