@@ -54,7 +54,7 @@ class ScarletComponentData:
 
     @property
     def shape(self):
-        return self.model.shape
+        return self.model.shape[-2:]
 
     def as_dict(self) -> dict:
         """Return the object encoded into a dict for JSON serialization
@@ -375,7 +375,7 @@ class ComponentCube(Component):
     this class can be removed.
     """
 
-    def __init__(self, bands: tuple[Any, ...], bbox: Box, model: Image, center: tuple[int, int]):
+    def __init__(self, bands: tuple[Any, ...], bbox: Box, model: Image, peak: tuple[int, int]):
         """Initialization
 
         Parameters
@@ -383,14 +383,14 @@ class ComponentCube(Component):
         bands:
         model:
             The 3D (bands, y, x) model of the component.
-        center:
-            The `(y, x)` center of the component.
+        peak:
+            The `(y, x)` peak of the component.
         bbox:
             The bounding box of the component.
         """
         super().__init__(bands, bbox)
         self._model = model
-        self.center = center
+        self.peak = peak
 
     def get_model(self) -> Image:
         """Generate the model for the source
@@ -506,11 +506,15 @@ def data_to_scarlet(blend_data: ScarletBlendData, observation: Observation) -> B
         for component_data in source_data.components:
             bbox = Box(component_data.shape, origin=component_data.origin)
             model = component_data.model
+            if component_data.peak is None:
+                peak = None
+            else:
+                peak = (int(np.round(component_data.peak[0])), int(np.round(component_data.peak[0])))
             component = ComponentCube(
                 bands=observation.bands,
                 bbox=bbox,
                 model=Image(model, yx0=bbox.origin, bands=observation.bands),  # type: ignore
-                center=(int(np.round(component_data.peak[0])), int(np.round(component_data.peak[0]))),
+                peak=peak,
             )
             components.append(component)
         for factorized_data in source_data.factorized_components:
@@ -561,7 +565,7 @@ def scarlet_to_data(blend: Blend, psf_center: tuple[int, int]) -> ScarletBlendDa
         components = []
         factorized = []
         for component in source.components:
-            if isinstance(component, FactorizedComponent):
+            if type(component) is FactorizedComponent:
                 factorized_data = ScarletFactorizedComponentData(
                     origin=component.bbox.origin,  # type: ignore
                     peak=component.peak,  # type: ignore
