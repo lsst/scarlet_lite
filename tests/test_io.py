@@ -19,17 +19,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import os
 import json
+import os
 
 import numpy as np
-from lsst.scarlet.lite import Blend, Image, Observation
+from lsst.scarlet.lite import Blend, Image, Observation, io
 from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
+from lsst.scarlet.lite.models.free_form import FreeFormComponent
 from lsst.scarlet.lite.operators import Monotonicity
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_almost_equal
-from lsst.scarlet.lite import io
-
 from utils import ScarletTestCase
 
 
@@ -97,3 +96,42 @@ class TestIo(ScarletTestCase):
                 assert_almost_equal(component1.spectrum, component2.spectrum)
                 assert_almost_equal(component1.morph, component2.morph)
                 self.assertBoxEqual(component1.bbox, component2.bbox)
+
+    def test_cube_component(self):
+        blend = self.blend
+        for i in range(len(blend.sources)):
+            blend.sources[i].record_id = i * 10
+            blend.sources[i].peak_id = i
+        component = blend.sources[-1].components[-1]
+        # Replace one of the components with a Free-Form component.
+        blend.sources[-1].components[-1] = FreeFormComponent(
+            bands=self.observation.bands,
+            spectrum=component.spectrum,
+            morph=component.morph,
+            model_bbox=self.observation.bbox,
+        )
+
+        blend_data = io.scarlet_to_data(blend, (51, 67))
+        model_data = io.ScarletModelData(
+            bands=self.observation.bands,
+            psf=self.observation.model_psf,
+            blends={1: blend_data},
+        )
+
+        # Get the json string for the model
+        model_str = model_data.json()
+        # Load the model string from the json
+        model_dict = json.loads(model_str)
+        # Load the full set of model data classes from the json string
+        model_data = io.ScarletModelData.parse_obj(model_dict)
+        # Convert the model data into scarlet models
+        loaded_blend = io.minimal_data_to_scarlet(
+            bands=model_data.bands,
+            model_psf=model_data.psf,
+            blend_data=model_data.blends[1],
+            dtype=blend.observation.dtype,
+        )
+
+        self.assertEqual(len(blend.sources), len(loaded_blend.sources))
+        self.assertEqual(len(blend.components), len(loaded_blend.components))
+        self.assertImageAlmostEqual(blend.get_model(), loaded_blend.get_model())
