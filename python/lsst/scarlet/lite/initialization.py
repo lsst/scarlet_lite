@@ -108,6 +108,7 @@ def init_monotonic_morph(
     morph:
         The initialized morphology.
     """
+    center: tuple[int, int] = tuple(center[i] - full_box.origin[i] for i in range(2))  # type: ignore
     if monotonicity is None:
         _, morph, bounds = prox_monotonic_mask(detect, center, max_iter=0)
         bbox = bounds_to_bbox(bounds)
@@ -120,15 +121,19 @@ def init_monotonic_morph(
 
         if thresh > 0:
             morph, bbox = trim_morphology(morph, bg_thresh=thresh, padding=padding)
+        # Shift the bounding box to account for the non-zero origin
+        bbox += full_box.origin
 
     else:
         morph = monotonicity(detect, center)
 
         # truncate morph at thresh * bg_rms
         morph, bbox = trim_morphology(morph, bg_thresh=thresh, padding=padding)
+        # Shift the bounding box to account for the non-zero origin
+        bbox += full_box.origin
 
     if np.max(morph) == 0:
-        return Box((0, 0)), None
+        return Box((0, 0), origin=full_box.origin), None
 
     if normalize:
         morph /= np.max(morph)
@@ -280,9 +285,13 @@ class FactorizedInitialization(ABC):
         component:
             A `FactorizedComponent` with a PSF-like morphology.
         """
+        local_center = (
+            center[0] - self.observation.bbox.origin[0],
+            center[1] - self.observation.bbox.origin[1]
+        )
         # There wasn't sufficient flux for an extended source,
         # so create a PSF source.
-        spectrum_center = (slice(None), center[0], center[1])
+        spectrum_center = (slice(None), local_center[0], local_center[1])
         spectrum = self.observation.images.data[spectrum_center] / self.psf_spectrum
         spectrum[spectrum < 0] = 0
 
@@ -331,6 +340,11 @@ class FactorizedInitialization(ABC):
             A `FactorizedComponent` created from the detection image.
 
         """
+        local_center = (
+            center[0] - self.observation.bbox.origin[0],
+            center[1] - self.observation.bbox.origin[1]
+        )
+
         if self.use_sparse_init:
             monotonicity = None
         else:
@@ -347,9 +361,9 @@ class FactorizedInitialization(ABC):
 
         if morph is None:
             return None
-        morph = morph[bbox.slices]
+        morph = morph[(bbox-self.observation.bbox.origin).slices]
 
-        spectrum_center = (slice(None), center[0], center[1])
+        spectrum_center = (slice(None), local_center[0], local_center[1])
         images = self.observation.images
 
         convolved = self.convolved
@@ -465,12 +479,18 @@ class FactorizedChi2Initialization(FactorizedInitialization):
         max_components:
             The maximum number of components in the source.
         """
+        # Some operators need the local center, not center in the full image
+        local_center = (
+            center[0] - self.observation.bbox.origin[0],
+            center[1] - self.observation.bbox.origin[1]
+        )
+
         # Calculate the signal to noise at the center of this source
         component_snr = self.get_snr(center)
 
         # Initialize the bbox, morph, and spectrum
         # for a single component source
-        detect = prox_uncentered_symmetry(self.detect.copy(), center, fill=0)
+        detect = prox_uncentered_symmetry(self.detect.copy(), local_center, fill=0)
         thresh = np.mean(self.observation.noise_rms) * self.thresh
         component = self.get_single_component(center, detect, thresh, self.padding)
 
@@ -626,10 +646,14 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
         center:
             The center of the source.
         """
+        local_center = (
+            center[0] - self.observation.bbox.origin[0],
+            center[1] - self.observation.bbox.origin[1]
+        )
         nbr_components = self.get_snr(center)
         observation = self.observation
 
-        if (nbr_components < 1 and self.use_psf) or self.detectlets[center[0], center[1]] <= 0:
+        if (nbr_components < 1 and self.use_psf) or self.detectlets[local_center[0], local_center[1]] <= 0:
             # Initialize the source as an PSF source
             components = [self.get_psf_component(center)]
         elif nbr_components < 2:
@@ -655,8 +679,10 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                 if component is not None:
                     components = [component]
             else:
-                bulge_morph = bulge_morph[bulge_box.slices]
-                disk_morph = disk_morph[disk_box.slices]
+                local_bulge_box = bulge_box - self.observation.bbox.origin
+                local_disk_box = disk_box - self.observation.bbox.origin
+                bulge_morph = bulge_morph[local_bulge_box.slices]
+                disk_morph = disk_morph[local_disk_box.slices]
 
                 bulge_spectrum, disk_spectrum = multifit_spectra(
                     observation,

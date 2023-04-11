@@ -58,6 +58,7 @@ class DummyCubeComponent(Component):
 class TestBlend(ScarletTestCase):
     def setUp(self):
         bands = ("g", "r", "i")
+        yx0 = (1000, 2000)
         # The PSF in each band of the "observation"
         psfs = np.array([integrated_circular_gaussian(sigma=sigma) for sigma in [1.05, 0.9, 1.2]])
         # The PSF of the model
@@ -83,15 +84,15 @@ class TestBlend(ScarletTestCase):
         # Give the first two components the same center, and unique centers
         # for the remaining sources
         centers = [
-            (10, 12),
-            (10, 12),
-            (20, 23),
-            (20, 10),
-            (25, 20),
+            (1010, 2012),
+            (1010, 2012),
+            (1020, 2023),
+            (1020, 2010),
+            (1025, 2020),
         ]
 
         # Create the simulated image and associated data products
-        test_data = ObservationData(bands, psfs, spectra, morphs, centers, model_psf)
+        test_data = ObservationData(bands, psfs, spectra, morphs, centers, model_psf, yx0=yx0)
 
         # Create the Observation
         variance = np.ones((3, 35, 35), dtype=float) * 1e-2
@@ -104,6 +105,7 @@ class TestBlend(ScarletTestCase):
             psfs,
             model_psf[None],
             bands=bands,
+            bbox=Box(variance.shape[-2:], origin=yx0),
         )
         self.data = test_data
         self.spectra = spectra
@@ -136,7 +138,7 @@ class TestBlend(ScarletTestCase):
         blend = self.blend
         self.assertEqual(len(blend.components), 5)
         self.assertEqual(len(blend.sources), 4)
-        self.assertBoxEqual(blend.bbox, Box(self.data.images.shape[1:]))
+        self.assertBoxEqual(blend.bbox, Box(self.data.images.shape[1:], self.observation.bbox.origin))
         self.assertImageAlmostEqual(blend.get_model(), self.data.images)
         self.assertImageAlmostEqual(blend.get_model(convolve=True), self.observation.images)
         self.assertImageAlmostEqual(
@@ -182,7 +184,7 @@ class TestBlend(ScarletTestCase):
 
         self.assertEqual(len(blend.components), 5)
         self.assertEqual(len(blend.sources), 4)
-        self.assertBoxEqual(blend.bbox, Box(self.observation.bbox.shape))
+        self.assertBoxEqual(blend.bbox, self.observation.bbox)
         self.assertImageAlmostEqual(blend.get_model(), self.data.images)
         self.assertImageAlmostEqual(blend.get_model(convolve=True), self.observation.images)
 

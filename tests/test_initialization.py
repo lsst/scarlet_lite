@@ -39,17 +39,18 @@ from utils import ObservationData, ScarletTestCase
 
 class TestInitialization(ScarletTestCase):
     def setUp(self) -> None:
+        yx0 = (1000, 2000)
         filename = os.path.join(__file__, "..", "..", "data", "hsc_cosmos_35.npz")
         filename = os.path.abspath(filename)
         data = np.load(filename)
         model_psf = integrated_circular_gaussian(sigma=0.8)
         self.detect = np.sum(data["images"], axis=0)
-        self.centers = np.array([data["catalog"]["y"], data["catalog"]["x"]]).T
+        self.centers = np.array([data["catalog"]["y"], data["catalog"]["x"]]).T + np.array(yx0)
         bands = data["filters"]
         self.observation = Observation(
-            Image(data["images"], bands=bands),
-            Image(data["variance"], bands=bands),
-            Image(1 / data["variance"], bands=bands),
+            Image(data["images"], bands=bands, yx0=yx0),
+            Image(data["variance"], bands=bands, yx0=yx0),
+            Image(1 / data["variance"], bands=bands, yx0=yx0),
             data["psfs"],
             model_psf[None],
             bands=bands,
@@ -75,13 +76,14 @@ class TestInitialization(ScarletTestCase):
         self.assertTupleEqual(trimmed_box.shape, (7, 17))
 
     def test_init_monotonic_mask(self):
-        full_box = Box(self.detect.shape)
+        full_box = self.observation.bbox
         center = self.centers[0]
+        local_center = (center[0] - full_box.origin[0], center[1] - full_box.origin[1])
 
         # Default parameters
         bbox, morph = init_monotonic_morph(self.detect.copy(), center, full_box)
-        self.assertBoxEqual(bbox, Box((38, 29), (14, 0)))
-        _, masked_morph, _ = prox_monotonic_mask(self.detect.copy(), center, max_iter=0)
+        self.assertBoxEqual(bbox, Box((38, 29), (1014, 2000)))
+        _, masked_morph, _ = prox_monotonic_mask(self.detect.copy(), local_center, max_iter=0)
         assert_array_equal(morph, masked_morph / np.max(masked_morph))
 
         # Specifying parameters
@@ -94,7 +96,7 @@ class TestInitialization(ScarletTestCase):
             None,  # monotonicity
             0.2,  # threshold
         )
-        self.assertBoxEqual(bbox, Box((26, 21), (21, 3)))
+        self.assertBoxEqual(bbox, Box((26, 21), (1021, 2003)))
         # Remove pixels below the threshold
         truth = masked_morph.copy()
         truth[truth < 0.2] = 0
@@ -106,16 +108,17 @@ class TestInitialization(ScarletTestCase):
         self.assertIsNone(morph)
 
     def test_init_monotonic_weighted(self):
-        full_box = Box(self.detect.shape)
+        full_box = self.observation.bbox
         center = self.centers[0]
+        local_center = (center[0] - full_box.origin[0], center[1] - full_box.origin[1])
         monotonicity = Monotonicity((101, 101))
 
         # Default parameters
         bbox, morph = init_monotonic_morph(self.detect.copy(), center, full_box, monotonicity=monotonicity)
-        truth = monotonicity(self.detect.copy(), center)
+        truth = monotonicity(self.detect.copy(), local_center)
         truth[truth < 0] = 0
         truth = truth / np.max(truth)
-        self.assertBoxEqual(bbox, Box((58, 48), origin=(0, 0)))
+        self.assertBoxEqual(bbox, Box((58, 48), origin=(1000, 2000)))
         assert_array_equal(morph, truth)
 
         # Specify parameters
@@ -128,15 +131,15 @@ class TestInitialization(ScarletTestCase):
             monotonicity,  # monotonicity
             0.2,  # threshold
         )
-        truth = monotonicity(self.detect.copy(), center)
+        truth = monotonicity(self.detect.copy(), local_center)
         truth[truth < 0.2] = 0
-        self.assertBoxEqual(bbox, Box((45, 44), origin=(10, 3)))
+        self.assertBoxEqual(bbox, Box((45, 44), origin=(1010, 2003)))
         assert_array_equal(morph, truth)
 
         # Test zero morphologu
         zeros = np.zeros(self.detect.shape)
         bbox, morph = init_monotonic_morph(zeros, center, full_box, monotonicity=monotonicity)
-        self.assertBoxEqual(bbox, Box((0, 0)))
+        self.assertBoxEqual(bbox, Box((0, 0), (1000, 2000)))
         self.assertIsNone(morph)
 
     def test_multifit_spectra(self):
@@ -188,6 +191,7 @@ class TestInitialization(ScarletTestCase):
         assert_almost_equal(fit_spectra, spectra)
 
     def test_factorized_chi2_init(self):
+        print(self.centers)
         # Test default parameters
         init = FactorizedChi2Initialization(self.observation, self.centers)
         self.assertEqual(init.observation, self.observation)
@@ -198,7 +202,7 @@ class TestInitialization(ScarletTestCase):
         self.assertTupleEqual((init.py, init.px), (7, 7))
         self.assertEqual(len(init.sources), 7)
 
-        centers = tuple(tuple(center.astype(int)) for center in self.centers) + ((0, 4),)
+        centers = tuple(tuple(center.astype(int)) for center in self.centers) + ((1000, 2004),)
         init = FactorizedChi2Initialization(self.observation, centers)
         self.assertEqual(len(init.sources), 8)
 
