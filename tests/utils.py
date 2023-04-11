@@ -112,6 +112,7 @@ class ObservationData:
         morphs: Sequence[np.ndarray],
         centers: Sequence[tuple[int, int]],
         model_psf: np.ndarray = None,
+        yx0: tuple[int, int] = (0, 0),
     ):
         """Initialize the test dataset
 
@@ -139,14 +140,15 @@ class ObservationData:
         # Create the image with the sources placed according to their boxes
         images = np.zeros((3, 35, 35), dtype=float)
         spectral_box = Box((len(bands),))
+        print(boxes)
         for spectrum, center, morph, bbox in zip(spectra, centers, morphs, boxes):
-            images[(spectral_box @ bbox).slices] += spectrum[:, None, None] * morph[None, :, :]
+            images[(spectral_box @ (bbox - yx0)).slices] += spectrum[:, None, None] * morph[None, :, :]
 
         diff_kernel = match_kernel(psfs, model_psf[None], padding=3)
         convolved = np.array([scipy_convolve(images[b], diff_kernel.image[b], mode="same") for b in range(3)])
 
-        self.images = Image(images, bands=bands)
-        self.convolved = Image(convolved, bands=bands)
+        self.images = Image(images, bands=bands, yx0=yx0)
+        self.convolved = Image(convolved, bands=bands, yx0=yx0)
         self.diff_kernel = diff_kernel
         self.morphs = [Image(morph, yx0=origin) for morph, origin in zip(morphs, origins)]
 

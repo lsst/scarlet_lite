@@ -155,6 +155,8 @@ def _set_image_like(images: np.ndarray | Image, bands: tuple | None = None, bbox
     """
     if isinstance(images, Image):
         # This is already an image
+        if bbox is not None and images.bbox != bbox:
+            raise ValueError(f"Bounding boxes {images.bbox} and {bbox} do not agree")
         return images
 
     if bbox is None:

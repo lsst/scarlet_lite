@@ -62,18 +62,19 @@ def parameterize(component: Component):
 
 class TestFreeForm(ScarletTestCase):
     def setUp(self) -> None:
+        yx0 = (1000, 2000)
         filename = os.path.join(__file__, "..", "..", "data", "hsc_cosmos_35.npz")
         filename = os.path.abspath(filename)
         data = np.load(filename)
         self.data = data
         model_psf = integrated_circular_gaussian(sigma=0.8)
         self.detect = np.sum(data["images"], axis=0)
-        self.centers = np.array([data["catalog"]["y"], data["catalog"]["x"]]).T
+        self.centers = np.array([data["catalog"]["y"], data["catalog"]["x"]]).T + np.array(yx0)
         bands = data["filters"]
         self.observation = Observation(
-            Image(data["images"], bands=bands),
-            Image(data["variance"], bands=bands),
-            Image(1 / data["variance"], bands=bands),
+            Image(data["images"], bands=bands, yx0=yx0),
+            Image(data["variance"], bands=bands, yx0=yx0),
+            Image(1 / data["variance"], bands=bands, yx0=yx0),
             data["psfs"],
             model_psf[None],
             bands=bands,
