@@ -287,7 +287,7 @@ class FactorizedInitialization(ABC):
         """
         local_center = (
             center[0] - self.observation.bbox.origin[0],
-            center[1] - self.observation.bbox.origin[1]
+            center[1] - self.observation.bbox.origin[1],
         )
         # There wasn't sufficient flux for an extended source,
         # so create a PSF source.
@@ -342,7 +342,7 @@ class FactorizedInitialization(ABC):
         """
         local_center = (
             center[0] - self.observation.bbox.origin[0],
-            center[1] - self.observation.bbox.origin[1]
+            center[1] - self.observation.bbox.origin[1],
         )
 
         if self.use_sparse_init:
@@ -361,7 +361,7 @@ class FactorizedInitialization(ABC):
 
         if morph is None:
             return None
-        morph = morph[(bbox-self.observation.bbox.origin).slices]
+        morph = morph[(bbox - self.observation.bbox.origin).slices]
 
         spectrum_center = (slice(None), local_center[0], local_center[1])
         images = self.observation.images
@@ -482,7 +482,7 @@ class FactorizedChi2Initialization(FactorizedInitialization):
         # Some operators need the local center, not center in the full image
         local_center = (
             center[0] - self.observation.bbox.origin[0],
-            center[1] - self.observation.bbox.origin[1]
+            center[1] - self.observation.bbox.origin[1],
         )
 
         # Calculate the signal to noise at the center of this source
@@ -648,7 +648,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
         """
         local_center = (
             center[0] - self.observation.bbox.origin[0],
-            center[1] - self.observation.bbox.origin[1]
+            center[1] - self.observation.bbox.origin[1],
         )
         nbr_components = self.get_snr(center)
         observation = self.observation
