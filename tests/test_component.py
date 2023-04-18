@@ -50,8 +50,8 @@ class DummyComponent(Component):
 
 class TestFactorizedComponent(ScarletTestCase):
     def setUp(self) -> None:
-        spectrum = np.arange(3)
-        morph = np.arange(20).reshape(4, 5)
+        spectrum = np.arange(3).astype(np.float32)
+        morph = np.arange(20).reshape(4, 5).astype(np.float32)
         bands = ("g", "r", "i")
         bbox = Box((4, 5), (22, 31))
         self.model_box = Box((100, 100))
@@ -111,6 +111,7 @@ class TestFactorizedComponent(ScarletTestCase):
         assert_array_equal(component.bg_rms, bg_rms)  # type: ignore
         self.assertEqual(component.bg_thresh, bg_thresh)
         self.assertEqual(component.floor, floor)
+        self.assertEqual(component.get_model().dtype, np.float32)
 
     def test_get_model(self):
         component = self.component

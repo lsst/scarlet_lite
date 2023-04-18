@@ -168,7 +168,7 @@ def get_wavelets(images: np.ndarray, variance: np.ndarray, scales: int | None = 
             epsilon=1e-1,
             max_iter=20,
         )
-        coeffs.append(support * _coeffs)
+        coeffs.append((support * _coeffs).astype(images.dtype))
     return np.array(coeffs)
 
 

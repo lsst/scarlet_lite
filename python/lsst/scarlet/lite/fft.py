@@ -27,6 +27,7 @@ import operator
 from typing import Callable, Sequence
 
 import numpy as np
+from numpy.typing import DTypeLike
 from scipy import fftpack
 
 
@@ -252,6 +253,7 @@ class Fourier:
         fft_shape: Sequence[int],
         image_shape: Sequence[int],
         axes: int | Sequence[int] | None = None,
+        dtype: DTypeLike = float,
     ) -> Fourier:
         """Generate a new Fourier object from an FFT dictionary
 
@@ -288,7 +290,7 @@ class Fourier:
         if isinstance(axes, int):
             axes = [axes]
         all_axes = range(len(image_shape))
-        image = np.fft.irfftn(image_fft, fft_shape, axes=axes)
+        image = np.fft.irfftn(image_fft, fft_shape, axes=axes).astype(dtype)
         # Shift the center of the image from the bottom left to the center
         image = np.fft.fftshift(image, axes=axes)
         # Trim the image to remove the padding added
@@ -425,7 +427,7 @@ def _kspace_operation(
         transformed_fft[cuts] = op(lhs[cuts], rhs[cuts])
     else:
         transformed_fft = op(image1.fft(fft_shape, axes), image2.fft(fft_shape, axes))
-    return Fourier.from_fft(transformed_fft, fft_shape, shape, axes)
+    return Fourier.from_fft(transformed_fft, fft_shape, shape, axes, image1.image.dtype)
 
 
 def match_kernel(

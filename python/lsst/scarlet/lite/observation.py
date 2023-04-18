@@ -251,6 +251,8 @@ class Observation:
         self.model_psf = model_psf
         self.padding = padding
         if model_psf is not None:
+            if model_psf.dtype != images.dtype:
+                self.model_psf = model_psf.astype(images.dtype)
             self.diff_kernel: Fourier | None = cast(Fourier, match_kernel(psfs, model_psf, padding=padding))
             # The gradient of a convolution is another convolution,
             # but with the flipped and transposed kernel.

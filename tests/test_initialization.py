@@ -58,15 +58,16 @@ class TestInitialization(ScarletTestCase):
 
     def test_trim_morphology(self):
         # Test default parameters
-        morph = np.zeros((50, 50))
+        morph = np.zeros((50, 50)).astype(np.float32)
         morph[10:15, 12:27] = 1
         trimmed, trimmed_box = trim_morphology(morph)
         assert_array_equal(trimmed, morph)
         self.assertTupleEqual(trimmed_box.origin, (5, 7))
         self.assertTupleEqual(trimmed_box.shape, (15, 25))
+        self.assertEqual(trimmed.dtype, np.float32)
 
         # Test with parameters specified
-        morph = np.full((50, 50), 0.1)
+        morph = np.full((50, 50), 0.1).astype(np.float32)
         morph[10:15, 12:27] = 1
         truth = np.zeros(morph.shape)
         truth[10:15, 12:27] = 1
@@ -74,6 +75,7 @@ class TestInitialization(ScarletTestCase):
         assert_array_equal(trimmed, truth)
         self.assertTupleEqual(trimmed_box.origin, (9, 11))
         self.assertTupleEqual(trimmed_box.shape, (7, 17))
+        self.assertEqual(trimmed.dtype, np.float32)
 
     def test_init_monotonic_mask(self):
         full_box = self.observation.bbox
@@ -85,6 +87,7 @@ class TestInitialization(ScarletTestCase):
         self.assertBoxEqual(bbox, Box((38, 29), (1014, 2000)))
         _, masked_morph, _ = prox_monotonic_mask(self.detect.copy(), local_center, max_iter=0)
         assert_array_equal(morph, masked_morph / np.max(masked_morph))
+        self.assertEqual(morph.dtype, np.float32)
 
         # Specifying parameters
         bbox, morph = init_monotonic_morph(
@@ -101,6 +104,7 @@ class TestInitialization(ScarletTestCase):
         truth = masked_morph.copy()
         truth[truth < 0.2] = 0
         assert_array_equal(morph, truth)
+        self.assertEqual(morph.dtype, np.float32)
 
         # Test an empty morphology
         bbox, morph = init_monotonic_morph(np.zeros(self.detect.shape), center, full_box)
@@ -120,6 +124,7 @@ class TestInitialization(ScarletTestCase):
         truth = truth / np.max(truth)
         self.assertBoxEqual(bbox, Box((58, 48), origin=(1000, 2000)))
         assert_array_equal(morph, truth)
+        self.assertEqual(morph.dtype, np.float32)
 
         # Specify parameters
         bbox, morph = init_monotonic_morph(
@@ -135,8 +140,9 @@ class TestInitialization(ScarletTestCase):
         truth[truth < 0.2] = 0
         self.assertBoxEqual(bbox, Box((45, 44), origin=(1010, 2003)))
         assert_array_equal(morph, truth)
+        self.assertEqual(morph.dtype, np.float32)
 
-        # Test zero morphologu
+        # Test zero morphology
         zeros = np.zeros(self.detect.shape)
         bbox, morph = init_monotonic_morph(zeros, center, full_box, monotonicity=monotonicity)
         self.assertBoxEqual(bbox, Box((0, 0), (1000, 2000)))
@@ -144,10 +150,11 @@ class TestInitialization(ScarletTestCase):
 
     def test_multifit_spectra(self):
         bands = ("g", "r", "i")
-        variance = np.ones((3, 35, 35), dtype=float)
+        variance = np.ones((3, 35, 35), dtype=np.float32)
         weights = 1 / variance
         psfs = np.array([integrated_circular_gaussian(sigma=sigma) for sigma in [1.05, 0.9, 1.2]])
-        model_psf = integrated_circular_gaussian(sigma=0.8)
+        psfs = psfs.astype(np.float32)
+        model_psf = integrated_circular_gaussian(sigma=0.8).astype(np.float32)
 
         # The spectrum of each source
         spectra = np.array(
@@ -157,11 +164,15 @@ class TestInitialization(ScarletTestCase):
                 [15, 8, 3],
                 [20, 3, 4],
                 [0, 30, 60],
-            ]
+            ],
+            dtype=np.float32,
         )
 
         # Use a point source for all of the sources
-        morphs = [integrated_circular_gaussian(sigma=sigma) for sigma in [0.8, 3.1, 1.1, 2.1, 1.5]]
+        morphs = [
+            integrated_circular_gaussian(sigma=sigma).astype(np.float32)
+            for sigma in [0.8, 3.1, 1.1, 2.1, 1.5]
+        ]
         # Make the second component a disk component
         morphs[1] = scipy_convolve(morphs[1], model_psf, mode="same")
 
@@ -176,7 +187,7 @@ class TestInitialization(ScarletTestCase):
         ]
 
         # Create the Observation
-        test_data = ObservationData(bands, psfs, spectra, morphs, centers, model_psf)
+        test_data = ObservationData(bands, psfs, spectra, morphs, centers, model_psf, dtype=np.float32)
         observation = Observation(
             test_data.convolved,
             variance,
@@ -187,11 +198,10 @@ class TestInitialization(ScarletTestCase):
         )
 
         fit_spectra = multifit_spectra(observation, test_data.morphs)
-
-        assert_almost_equal(fit_spectra, spectra)
+        self.assertEqual(fit_spectra.dtype, spectra.dtype)
+        assert_almost_equal(fit_spectra, spectra, decimal=5)
 
     def test_factorized_chi2_init(self):
-        print(self.centers)
         # Test default parameters
         init = FactorizedChi2Initialization(self.observation, self.centers)
         self.assertEqual(init.observation, self.observation)
@@ -201,10 +211,14 @@ class TestInitialization(ScarletTestCase):
         self.assertEqual(init.thresh, 0.5)
         self.assertTupleEqual((init.py, init.px), (7, 7))
         self.assertEqual(len(init.sources), 7)
+        for src in init.sources:
+            self.assertEqual(src.get_model().dtype, np.float32)
 
         centers = tuple(tuple(center.astype(int)) for center in self.centers) + ((1000, 2004),)
         init = FactorizedChi2Initialization(self.observation, centers)
         self.assertEqual(len(init.sources), 8)
+        for src in init.sources:
+            self.assertEqual(src.get_model().dtype, np.float32)
 
     def test_factorized_wavelet_init(self):
         # Test default parameters
@@ -216,3 +230,5 @@ class TestInitialization(ScarletTestCase):
         self.assertEqual(len(init.sources), 7)
         components = np.sum([len(src.components) for src in init.sources])
         self.assertEqual(components, 8)
+        for src in init.sources:
+            self.assertEqual(src.get_model().dtype, np.float32)

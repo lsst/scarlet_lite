@@ -49,7 +49,7 @@ class TestDetect(ScarletTestCase):
         sources = []
         for sigma, center in zip(sigmas, centers):
             yx0 = center[0] - 7, center[1] - 7
-            source = Image(integrated_circular_gaussian(sigma=sigma), yx0=yx0)
+            source = Image(integrated_circular_gaussian(sigma=sigma).astype(np.float32), yx0=yx0)
             sources.append(source)
 
         image = Image.from_box(Box((51, 51)))
@@ -199,6 +199,7 @@ class TestDetect(ScarletTestCase):
         wavelets = get_wavelets(images, variance)
 
         self.assertTupleEqual(wavelets.shape, (5, 5, 58, 48))
+        self.assertEqual(wavelets.dtype, np.float32)
 
     def test_get_detect_wavelets(self):
         images = self.hsc_data["images"]
