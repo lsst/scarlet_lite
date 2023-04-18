@@ -41,8 +41,8 @@ class TestSource(ScarletTestCase):
         # Test a source with a single component
         bands = tuple("grizy")
         center = (27, 32)
-        morph1 = integrated_circular_gaussian(sigma=0.8)
-        spectrum1 = np.arange(5)
+        morph1 = integrated_circular_gaussian(sigma=0.8).astype(np.float32)
+        spectrum1 = np.arange(5).astype(np.float32)
         component_box1 = Box((15, 15), (20, 25))
         components = [
             FactorizedComponent(
@@ -69,10 +69,11 @@ class TestSource(ScarletTestCase):
             ),
         )
         self.assertIsNone(source.get_model(True))
+        self.assertEqual(source.get_model().dtype, np.float32)
 
         # Test a source with multiple components
-        morph2 = integrated_circular_gaussian(sigma=2.1)
-        spectrum2 = np.arange(5)[::-1]
+        morph2 = integrated_circular_gaussian(sigma=2.1).astype(np.float32)
+        spectrum2 = np.arange(5)[::-1].astype(np.float32)
         component_box2 = Box((15, 15), (10, 35))
 
         components = [
@@ -99,8 +100,9 @@ class TestSource(ScarletTestCase):
         self.assertBoxEqual(source.bbox, Box((25, 25), (10, 25)))
         self.assertTupleEqual(source.bands, bands)
         self.assertEqual(str(source), "Source<2>")
+        self.assertEqual(source.get_model().dtype, np.float32)
 
-        model = np.zeros((5, 25, 25), dtype=float)
+        model = np.zeros((5, 25, 25), dtype=np.float32)
         model[:, 10:25, :15] = spectrum1[:, None, None] * morph1[None, :, :]
         model[:, :15, 10:25] += spectrum2[:, None, None] * morph2[None, :, :]
         model = Image(model, yx0=(10, 25), bands=tuple("grizy"))

@@ -44,15 +44,17 @@ class TestWavelet(ScarletTestCase):
         del self.data
 
     def test_transform_inverse(self):
-        image = np.sum(self.data["images"].astype(float), axis=0)
+        image = np.sum(self.data["images"], axis=0)
         starlets = starlet_transform(image, scales=3)
+        self.assertEqual(starlets.dtype, np.float32)
 
         # Test number of levels
         self.assertTupleEqual(starlets.shape, (4, 58, 48))
 
         # Test inverse
         inverse = starlet_reconstruction(starlets)
-        assert_almost_equal(inverse, image)
+        assert_almost_equal(inverse, image, decimal=5)
+        self.assertEqual(inverse.dtype, np.float32)
 
         # Test using gen1 starlets
         starlets = starlet_transform(image, scales=3, generation=1)
@@ -62,18 +64,20 @@ class TestWavelet(ScarletTestCase):
 
         # Test inverse
         inverse = starlet_reconstruction(starlets, generation=1)
-        assert_almost_equal(inverse, image)
+        assert_almost_equal(inverse, image, decimal=5)
 
     def test_multiband_transform(self):
-        image = self.data["images"].astype(float)
+        image = self.data["images"]
         starlets = multiband_starlet_transform(image, scales=3)
+        self.assertEqual(starlets.dtype, np.float32)
 
         # Test number of levels
         self.assertTupleEqual(starlets.shape, (4, 5, 58, 48))
 
         # Test inverse
         inverse = multiband_starlet_reconstruction(starlets)
-        assert_almost_equal(inverse, image)
+        assert_almost_equal(inverse, image, decimal=5)
+        self.assertEqual(inverse.dtype, np.float32)
 
     def test_extras(self):
         # This is code that is not used in production,

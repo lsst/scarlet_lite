@@ -30,6 +30,7 @@ from lsst.scarlet.lite.fft import match_kernel
 from lsst.scarlet.lite.image import Image
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_almost_equal, assert_array_equal
+from numpy.typing import DTypeLike
 from scipy.signal import convolve as scipy_convolve
 
 __all__ = ["get_psfs", "ObservationData", "ScarletTestCase"]
@@ -113,6 +114,7 @@ class ObservationData:
         centers: Sequence[tuple[int, int]],
         model_psf: np.ndarray = None,
         yx0: tuple[int, int] = (0, 0),
+        dtype: DTypeLike = float,
     ):
         """Initialize the test dataset
 
@@ -138,19 +140,25 @@ class ObservationData:
         boxes = [Box((15, 15), origin) for center, origin in zip(centers, origins)]
 
         # Create the image with the sources placed according to their boxes
-        images = np.zeros((3, 35, 35), dtype=float)
+        images = np.zeros((3, 35, 35), dtype=dtype)
         spectral_box = Box((len(bands),))
-        print(boxes)
         for spectrum, center, morph, bbox in zip(spectra, centers, morphs, boxes):
             images[(spectral_box @ (bbox - yx0)).slices] += spectrum[:, None, None] * morph[None, :, :]
 
         diff_kernel = match_kernel(psfs, model_psf[None], padding=3)
         convolved = np.array([scipy_convolve(images[b], diff_kernel.image[b], mode="same") for b in range(3)])
+        convolved = convolved.astype(dtype)
 
         self.images = Image(images, bands=bands, yx0=yx0)
         self.convolved = Image(convolved, bands=bands, yx0=yx0)
         self.diff_kernel = diff_kernel
         self.morphs = [Image(morph, yx0=origin) for morph, origin in zip(morphs, origins)]
+
+        assert self.images.dtype == dtype
+        assert self.convolved.dtype == dtype
+        assert self.diff_kernel.image.dtype == dtype
+        for morph in self.morphs:
+            assert morph.dtype == dtype
 
 
 class ScarletTestCase(TestCase):

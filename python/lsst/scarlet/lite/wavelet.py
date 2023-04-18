@@ -141,7 +141,7 @@ def starlet_transform(
         convolve2d = bspline_convolve
 
     # wavelet set of coefficients.
-    starlet = np.zeros((scales + 1,) + image.shape)
+    starlet = np.zeros((scales + 1,) + image.shape, dtype=image.dtype)
     for j in range(scales):
         gen1 = convolve2d(c, j)
 
