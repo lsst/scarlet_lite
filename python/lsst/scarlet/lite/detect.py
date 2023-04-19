@@ -206,4 +206,4 @@ def get_detect_wavelets(images: np.ndarray, variance: np.ndarray, scales: int = 
         epsilon=1e-1,
         max_iter=20,
     )
-    return support * _coeffs
+    return (support * _coeffs).astype(images.dtype)
