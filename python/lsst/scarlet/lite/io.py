@@ -335,7 +335,7 @@ class ScarletModelData:
         result = {
             "bands": self.bands,
             "psfShape": self.psf.shape,
-            "psf": list(self.psf.flatten()),
+            "psf": list(self.psf.flatten().astype(float)),
             "blends": {bid: blend.as_dict() for bid, blend in self.blends.items()},
         }
         return json.dumps(result)
