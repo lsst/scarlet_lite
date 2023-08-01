@@ -109,18 +109,16 @@ def init_monotonic_morph(
         The initialized morphology.
     """
     center: tuple[int, int] = tuple(center[i] - full_box.origin[i] for i in range(2))  # type: ignore
+
     if monotonicity is None:
         _, morph, bounds = prox_monotonic_mask(detect, center, max_iter=0)
         bbox = bounds_to_bbox(bounds)
         if bbox.shape == (1, 1) and morph[bbox.slices][0, 0] == 0:
             return Box((0, 0)), None
 
-        if padding is not None and padding > 0:
-            # Pad the morphology to allow it to grow
-            bbox = bbox.grow(padding)
-
         if thresh > 0:
             morph, bbox = trim_morphology(morph, bg_thresh=thresh, padding=padding)
+
         # Shift the bounding box to account for the non-zero origin
         bbox += full_box.origin
 
@@ -137,6 +135,10 @@ def init_monotonic_morph(
 
     if normalize:
         morph /= np.max(morph)
+
+    if padding is not None and padding > 0:
+        # Pad the morphology to allow it to grow
+        bbox = bbox.grow(padding)
 
     # Ensure that the bounding box is inside the full box,
     # even after padding.
@@ -440,7 +442,7 @@ class FactorizedChi2Initialization(FactorizedInitialization):
         monotonicity: Monotonicity | None = None,
         disk_percentile: float = 25,
         thresh: float = 0.5,
-        padding: int = 0,
+        padding: int = 2,
     ):
         if detect is None:
             # Build the morphology detection image
