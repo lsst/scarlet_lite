@@ -22,7 +22,7 @@
 import os
 
 import numpy as np
-from lsst.scarlet.lite import Blend, Image, Observation, Source
+from lsst.scarlet.lite import Blend, Image, Observation, Source, io
 from lsst.scarlet.lite.component import default_adaprox_parameterization
 from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
 from lsst.scarlet.lite.measure import calculate_snr
@@ -79,6 +79,26 @@ class TestMeasurements(ScarletTestCase):
         blend.sources.append(Source([]))
         blend.parameterize(default_adaprox_parameterization)
         blend.fit(100, e_rel=1e-4)
+
+        # Insert a flat source to pickup the background flux
+        blend.sources.append(
+            Source(
+                [
+                    io.ComponentCube(
+                        bands=observation.bands,
+                        bbox=observation.bbox,
+                        model=Image(
+                            np.ones(observation.shape, dtype=observation.dtype),
+                            observation.bands,
+                            yx0=(0, 0),
+                        ),
+                        peak=(0, 0),
+                    )
+                ]
+            )
+        )
+
         blend.conserve_flux(blend)
         flux_model = blend.get_model(use_flux=True)
+
         self.assertImageAlmostEqual(flux_model, observation.images, decimal=1)
