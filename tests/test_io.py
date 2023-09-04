@@ -58,7 +58,7 @@ class TestIo(ScarletTestCase):
         for i in range(len(blend.sources)):
             blend.sources[i].record_id = i * 10
             blend.sources[i].peak_id = i
-        blend_data = io.scarlet_to_data(blend, (51, 67))
+        blend_data = io.ScarletBlendData.from_blend(blend, (51, 67))
         model_data = io.ScarletModelData(
             bands=self.observation.bands,
             psf=self.observation.model_psf,
@@ -72,10 +72,9 @@ class TestIo(ScarletTestCase):
         # Load the full set of model data classes from the json string
         model_data = io.ScarletModelData.parse_obj(model_dict)
         # Convert the model data into scarlet models
-        loaded_blend = io.minimal_data_to_scarlet(
+        loaded_blend = model_data.blends[1].minimal_data_to_blend(
             bands=model_data.bands,
             model_psf=model_data.psf,
-            blend_data=model_data.blends[1],
             dtype=blend.observation.dtype,
         )
 
@@ -111,7 +110,7 @@ class TestIo(ScarletTestCase):
             model_bbox=self.observation.bbox,
         )
 
-        blend_data = io.scarlet_to_data(blend, (51, 67))
+        blend_data = io.ScarletBlendData.from_blend(blend, (51, 67))
         model_data = io.ScarletModelData(
             bands=self.observation.bands,
             psf=self.observation.model_psf,
@@ -125,10 +124,9 @@ class TestIo(ScarletTestCase):
         # Load the full set of model data classes from the json string
         model_data = io.ScarletModelData.parse_obj(model_dict)
         # Convert the model data into scarlet models
-        loaded_blend = io.minimal_data_to_scarlet(
+        loaded_blend = model_data.blends[1].minimal_data_to_blend(
             bands=model_data.bands,
             model_psf=model_data.psf,
-            blend_data=model_data.blends[1],
             dtype=blend.observation.dtype,
         )
 

@@ -21,7 +21,7 @@
 
 __all__ = ["Observation", "convolve"]
 
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -371,3 +371,21 @@ class Observation:
             coords = get_filter_coords(cast(Fourier, self.diff_kernel).image[0])
             self._convolution_bounds = get_filter_bounds(coords.reshape(-1, 2))
         return self._convolution_bounds
+
+    @staticmethod
+    def empty(
+        bands: tuple[Any], psfs: np.ndarray, model_psf: np.ndarray, bbox: Box, dtype: npt.DTypeLike
+    ) -> TObservation:
+        dummy_image = np.zeros((len(bands),) + bbox.shape, dtype=dtype)
+
+        return Observation(
+            images=dummy_image,
+            variance=dummy_image,
+            weights=dummy_image,
+            psfs=psfs,
+            model_psf=model_psf,
+            noise_rms=np.zeros((len(bands),), dtype=dtype),
+            bbox=bbox,
+            bands=bands,
+            convolution_mode="real",
+        )
