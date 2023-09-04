@@ -19,9 +19,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 __all__ = ["Observation", "convolve"]
 
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -31,8 +33,6 @@ from .fft import Fourier, _pad, centered
 from .fft import convolve as fft_convolve
 from .fft import match_kernel
 from .image import Image
-
-TObservation = TypeVar("TObservation", bound="Observation")
 
 
 def get_filter_coords(filter_values: np.ndarray, center: tuple[int, int] | None = None) -> np.ndarray:
@@ -375,7 +375,7 @@ class Observation:
     @staticmethod
     def empty(
         bands: tuple[Any], psfs: np.ndarray, model_psf: np.ndarray, bbox: Box, dtype: npt.DTypeLike
-    ) -> TObservation:
+    ) -> Observation:
         dummy_image = np.zeros((len(bands),) + bbox.shape, dtype=dtype)
 
         return Observation(
