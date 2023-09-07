@@ -84,11 +84,13 @@ class ScarletComponentData:
         result:
             The reconstructed object
         """
-        data_shallow_copy = dict(data)
-        data_shallow_copy["origin"] = tuple(data["origin"])
-        shape = tuple(data_shallow_copy.pop("shape"))
-        data_shallow_copy["model"] = np.array(data["model"]).reshape(shape).astype(dtype)
-        return cls(**data_shallow_copy)
+        shape = tuple(data["shape"])
+
+        return cls(
+            origin=tuple(data["origin"]),
+            peak=data["peak"],
+            model=np.array(data["model"]).reshape(shape).astype(dtype),
+        )
 
 
 @dataclass(kw_only=True)
@@ -149,12 +151,14 @@ class ScarletFactorizedComponentData:
         result:
             The reconstructed object
         """
-        data_shallow_copy = dict(data)
-        data_shallow_copy["origin"] = tuple(data["origin"])
-        shape = tuple(data_shallow_copy.pop("shape"))
-        data_shallow_copy["spectrum"] = np.array(data["spectrum"]).astype(dtype)
-        data_shallow_copy["morph"] = np.array(data["morph"]).reshape(shape).astype(dtype)
-        return cls(**data_shallow_copy)
+        shape = tuple(data["shape"])
+
+        return cls(
+            origin=tuple(data["origin"]),
+            peak=data["peak"],
+            spectrum=np.array(data["spectrum"]).astype(dtype),
+            morph=np.array(data["morph"]).reshape(shape).astype(dtype),
+        )
 
 
 @dataclass(kw_only=True)
@@ -207,21 +211,17 @@ class ScarletSourceData:
         result:
             The reconstructed object
         """
-        data_shallow_copy = dict(data)
-        del data_shallow_copy["factorized"]
         components = []
         for component in data["components"]:
             component = ScarletComponentData.from_dict(component, dtype=dtype)
             components.append(component)
-        data_shallow_copy["components"] = components
 
         factorized = []
         for component in data["factorized"]:
             component = ScarletFactorizedComponentData.from_dict(component, dtype=dtype)
             factorized.append(component)
-        data_shallow_copy["factorized_components"] = factorized
-        data_shallow_copy["peak_id"] = int(data["peak_id"])
-        return cls(**data_shallow_copy)
+
+        return cls(components=components, factorized_components=factorized, peak_id=int(data["peak_id"]))
 
 
 @dataclass(kw_only=True)
@@ -283,17 +283,17 @@ class ScarletBlendData:
         result:
             The reconstructed object
         """
-        data_shallow_copy = dict(data)
-        data_shallow_copy["origin"] = tuple(data["origin"])
-        data_shallow_copy["shape"] = tuple(data["shape"])
-        psf_shape = data_shallow_copy.pop("psf_shape")
-        data_shallow_copy["psf_center"] = tuple(data["psf_center"])
-        data_shallow_copy["psf"] = np.array(data["psf"]).reshape(psf_shape).astype(dtype)
-        data_shallow_copy["sources"] = {
-            int(bid): ScarletSourceData.from_dict(source, dtype=dtype)
-            for bid, source in data["sources"].items()
-        }
-        return cls(**data_shallow_copy)
+        psf_shape = data["psf_shape"]
+        return cls(
+            origin=tuple(data["origin"]),
+            shape=tuple(data["shape"]),
+            psf_center=tuple(data["psf_center"]),
+            psf=np.array(data["psf"]).reshape(psf_shape).astype(dtype),
+            sources={
+                int(bid): ScarletSourceData.from_dict(source, dtype=dtype)
+                for bid, source in data["sources"].items()
+            },
+        )
 
     def minimal_data_to_blend(self, bands: tuple[Any], model_psf: np.ndarray, dtype: DTypeLike) -> Blend:
         """Convert the storage data model into a scarlet lite blend
@@ -491,15 +491,12 @@ class ScarletModelData:
         result:
             The `ScarletModelData` that was loaded the from the input object
         """
-        data_shallow_copy = dict(data)
-        model_psf = (
-            np.array(data_shallow_copy["psf"]).reshape(data_shallow_copy.pop("psfShape")).astype(np.float32)
+        model_psf = np.array(data["psf"]).reshape(data["psfShape"]).astype(np.float32)
+        return cls(
+            bands=data["bands"],
+            psf=model_psf,
+            blends={int(bid): ScarletBlendData.from_dict(blend) for bid, blend in data["blends"].items()},
         )
-        data_shallow_copy["psf"] = model_psf
-        data_shallow_copy["blends"] = {
-            int(bid): ScarletBlendData.from_dict(blend) for bid, blend in data["blends"].items()
-        }
-        return cls(**data_shallow_copy)
 
 
 class ComponentCube(Component):
