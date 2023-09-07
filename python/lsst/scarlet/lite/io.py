@@ -87,7 +87,7 @@ class ScarletComponentData:
         shape = tuple(data["shape"])
 
         return cls(
-            origin=tuple(data["origin"]),
+            origin=tuple(data["origin"]),  # type: ignore
             peak=data["peak"],
             model=np.array(data["model"]).reshape(shape).astype(dtype),
         )
@@ -154,7 +154,7 @@ class ScarletFactorizedComponentData:
         shape = tuple(data["shape"])
 
         return cls(
-            origin=tuple(data["origin"]),
+            origin=tuple(data["origin"]),  # type: ignore
             peak=data["peak"],
             spectrum=np.array(data["spectrum"]).astype(dtype),
             morph=np.array(data["morph"]).reshape(shape).astype(dtype),
@@ -285,9 +285,9 @@ class ScarletBlendData:
         """
         psf_shape = data["psf_shape"]
         return cls(
-            origin=tuple(data["origin"]),
-            shape=tuple(data["shape"]),
-            psf_center=tuple(data["psf_center"]),
+            origin=tuple(data["origin"]),  # type: ignore
+            shape=tuple(data["shape"]),  # type: ignore
+            psf_center=tuple(data["psf_center"]),  # type: ignore
             psf=np.array(data["psf"]).reshape(psf_shape).astype(dtype),
             sources={
                 int(bid): ScarletSourceData.from_dict(source, dtype=dtype)
