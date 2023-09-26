@@ -60,7 +60,6 @@ class TestIo(ScarletTestCase):
             blend.sources[i].peak_id = i
         blend_data = io.ScarletBlendData.from_blend(blend, (51, 67))
         model_data = io.ScarletModelData(
-            bands=self.observation.bands,
             psf=self.observation.model_psf,
             blends={1: blend_data},
         )
@@ -73,7 +72,6 @@ class TestIo(ScarletTestCase):
         model_data = io.ScarletModelData.parse_obj(model_dict)
         # Convert the model data into scarlet models
         loaded_blend = model_data.blends[1].minimal_data_to_blend(
-            bands=model_data.bands,
             model_psf=model_data.psf,
             dtype=blend.observation.dtype,
         )
@@ -112,7 +110,6 @@ class TestIo(ScarletTestCase):
 
         blend_data = io.ScarletBlendData.from_blend(blend, (51, 67))
         model_data = io.ScarletModelData(
-            bands=self.observation.bands,
             psf=self.observation.model_psf,
             blends={1: blend_data},
         )
@@ -125,7 +122,6 @@ class TestIo(ScarletTestCase):
         model_data = io.ScarletModelData.parse_obj(model_dict)
         # Convert the model data into scarlet models
         loaded_blend = model_data.blends[1].minimal_data_to_blend(
-            bands=model_data.bands,
             model_psf=model_data.psf,
             dtype=blend.observation.dtype,
         )

@@ -240,6 +240,12 @@ class ScarletBlendData:
     psf_center:
         The location used for the center of the PSF for
         the blend.
+    psf:
+        The PSF of the observation.
+    bands : `list` of `str`
+        The names of the bands.
+        The order of the bands must be the same as the order of
+        the multiband model arrays, and SEDs.
     """
 
     origin: tuple[int, int]
@@ -247,6 +253,7 @@ class ScarletBlendData:
     sources: dict[int, ScarletSourceData]
     psf_center: tuple[float, float]
     psf: np.ndarray
+    bands: tuple[str]
 
     def as_dict(self) -> dict:
         """Return the object encoded into a dict for JSON serialization
@@ -263,6 +270,7 @@ class ScarletBlendData:
             "psf_shape": self.psf.shape,
             "psf": tuple(self.psf.flatten().astype(float)),
             "sources": {bid: source.as_dict() for bid, source in self.sources.items()},
+            "bands": self.bands,
         }
         return result
 
@@ -293,15 +301,14 @@ class ScarletBlendData:
                 int(bid): ScarletSourceData.from_dict(source, dtype=dtype)
                 for bid, source in data["sources"].items()
             },
+            bands=tuple(data["bands"]),
         )
 
-    def minimal_data_to_blend(self, bands: tuple[Any], model_psf: np.ndarray, dtype: DTypeLike) -> Blend:
+    def minimal_data_to_blend(self, model_psf: np.ndarray, dtype: DTypeLike) -> Blend:
         """Convert the storage data model into a scarlet lite blend
 
         Parameters
         ----------
-        bands:
-            The bands from the observations, in order.
         model_psf:
             PSF in model space (usually a nyquist sampled circular Gaussian).
         dtype:
@@ -314,7 +321,7 @@ class ScarletBlendData:
         """
         model_box = Box(self.shape, origin=(0, 0))
         observation = Observation.empty(
-            bands=bands,
+            bands=self.bands,
             psfs=self.psf,
             model_psf=model_psf,
             bbox=model_box,
@@ -430,6 +437,7 @@ class ScarletBlendData:
             sources=sources,
             psf_center=psf_center,
             psf=blend.observation.psfs,
+            bands=blend.observation.bands,
         )
 
         return blend_data
@@ -438,7 +446,7 @@ class ScarletBlendData:
 class ScarletModelData:
     """A container that propagates scarlet models for an entire catalog."""
 
-    def __init__(self, bands: list[Any], psf: np.ndarray, blends: dict[int, ScarletBlendData] | None = None):
+    def __init__(self, psf: np.ndarray, blends: dict[int, ScarletBlendData] | None = None):
         """Initialize an instance
 
         Parameters
@@ -455,7 +463,6 @@ class ScarletModelData:
             Map from parent IDs in the source catalog
             to scarlet model data for each parent ID (blend).
         """
-        self.bands = bands
         self.psf = psf
         if blends is None:
             blends = {}
@@ -470,7 +477,6 @@ class ScarletModelData:
             The result of the object converted into a JSON format
         """
         result = {
-            "bands": self.bands,
             "psfShape": self.psf.shape,
             "psf": list(self.psf.flatten().astype(float)),
             "blends": {bid: blend.as_dict() for bid, blend in self.blends.items()},
@@ -493,7 +499,6 @@ class ScarletModelData:
         """
         model_psf = np.array(data["psf"]).reshape(data["psfShape"]).astype(np.float32)
         return cls(
-            bands=data["bands"],
             psf=model_psf,
             blends={int(bid): ScarletBlendData.from_dict(blend) for bid, blend in data["blends"].items()},
         )
