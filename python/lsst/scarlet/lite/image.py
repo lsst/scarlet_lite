@@ -1259,7 +1259,8 @@ def _operate_on_images(image1: Image, image2: Image | ScalarLike, op: Callable) 
         return Image(result, bands=image1.bands, yx0=image1.yx0)
 
     if op != operator.add and op != operator.sub and image1.bands != image2.bands:
-        msg = f"Images with different bands can only be combined using addition and subtraction, got {op}"
+        msg = "Images with different bands can only be combined using addition and subtraction, "
+        msg += f"got {op}, with bands {image1.bands}, {image2.bands}"
         raise ValueError(msg)
 
     # Use all of the bands in the first image
