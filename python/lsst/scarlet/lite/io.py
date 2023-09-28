@@ -301,7 +301,7 @@ class ScarletBlendData:
                 int(bid): ScarletSourceData.from_dict(source, dtype=dtype)
                 for bid, source in data["sources"].items()
             },
-            bands=tuple(data["bands"]),
+            bands=tuple(data["bands"]),  # type: ignore
         )
 
     def minimal_data_to_blend(self, model_psf: np.ndarray, dtype: DTypeLike) -> Blend:
@@ -437,7 +437,7 @@ class ScarletBlendData:
             sources=sources,
             psf_center=psf_center,
             psf=blend.observation.psfs,
-            bands=blend.observation.bands,
+            bands=blend.observation.bands,  # type: ignore
         )
 
         return blend_data
