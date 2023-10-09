@@ -79,3 +79,6 @@ convention = "numpy"
 # D200, D205 and D400 all complain if the first sentence of the docstring does
 # not fit on one line.
 add-ignore = ["D107", "D105", "D102", "D100", "D200", "D205", "D400"]
+
+[tool.pytest.ini_options]
+open_files_ignore = ["*.ttf"]
