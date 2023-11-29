@@ -326,7 +326,7 @@ class Observation:
                     newshape[2] += kernel.image.shape[2] - image.shape[2]
                 _image = _pad(_image, newshape)
                 result = convolve(_image, kernel.image, self.convolution_bounds)
-                result = centered(result, image.data.shape)
+                result = centered(result, image.data.shape)  # type: ignore
             else:
                 result = convolve(image.data, kernel.image, self.convolution_bounds)
         else:
