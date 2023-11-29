@@ -178,6 +178,27 @@ class TestObservation(ScarletTestCase):
         with self.assertRaises(ValueError):
             observation.convolve(deconvolved, mode="fake")
 
+        # Test convolving a small image
+        x = np.linspace(-3, 3, 7)
+        small_array = integrated_circular_gaussian(x=x, y=x, sigma=0.8)
+        small_psf = Image(np.array([small_array, small_array, small_array]), bands=observation.bands)
+        truth = Image(
+            np.array(
+                [
+                    scipy_convolve(
+                        small_psf[band].data,
+                        observation.diff_kernel.image[observation.bands.index(band)],
+                        method="direct",
+                        mode="same",
+                    )
+                    for band in observation.bands
+                ]
+            ),
+            bands=observation.bands,
+        )
+        convolved = observation.convolve(small_psf)
+        self.assertImageAlmostEqual(convolved, truth)
+
     def test_index_extraction(self):
         alpha_bands = ("g", "i", "r", "y", "z")
         images = np.arange(60).reshape(5, 3, 4)
