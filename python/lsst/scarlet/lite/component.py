@@ -265,12 +265,14 @@ class FactorizedComponent(Component):
                 self.peak[1] - self.bbox.origin[-1],
             )
         morph[peak] = np.max([morph[peak], self.floor])
+
+        # Ensure that the morphology is finite
+        morph[~np.isfinite(morph)] = 0
+
         # Normalize the morphology
         max_value = np.max(morph)
         if max_value > 0:
             morph[:] = morph / max_value
-        # Ensure that the morphology is finite
-        morph[~np.isfinite(morph)] = 0
         return morph
 
     def resize(self, model_box: Box) -> bool:
