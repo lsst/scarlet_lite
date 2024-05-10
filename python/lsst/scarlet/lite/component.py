@@ -266,9 +266,9 @@ class FactorizedComponent(Component):
             )
         morph[peak] = np.max([morph[peak], self.floor])
         # Normalize the morphology
-        maxValue = np.max(morph)
-        if maxValue > 0:
-            morph[:] = morph / maxValue
+        max_value = np.max(morph)
+        if max_value > 0:
+            morph[:] = morph / max_value
         # Ensure that the morphology is finite
         morph[~np.isfinite(morph)] = 0
         return morph
