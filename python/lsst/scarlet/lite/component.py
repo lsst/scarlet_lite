@@ -237,6 +237,7 @@ class FactorizedComponent(Component):
         """Apply a prox-like update to the spectrum"""
         # prevent divergent spectrum
         spectrum[spectrum < self.floor] = self.floor
+        spectrum[~np.isfinite(spectrum)] = self.floor
         return spectrum
 
     def prox_morph(self, morph: np.ndarray) -> np.ndarray:
@@ -264,8 +265,14 @@ class FactorizedComponent(Component):
                 self.peak[1] - self.bbox.origin[-1],
             )
         morph[peak] = np.max([morph[peak], self.floor])
+
+        # Ensure that the morphology is finite
+        morph[~np.isfinite(morph)] = 0
+
         # Normalize the morphology
-        morph[:] = morph / np.max(morph)
+        max_value = np.max(morph)
+        if max_value > 0:
+            morph[:] = morph / max_value
         return morph
 
     def resize(self, model_box: Box) -> bool:
