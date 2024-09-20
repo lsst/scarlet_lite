@@ -526,34 +526,37 @@ class FactorizedChi2Initialization(FactorizedInitialization):
             # Fit the spectra assuming that all of the flux in the image
             # is due to both components. This is not true, but for the
             # vast majority of sources this is a good approximation.
-            bulge_spectrum, disk_spectrum = multifit_spectra(
-                self.observation,
-                [
-                    Image(bulge_morph, yx0=cast(tuple[int, int], component.bbox.origin)),
-                    Image(disk_morph, yx0=cast(tuple[int, int], component.bbox.origin)),
-                ],
-            )
+            try:
+                bulge_spectrum, disk_spectrum = multifit_spectra(
+                    self.observation,
+                    [
+                        Image(bulge_morph, yx0=cast(tuple[int, int], component.bbox.origin)),
+                        Image(disk_morph, yx0=cast(tuple[int, int], component.bbox.origin)),
+                    ],
+                )
 
-            components = [
-                FactorizedComponent(
-                    self.observation.bands,
-                    bulge_spectrum,
-                    bulge_morph,
-                    component.bbox.copy(),
-                    center,
-                    self.observation.noise_rms,
-                    monotonicity=self.monotonicity,
-                ),
-                FactorizedComponent(
-                    self.observation.bands,
-                    disk_spectrum,
-                    disk_morph,
-                    component.bbox.copy(),
-                    center,
-                    self.observation.noise_rms,
-                    monotonicity=self.monotonicity,
-                ),
-            ]
+                components = [
+                    FactorizedComponent(
+                        self.observation.bands,
+                        bulge_spectrum,
+                        bulge_morph,
+                        component.bbox.copy(),
+                        center,
+                        self.observation.noise_rms,
+                        monotonicity=self.monotonicity,
+                    ),
+                    FactorizedComponent(
+                        self.observation.bands,
+                        disk_spectrum,
+                        disk_morph,
+                        component.bbox.copy(),
+                        center,
+                        self.observation.noise_rms,
+                        monotonicity=self.monotonicity,
+                    ),
+                ]
+            except np.linalg.LinAlgError:
+                components = [component]
 
         return Source(components)  # type: ignore
 

@@ -10,7 +10,7 @@ try:
 except ImportError:
     pass
 
-from . import initialization, io, measure, models, operators, utils
+from . import initialization, io, measure, models, operators, utils, wavelet
 from .fft import *
 from .image import *
 from .observation import *

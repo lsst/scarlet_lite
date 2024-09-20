@@ -213,7 +213,10 @@ class FistaParameter(Parameter):
 
         See `Parameter` for the full description.
         """
-        step = self.step / np.sum(args[0] * args[0])
+        if len(args) == 0:
+            step = self.step
+        else:
+            step = self.step / np.sum(args[0] * args[0])
         _x = self.x
         _z = self.helpers["z"]
 

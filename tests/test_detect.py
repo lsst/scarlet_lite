@@ -23,7 +23,13 @@ import os
 
 import numpy as np
 from lsst.scarlet.lite import Box, Image
-from lsst.scarlet.lite.detect import bounds_to_bbox, footprints_to_image, get_detect_wavelets, get_wavelets
+from lsst.scarlet.lite.detect import (
+    bounds_to_bbox,
+    detect_footprints,
+    footprints_to_image,
+    get_detect_wavelets,
+    get_wavelets,
+)
 from lsst.scarlet.lite.detect_pybind11 import (
     Footprint,
     Peak,
@@ -117,8 +123,7 @@ class TestDetect(ScarletTestCase):
         truth[30:32, 40] = False
         assert_array_equal(footprint, truth)
 
-    def test_get_footprints(self):
-        footprints = get_footprints(self.image.data, 1, 4, 1e-15, True)
+    def _footprint_check(self, footprints):
         self.assertEqual(len(footprints), 3)
 
         # The first footprint has a single peak
@@ -147,8 +152,48 @@ class TestDetect(ScarletTestCase):
 
         truth = 1 * self.sources[3] + 2 * (self.sources[0] + self.sources[1]) + 3 * self.sources[2]
         truth.data[truth.data < 1e-15] = 0
-        fp_image = footprints_to_image(footprints, truth.shape)
+        fp_image = footprints_to_image(footprints, truth.bbox)
         assert_array_equal(fp_image, truth.data)
+
+    def test_get_footprints(self):
+        footprints = get_footprints(self.image.data, 1, 4, 1e-15, 1e-15, True)
+        self._footprint_check(footprints)
+
+    def test_detect_footprints(self):
+        # this method doesn't test for accurracy, just that all of the
+        # different configuration options run without error.
+
+        # There is no variance, so we set it to ones
+        variance = np.ones(self.image.shape, dtype=self.image.dtype)
+
+        detect_footprints(
+            self.image.data[None, :, :],
+            variance[None, :, :],
+            scales=1,
+            generation=2,
+            origin=(0, 0),
+            min_separation=1,
+            min_area=4,
+            peak_thresh=1e-15,
+            footprint_thresh=1e-15,
+            find_peaks=True,
+            remove_high_freq=False,
+            min_pixel_detect=1,
+        )
+
+        detect_footprints(
+            self.image.data[None, :, :],
+            variance[None, :, :],
+            scales=1,
+            generation=1,
+            min_separation=1,
+            min_area=4,
+            peak_thresh=1e-15,
+            footprint_thresh=1e-15,
+            find_peaks=True,
+            remove_high_freq=True,
+            min_pixel_detect=2,
+        )
 
     def test_bounds_to_bbox(self):
         bounds = (3, 27, 11, 52)
@@ -161,26 +206,28 @@ class TestDetect(ScarletTestCase):
         footprint[footprint < 1e-15] = 0
         bounds = [
             self.sources[0].bbox.start[0],
-            self.sources[0].bbox.stop[0],
+            self.sources[0].bbox.stop[0] - 1,
             self.sources[0].bbox.start[1],
-            self.sources[0].bbox.stop[1],
+            self.sources[0].bbox.stop[1] - 1,
         ]
+        print(bounds)
         peaks = [Peak(self.centers[0][0], self.centers[0][1], self.image.data[self.centers[0]])]
         footprint1 = Footprint(footprint, peaks, bounds)
         footprint = self.sources[1].data
         footprint[footprint < 1e-15] = 0
         bounds = [
             self.sources[1].bbox.start[0],
-            self.sources[1].bbox.stop[0],
+            self.sources[1].bbox.stop[0] - 1,
             self.sources[1].bbox.start[1],
-            self.sources[1].bbox.stop[1],
+            self.sources[1].bbox.stop[1] - 1,
         ]
+        print(bounds)
         peaks = [Peak(self.centers[1][0], self.centers[1][1], self.image.data[self.centers[1]])]
         footprint2 = Footprint(footprint, peaks, bounds)
 
         truth = self.sources[0] + self.sources[1]
         truth.data[truth.data < 1e-15] = 0
-        image = footprints_to_image([footprint1, footprint2], truth.shape)
+        image = footprints_to_image([footprint1, footprint2], truth.bbox)
         assert_array_equal(image, truth.data)
 
         # Test intersection

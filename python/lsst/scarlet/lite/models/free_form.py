@@ -19,19 +19,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-__all__ = ["FreeFormComponent"]
+__all__ = ["FactorizedFreeFormComponent"]
 
-from typing import cast
+from typing import Callable, cast
 
 import numpy as np
 
 from ..bbox import Box
-from ..component import FactorizedComponent
+from ..component import Component, FactorizedComponent
 from ..detect import footprints_to_image
-from ..parameters import Parameter
+from ..image import Image
+from ..parameters import Parameter, parameter
 
 
-class FreeFormComponent(FactorizedComponent):
+class FactorizedFreeFormComponent(FactorizedComponent):
     """Implements a free-form component
 
     With no constraints this component is typically either a garbage collector,
@@ -109,11 +110,14 @@ class FreeFormComponent(FactorizedComponent):
             morph[morph < 0] = 0
 
         if self.peaks is not None:
-            morph = morph * get_connected_multipeak(morph > 0, self.peaks, 0)
+            footprint = get_connected_multipeak(morph, self.peaks, 0)
+            morph = morph * footprint
 
         if self.min_area > 0:
-            footprints = get_footprints(morph > 0, 4.0, self.min_area, 0, False)
-            footprint_image = footprints_to_image(footprints, cast(tuple[int, int], morph.shape))
+            footprints = get_footprints(morph, 4.0, self.min_area, 0, 0, False)
+            bbox = self.bbox.copy()
+            bbox.origin = (0, 0)
+            footprint_image = footprints_to_image(footprints, bbox)
             morph = morph * (footprint_image > 0).data
 
         if np.all(morph == 0):
@@ -126,10 +130,119 @@ class FreeFormComponent(FactorizedComponent):
 
     def __str__(self):
         return (
-            f"FreeFormComponent(\n    bands={self.bands}\n    "
+            f"FactorizedFreeFormComponent(\n    bands={self.bands}\n    "
             f"spectrum={self.spectrum})\n    center={self.peak}\n    "
             f"morph_shape={self.morph.shape}"
         )
+
+    def __repr__(self):
+        return self.__str__()
+
+
+class FreeFormComponent(Component):
+    """Implements a free-form component
+
+    This is a FreeFormComponent that is not factorized into a
+    spectrum and morphology with no monotonicity constraint.
+    """
+
+    def __init__(
+        self,
+        bands: tuple,
+        model: np.ndarray | Parameter,
+        model_bbox: Box,
+        bg_thresh: float | None = None,
+        bg_rms: np.ndarray | None = None,
+        floor: float = 1e-20,
+        peaks: list[tuple[int, int]] | None = None,
+        min_area: float = 0,
+    ):
+        if len(bands) != 1:
+            raise ValueError("MonochromaticDeconvolvedComponent only supports one band")
+        super().__init__(bands=bands, bbox=model_bbox)
+        self._model = parameter(model)
+        self.bg_rms = bg_rms
+        self.bg_thresh = bg_thresh
+        self.floor = floor
+        self.peaks = peaks
+        self.min_area = min_area
+
+    @property
+    def model(self) -> np.ndarray:
+        """The morphological model of the component"""
+        return self._model.x
+
+    def get_model(self) -> Image:
+        """Convert the model into an image"""
+        return Image(self.model, bands=self.bands, yx0=cast(tuple[int, int], self.bbox.origin))
+
+    @property
+    def shape(self) -> tuple:
+        """Shape of the resulting model image"""
+        return self.model.shape
+
+    def grad_model(self, input_grad: np.ndarray, model: np.ndarray) -> np.ndarray:
+        """Gradient of the morph wrt. the component model"""
+        return input_grad
+
+    def prox_model(self, model: np.ndarray) -> np.ndarray:
+        """Apply a prox-like update to the model"""
+        from lsst.scarlet.lite.detect_pybind11 import get_connected_multipeak, get_footprints  # type: ignore
+
+        if self.bg_thresh is not None and isinstance(self.bg_rms, np.ndarray):
+            bg_thresh = self.bg_rms * self.bg_thresh
+            # Enforce background thresholding
+            model[model < bg_thresh[:, None, None]] = 0
+        else:
+            # enforce positivity
+            model[model < 0] = 0
+
+        if self.peaks is not None:
+            # Remove pixels not connected to one of the peaks
+            model2d = np.sum(model, axis=0)
+            footprint = get_connected_multipeak(model2d, self.peaks, 0)
+            model = model * footprint[None, :, :]
+
+        if self.min_area > 0:
+            # Remove regions with fewer than min_area connected pixels
+            model2d = np.sum(model, axis=0)
+            footprints = get_footprints(model2d, 4.0, self.min_area, 0, 0, False)
+            bbox = self.bbox.copy()
+            bbox.origin = (0, 0)
+            footprint_image = footprints_to_image(footprints, bbox)
+            model = model * (footprint_image > 0).data[None, :, :]
+
+        if np.all(model == 0):
+            # If the model is all zeros, set a single pixel to the floor
+            model[0, 0] = self.floor
+
+        return model
+
+    def resize(self, model_box: Box) -> bool:
+        return False
+
+    def update(self, it: int, grad_log_likelihood: np.ndarray):
+        self._model.update(it, grad_log_likelihood)
+
+    def parameterize(self, parameterization: Callable) -> None:
+        """Convert the component parameter arrays into Parameter instances
+
+        Parameters
+        ----------
+        parameterization: Callable
+            A function to use to convert parameters of a given type into
+            a `Parameter` in place. It should take a single argument that
+            is the `Component` or `Source` that is to be parameterized.
+        """
+        # Update the spectrum and morph in place
+        parameterization(self)
+        # update the parameters
+        self._model.grad = self.grad_model
+        self._model.prox = self.prox_model
+
+    def __str__(self):
+        result = f"FreeFormComponent<bands={self.bands}, shape={self.shape}>"
+        return result
 
     def __repr__(self):
         return self.__str__()

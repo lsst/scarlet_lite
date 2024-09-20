@@ -22,15 +22,20 @@
 from __future__ import annotations
 
 import logging
-from typing import Sequence, cast
+from typing import Sequence
 
 import numpy as np
 from lsst.scarlet.lite.detect_pybind11 import Footprint  # type: ignore
 
-from .bbox import Box
+from .bbox import Box, overlapped_slices
 from .image import Image
 from .utils import continue_class
-from .wavelet import get_multiresolution_support, starlet_transform
+from .wavelet import (
+    get_multiresolution_support,
+    get_starlet_scales,
+    multiband_starlet_reconstruction,
+    starlet_transform,
+)
 
 logger = logging.getLogger("scarlet.detect")
 
@@ -111,30 +116,34 @@ class Footprint:  # type: ignore # noqa
         return footprint1 | footprint2
 
 
-def footprints_to_image(footprints: Sequence[Footprint], shape: tuple[int, int]) -> Image:
+def footprints_to_image(footprints: Sequence[Footprint], bbox: Box) -> Image:
     """Convert a set of scarlet footprints to a pixelized image.
 
     Parameters
     ----------
     footprints:
         The footprints to convert into an image.
-    shape:
-        The shape of the image that is created from the footprints.
+    box:
+        The full box of the image that will contain the footprints.
 
     Returns
     -------
     result:
         The image created from the footprints.
     """
-    result = Image.from_box(Box(shape), dtype=int)
+    result = Image.from_box(bbox, dtype=int)
     for k, footprint in enumerate(footprints):
-        bbox = bounds_to_bbox(footprint.bounds)
-        fp_image = Image(footprint.data, yx0=cast(tuple[int, int], bbox.origin))
-        result = result + fp_image * (k + 1)
+        slices = overlapped_slices(result.bbox, footprint.bbox)
+        result.data[slices[0]] += footprint.data[slices[1]] * (k + 1)
     return result
 
 
-def get_wavelets(images: np.ndarray, variance: np.ndarray, scales: int | None = None) -> np.ndarray:
+def get_wavelets(
+    images: np.ndarray,
+    variance: np.ndarray,
+    scales: int | None = None,
+    generation: int = 2,
+) -> np.ndarray:
     """Calculate wavelet coefficents given a set of images and their variances
 
     Parameters
@@ -157,9 +166,10 @@ def get_wavelets(images: np.ndarray, variance: np.ndarray, scales: int | None = 
     """
     sigma = np.median(np.sqrt(variance), axis=(1, 2))
     # Create the wavelet coefficients for the significant pixels
-    coeffs = []
+    scales = get_starlet_scales(images[0].shape, scales)
+    coeffs = np.empty((scales + 1,) + images.shape, dtype=images.dtype)
     for b, image in enumerate(images):
-        _coeffs = starlet_transform(image, scales=scales)
+        _coeffs = starlet_transform(image, scales=scales, generation=generation)
         support = get_multiresolution_support(
             image=image,
             starlets=_coeffs,
@@ -168,8 +178,8 @@ def get_wavelets(images: np.ndarray, variance: np.ndarray, scales: int | None = 
             epsilon=1e-1,
             max_iter=20,
         )
-        coeffs.append((support * _coeffs).astype(images.dtype))
-    return np.array(coeffs)
+        coeffs[:, b] = (support.support * _coeffs).astype(images.dtype)
+    return coeffs
 
 
 def get_detect_wavelets(images: np.ndarray, variance: np.ndarray, scales: int = 3) -> np.ndarray:
@@ -206,4 +216,97 @@ def get_detect_wavelets(images: np.ndarray, variance: np.ndarray, scales: int = 
         epsilon=1e-1,
         max_iter=20,
     )
-    return (support * _coeffs).astype(images.dtype)
+    return (support.support * _coeffs).astype(images.dtype)
+
+
+def detect_footprints(
+    images: np.ndarray,
+    variance: np.ndarray,
+    scales: int = 2,
+    generation: int = 2,
+    origin: tuple[int, int] | None = None,
+    min_separation: float = 4,
+    min_area: int = 4,
+    peak_thresh: float = 5,
+    footprint_thresh: float = 5,
+    find_peaks: bool = True,
+    remove_high_freq: bool = True,
+    min_pixel_detect: int = 1,
+) -> list[Footprint]:
+    """Detect footprints in an image
+
+    Parameters
+    ----------
+    images:
+        The array of images with shape `(bands, Ny, Nx)` for which to
+        calculate wavelet coefficients.
+    variance:
+        An array of variances with the same shape as `images`.
+    scales:
+        The maximum number of wavelet scales to use.
+        If `remove_high_freq` is `False`, then this argument is ignored.
+    generation:
+        The generation of the starlet transform to use.
+        If `remove_high_freq` is `False`, then this argument is ignored.
+    origin:
+        The location (y, x) of the lower corner of the image.
+    min_separation:
+        The minimum separation between peaks in pixels.
+    min_area:
+        The minimum area of a footprint in pixels.
+    peak_thresh:
+        The threshold for peak detection.
+    footprint_thresh:
+        The threshold for footprint detection.
+    find_peaks:
+        If `True`, then detect peaks in the detection image,
+        otherwise only the footprints are returned.
+    remove_high_freq:
+        If `True`, then remove high frequency wavelet coefficients
+        before detecting peaks.
+    min_pixel_detect:
+        The minimum number of bands that must be above the
+        detection threshold for a pixel to be included in a footprint.
+    """
+    from lsst.scarlet.lite.detect_pybind11 import get_footprints
+
+    if origin is None:
+        origin = (0, 0)
+    if remove_high_freq:
+        # Build the wavelet coefficients
+        wavelets = get_wavelets(
+            images,
+            variance,
+            scales=scales,
+            generation=generation,
+        )
+        # Remove the high frequency wavelets.
+        # This has the effect of preventing high frequency noise
+        # from interfering with the detection of peak positions.
+        wavelets[0] = 0
+        # Reconstruct the image from the remaining wavelet coefficients
+        _images = multiband_starlet_reconstruction(
+            wavelets,
+            generation=generation,
+        )
+    else:
+        _images = images
+    # Build a SNR weighted detection image
+    sigma = np.median(np.sqrt(variance), axis=(1, 2)) / 2
+    detection = np.sum(_images / sigma[:, None, None], axis=0)
+    if min_pixel_detect > 1:
+        mask = np.sum(images > 0, axis=0) >= min_pixel_detect
+        detection[~mask] = 0
+    # Detect peaks on the detection image
+    footprints = get_footprints(
+        detection,
+        min_separation,
+        min_area,
+        peak_thresh,
+        footprint_thresh,
+        find_peaks,
+        origin[0],
+        origin[1],
+    )
+
+    return footprints

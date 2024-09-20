@@ -63,7 +63,6 @@ def get_filter_coords(filter_values: np.ndarray, center: tuple[int, int] | None 
                      calculate `coords` on your own."""
             raise ValueError(msg)
         center = tuple([filter_values.shape[0] // 2, filter_values.shape[1] // 2])  # type: ignore
-    center = cast(tuple[int, int], center)
     x = np.arange(filter_values.shape[1])
     y = np.arange(filter_values.shape[0])
     x, y = np.meshgrid(x, y)

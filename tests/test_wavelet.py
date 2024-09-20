@@ -54,7 +54,7 @@ class TestWavelet(ScarletTestCase):
         # Test inverse
         inverse = starlet_reconstruction(starlets)
         assert_almost_equal(inverse, image, decimal=5)
-        self.assertEqual(inverse.dtype, np.float32)
+        self.assertEqual(inverse.dtype, starlets.dtype)
 
         # Test using gen1 starlets
         starlets = starlet_transform(image, scales=3, generation=1)
