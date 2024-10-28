@@ -36,7 +36,6 @@ import glob
 import os
 
 # Importing this automatically enables parallelized builds
-import numpy.distutils.ccompiler  # noqa: F401
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 from setuptools import setup
 
