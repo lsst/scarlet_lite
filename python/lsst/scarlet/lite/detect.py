@@ -25,7 +25,7 @@ import logging
 from typing import Sequence
 
 import numpy as np
-from lsst.scarlet.lite.detect_pybind11 import Footprint  # type: ignore
+from lsst.scarlet.lite.detect_pybind11 import Footprint, get_footprints  # type: ignore
 
 from .bbox import Box, overlapped_slices
 from .image import Image
@@ -268,7 +268,6 @@ def detect_footprints(
         The minimum number of bands that must be above the
         detection threshold for a pixel to be included in a footprint.
     """
-    from lsst.scarlet.lite.detect_pybind11 import get_footprints
 
     if origin is None:
         origin = (0, 0)

@@ -114,7 +114,17 @@ class Blend:
         return model
 
     def _grad_log_likelihood(self) -> tuple[Image, np.ndarray]:
-        """Gradient of the likelihood wrt the unconvolved model"""
+        """Gradient of the likelihood wrt the unconvolved model
+
+        Returns
+        -------
+        result:
+            The gradient of the likelihood wrt the model
+        model_data:
+           The convol model data used to calculate the gradient.
+           This can be useful for debugging but is not used in
+           production.
+        """
         model = self.get_model(convolve=True)
         # Update the loss
         self.loss.append(self.observation.log_likelihood(model))

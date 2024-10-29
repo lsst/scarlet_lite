@@ -25,6 +25,8 @@ from typing import Callable, cast
 
 import numpy as np
 
+from lsst.scarlet.lite.detect_pybind11 import get_connected_multipeak, get_footprints
+
 from ..bbox import Box
 from ..component import Component, FactorizedComponent
 from ..detect import footprints_to_image
@@ -140,7 +142,7 @@ class FactorizedFreeFormComponent(FactorizedComponent):
 
 
 class FreeFormComponent(Component):
-    """Implements a free-form component
+    """Implements a component with no spectral or monotonicty constraints
 
     This is a FreeFormComponent that is not factorized into a
     spectrum and morphology with no monotonicity constraint.
@@ -158,7 +160,7 @@ class FreeFormComponent(Component):
         min_area: float = 0,
     ):
         if len(bands) != 1:
-            raise ValueError("MonochromaticDeconvolvedComponent only supports one band")
+            raise ValueError(f"{type(self)} only supports one band")
         super().__init__(bands=bands, bbox=model_bbox)
         self._model = parameter(model)
         self.bg_rms = bg_rms
@@ -169,26 +171,19 @@ class FreeFormComponent(Component):
 
     @property
     def model(self) -> np.ndarray:
-        """The morphological model of the component"""
         return self._model.x
 
     def get_model(self) -> Image:
-        """Convert the model into an image"""
         return Image(self.model, bands=self.bands, yx0=cast(tuple[int, int], self.bbox.origin))
 
     @property
     def shape(self) -> tuple:
-        """Shape of the resulting model image"""
         return self.model.shape
 
     def grad_model(self, input_grad: np.ndarray, model: np.ndarray) -> np.ndarray:
-        """Gradient of the morph wrt. the component model"""
         return input_grad
 
     def prox_model(self, model: np.ndarray) -> np.ndarray:
-        """Apply a prox-like update to the model"""
-        from lsst.scarlet.lite.detect_pybind11 import get_connected_multipeak, get_footprints  # type: ignore
-
         if self.bg_thresh is not None and isinstance(self.bg_rms, np.ndarray):
             bg_thresh = self.bg_rms * self.bg_thresh
             # Enforce background thresholding

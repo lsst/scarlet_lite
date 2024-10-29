@@ -123,7 +123,7 @@ class TestDetect(ScarletTestCase):
         truth[30:32, 40] = False
         assert_array_equal(footprint, truth)
 
-    def _footprint_check(self, footprints):
+    def _check_footprints(self, footprints):
         self.assertEqual(len(footprints), 3)
 
         # The first footprint has a single peak
@@ -157,9 +157,9 @@ class TestDetect(ScarletTestCase):
 
     def test_get_footprints(self):
         footprints = get_footprints(self.image.data, 1, 4, 1e-15, 1e-15, True)
-        self._footprint_check(footprints)
+        self._check_footprints(footprints)
 
-    def _peak_check(self, peaks):
+    def _check_peaks(self, peaks):
         matched_peaks = []
         for center in self.centers:
             for peak in peaks:
@@ -169,9 +169,8 @@ class TestDetect(ScarletTestCase):
         self.assertEqual(len(matched_peaks), len(self.centers))
 
     def test_detect_footprints(self):
-        # this method doesn't test for accurracy, since
-
-        # There is no variance, so we set it to ones
+        # This method doesn't test for accurracy, since
+        # there is no variance, so we set it to ones.
         variance = np.ones(self.image.shape, dtype=self.image.dtype)
 
         footprints = detect_footprints(
@@ -191,7 +190,7 @@ class TestDetect(ScarletTestCase):
 
         self.assertEqual(len(footprints), 3)
         peaks = [peak for footprint in footprints for peak in footprint.peaks]
-        self._peak_check(peaks)
+        self._check_peaks(peaks)
 
         footprints = detect_footprints(
             self.image.data[None, :, :],
@@ -209,7 +208,7 @@ class TestDetect(ScarletTestCase):
 
         self.assertEqual(len(footprints), 2)
         peaks = [peak for footprint in footprints for peak in footprint.peaks]
-        self._peak_check(peaks)
+        self._check_peaks(peaks)
 
     def test_bounds_to_bbox(self):
         bounds = (3, 27, 11, 52)

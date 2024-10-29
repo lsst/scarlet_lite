@@ -77,6 +77,19 @@ class FittedPsfObservation(Observation):
         self._fitted_kernel = parameter(cast(Fourier, self.diff_kernel).image)
 
     def grad_fit_kernel(self, input_grad: np.ndarray, psf: np.ndarray, model: np.ndarray) -> np.ndarray:
+        """Gradient of the loss wrt the PSF
+
+        This is just the cross correlation of the input gradient with the model.
+
+        Parameters
+        ----------
+        input_grad:
+            The gradient of the loss wrt the model
+        psf:
+            The PSF of the model.
+        model:
+            The deconvolved model.
+        """
         grad = cast(
             np.ndarray,
             fft_convolve(
@@ -134,6 +147,17 @@ class FittedPsfObservation(Observation):
         return Image(cast(np.ndarray, result), bands=image.bands, yx0=image.yx0)
 
     def update(self, it: int, input_grad: np.ndarray, model: np.ndarray):
+        """Update the PSF given the gradient of the loss
+
+        Parameters
+        ----------
+        it: int
+            The current iteration
+        input_grad: np.ndarray
+            The gradient of the loss wrt the model
+        model: np.ndarray
+            The deconvolved model.
+        """
         self._fitted_kernel.update(it, input_grad, model)
 
     def parameterize(self, parameterization: Callable) -> None:

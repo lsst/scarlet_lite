@@ -279,7 +279,20 @@ void maskImage(
     }
 }
 
-
+/**
+ * Get all footprints in an image
+ *
+ * @param image: The image to search for footprints
+ * @param min_separation: The minimum separation (in pixels) between peaks in a footprint
+ * @param min_area: The minimum area of a footprint in pixels
+ * @param peak_thresh: The minimum flux of a peak to be detected.
+ * @param footprint_thresh: The minimum flux of a pixel to be included in a footprint
+ * @param find_peaks: If True, find peaks in each footprint
+ * @param y0: The y-coordinate of the top-left corner of the image
+ * @param x0: The x-coordinate of the top-left corner of the image
+ *
+ * @return: A list of Footprints
+ */
 template <typename M, typename P>
 std::vector<Footprint> get_footprints(
     py::EigenDRef<const M> image,
