@@ -24,7 +24,7 @@ __all__ = ["FactorizedFreeFormComponent"]
 from typing import Callable, cast
 
 import numpy as np
-from lsst.scarlet.lite.detect_pybind11 import get_connected_multipeak, get_footprints
+from lsst.scarlet.lite.detect_pybind11 import get_connected_multipeak, get_footprints  # type: ignore
 
 from ..bbox import Box
 from ..component import Component, FactorizedComponent
