@@ -79,7 +79,8 @@ class FittedPsfObservation(Observation):
     def grad_fit_kernel(self, input_grad: np.ndarray, psf: np.ndarray, model: np.ndarray) -> np.ndarray:
         """Gradient of the loss wrt the PSF
 
-        This is just the cross correlation of the input gradient with the model.
+        This is just the cross correlation of the input gradient
+        with the model.
 
         Parameters
         ----------

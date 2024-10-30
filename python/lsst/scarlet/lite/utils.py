@@ -32,6 +32,7 @@ ScalarTypes = (bool, int, float, complex)
 sqrt2 = np.sqrt(2)
 sqrt_pi = np.sqrt(np.pi)
 
+
 def integrated_gaussian_value(x: np.ndarray, sigma: float) -> np.ndarray:
     """A Gaussian function evaluated at `x`
 
