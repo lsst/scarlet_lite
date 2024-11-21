@@ -4,6 +4,12 @@
 #include <pybind11/eigen.h>
 #include <math.h>
 #include <algorithm>
+#include <stack>
+#include <queue>
+#include <vector>
+#include <utility> // For std::pair
+#include <stdexcept>
+#include <iostream>
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -16,44 +22,53 @@ typedef Eigen::Matrix<bool, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Mat
 // located at `i,j` and create the bounding box for the `footprint` in `image`.
 template <typename M>
 void get_connected_pixels(
-    const int i,
-    const int j,
-    Eigen::Ref<const M> image,
-    Eigen::Ref<MatrixB, 0, Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic>> unchecked,
-    Eigen::Ref<MatrixB, 0, Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic>> footprint,
-    Eigen::Ref<Bounds, 0, Eigen::Stride<4, 1>> bounds,
+    const int start_i,
+    const int start_j,
+    py::EigenDRef<const M> image,
+    py::EigenDRef<MatrixB> unchecked,
+    py::EigenDRef<MatrixB> footprint,
+    Eigen::Ref<Bounds> bounds,
     const double thresh=0
 ){
-    if(not unchecked(i,j)){
-        return;
-    }
-    unchecked(i,j) = false;
+    std::stack<std::pair<int, int>> stack;
+    stack.push(std::make_pair(start_i, start_j));
 
-    if(image(i,j) > thresh){
-        footprint(i,j) = true;
+    while (!stack.empty()) {
+        int i, j;
+        std::tie(i, j) = stack.top();
+        stack.pop();
 
-        if(i < bounds[0]){
-            bounds[0] = i;
-        } else if(i > bounds[1]){
-            bounds[1] = i;
+        if (!unchecked(i, j)) {
+            continue;
         }
-        if(j < bounds[2]){
-            bounds[2] = j;
-        } else if(j > bounds[3]){
-            bounds[3] = j;
-        }
+        unchecked(i, j) = false;
 
-        if(i > 0){
-            get_connected_pixels(i-1, j, image, unchecked, footprint, bounds, thresh);
-        }
-        if(i < image.rows()-1){
-            get_connected_pixels(i+1, j, image, unchecked, footprint, bounds, thresh);
-        }
-        if(j > 0){
-            get_connected_pixels(i, j-1, image, unchecked, footprint, bounds, thresh);
-        }
-        if(j < image.cols()-1){
-            get_connected_pixels(i, j+1, image, unchecked, footprint, bounds, thresh);
+        if (image(i, j) > thresh) {
+            footprint(i, j) = true;
+
+            if (i < bounds[0]) {
+                bounds[0] = i;
+            } else if (i > bounds[1]) {
+                bounds[1] = i;
+            }
+            if (j < bounds[2]) {
+                bounds[2] = j;
+            } else if (j > bounds[3]) {
+                bounds[3] = j;
+            }
+
+            if (i > 0 && unchecked(i-1, j)) {
+                stack.push(std::make_pair(i-1, j));
+            }
+            if (i < image.rows() - 1 && unchecked(i+1, j)) {
+                stack.push(std::make_pair(i+1, j));
+            }
+            if (j > 0 && unchecked(i, j-1)) {
+                stack.push(std::make_pair(i, j-1));
+            }
+            if (j < image.cols() - 1 && unchecked(i, j+1)) {
+                stack.push(std::make_pair(i, j+1));
+            }
         }
     }
 }
@@ -62,20 +77,43 @@ void get_connected_pixels(
 /// Proximal operator to trim pixels not connected to one of the source centers.
 template <typename M>
 MatrixB get_connected_multipeak(
-    Eigen::Ref<const M> image,
-    const std::vector<std::vector<int>> centers,
+    py::EigenDRef<const M> image,
+    const std::vector<std::vector<int>>& centers,
     const double thresh=0
 ){
     const int height = image.rows();
     const int width = image.cols();
-    MatrixB unchecked = MatrixB::Ones(height, width);
     MatrixB footprint = MatrixB::Zero(height, width);
+    std::queue<std::pair<int, int>> pixel_queue;
 
-    for(auto center=begin(centers); center!=end(centers); ++center){
-        const int y = (*center)[0];
-        const int x = (*center)[1];
-        Bounds bounds; bounds << y, y, x, x;
-        get_connected_pixels(y, x, image, unchecked, footprint, bounds, thresh);
+    // Seed the queue with peaks
+    for(const auto& center : centers){
+        const int y = center[0];
+        const int x = center[1];
+        if (!footprint(y, x) && image(y, x) > thresh) {
+            footprint(y, x) = true;
+            pixel_queue.emplace(y, x);
+        }
+    }
+
+    // 4-connectivity offsets
+    const std::vector<std::pair<int, int>> offsets = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+
+    // Flood fill
+    while (!pixel_queue.empty()) {
+        auto [i, j] = pixel_queue.front();
+        pixel_queue.pop();
+
+        for (const auto& [di, dj] : offsets) {
+            int ni = i + di;
+            int nj = j + dj;
+            if (ni >= 0 && ni < height && nj >= 0 && nj < width) {
+                if (!footprint(ni, nj) && image(ni, nj) > thresh) {
+                    footprint(ni, nj) = true;
+                    pixel_queue.emplace(ni, nj);
+                }
+            }
+        }
     }
 
     return footprint;
@@ -128,6 +166,7 @@ template <typename M>
 std::vector<Peak> get_peaks(
     M& image,
     const double min_separation,
+    const double peak_thresh,
     const int y0,
     const int x0
 ){
@@ -138,6 +177,9 @@ std::vector<Peak> get_peaks(
 
     for(int i=0; i<height; i++){
         for(int j=0; j<width; j++){
+            if(image(i, j) < peak_thresh){
+                continue;
+            }
             if(i > 0 && image(i, j) <= image(i-1, j)){
                 continue;
             }
@@ -168,33 +210,29 @@ std::vector<Peak> get_peaks(
         }
     }
 
-    assert(peaks.size() > 0);
+    if(peaks.empty()){
+        return peaks;
+    }
 
     /// Sort the peaks in the footprint so that the brightest are first
     std::sort (peaks.begin(), peaks.end(), sortBrightness);
 
     // Remove peaks within min_separation
     double min_separation2 = min_separation * min_separation;
-    int i = 0;
-    while (i < peaks.size()-1){
-        int j = i+1;
-        Peak *p1 = &peaks[i];
-        while (j < peaks.size()){
+    for (size_t i = 0; i < peaks.size() - 1; ++i) {
+        for (size_t j = i + 1; j < peaks.size();) {
+            Peak *p1 = &peaks[i];
             Peak *p2 = &peaks[j];
-            double dy = p1->getY()-p2->getY();
-            double dx = p1->getX()-p2->getX();
+            double dy = p1->getY() - p2->getY();
+            double dx = p1->getX() - p2->getX();
             double separation2 = dy*dy + dx*dx;
-            if(separation2 < min_separation2){
-                peaks.erase(peaks.begin()+j);
-                i--;
+            if (separation2 < min_separation2) {
+                peaks.erase(peaks.begin() + j);
+            } else {
+                ++j;
             }
-            j++;
         }
-        i++;
     }
-
-    assert(peaks.size() > 0);
-
     return peaks;
 }
 
@@ -226,8 +264,8 @@ private:
 
 template <typename M>
 void maskImage(
-    Eigen::Ref<M, 0, Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic>> image,
-    Eigen::Ref<MatrixB, 0, Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic>> footprint
+    py::EigenDRef<M> image,
+    py::EigenDRef<MatrixB> footprint
 ){
     const int height = image.rows();
     const int width = image.cols();
@@ -241,14 +279,30 @@ void maskImage(
     }
 }
 
-
+/**
+ * Get all footprints in an image
+ *
+ * @param image: The image to search for footprints
+ * @param min_separation: The minimum separation (in pixels) between peaks in a footprint
+ * @param min_area: The minimum area of a footprint in pixels
+ * @param peak_thresh: The minimum flux of a peak to be detected.
+ * @param footprint_thresh: The minimum flux of a pixel to be included in a footprint
+ * @param find_peaks: If True, find peaks in each footprint
+ * @param y0: The y-coordinate of the top-left corner of the image
+ * @param x0: The x-coordinate of the top-left corner of the image
+ *
+ * @return: A list of Footprints
+ */
 template <typename M, typename P>
 std::vector<Footprint> get_footprints(
-    Eigen::Ref<const M> image,
+    py::EigenDRef<const M> image,
     const double min_separation,
     const int min_area,
-    const double thresh,
-    const bool find_peaks=true
+    const double peak_thresh,
+    const double footprint_thresh,
+    const bool find_peaks=true,
+    const int y0=0,
+    const int x0=0
 ){
     const int height = image.rows();
     const int width = image.cols();
@@ -260,7 +314,7 @@ std::vector<Footprint> get_footprints(
     for(int i=0; i<height; i++){
         for(int j=0; j<width; j++){
             Bounds bounds; bounds << i, i, j, j;
-            get_connected_pixels(i, j, image, unchecked, footprint, bounds, thresh);
+            get_connected_pixels(i, j, image, unchecked, footprint, bounds, footprint_thresh);
             int subHeight = bounds[1]-bounds[0]+1;
             int subWidth = bounds[3]-bounds[2]+1;
             if(subHeight * subWidth > min_area){
@@ -274,12 +328,18 @@ std::vector<Footprint> get_footprints(
                         _peaks = get_peaks(
                             patch,
                             min_separation,
-                            bounds[0],
-                            bounds[2]
+                            peak_thresh,
+                            bounds[0] + y0,
+                            bounds[2] + x0
                         );
                     }
-
-                    footprints.push_back(Footprint(subFootprint, _peaks, bounds));
+                    // Only add footprints that have at least one peak above the
+                    // minimum peak_thresh.
+                    if(!_peaks.empty() || !find_peaks){
+                        Bounds trueBounds; trueBounds << bounds[0] + y0,
+                            bounds[1] + y0, bounds[2] + x0, bounds[3] + x0;
+                        footprints.push_back(Footprint(subFootprint, _peaks, trueBounds));
+                    }
                 }
             }
             footprint.block(bounds[0], bounds[2], subHeight, subWidth) = MatrixB::Zero(subHeight, subWidth);
@@ -317,10 +377,12 @@ PYBIND11_MODULE(detect_pybind11, mod) {
 
   mod.def("get_footprints", &get_footprints<MatrixF, float>,
           "Create a list of all of the footprints in an image, with their peaks"
-          "image"_a, "min_separation"_a, "min_area"_a, "thresh"_a, "find_peaks"_a);
+          "image"_a, "min_separation"_a, "min_area"_a, "peak_thresh"_a, "footprint_thresh"_a,
+          "find_peaks"_a=true, "y0"_a=0, "x0"_a=0);
   mod.def("get_footprints", &get_footprints<MatrixD, double>,
           "Create a list of all of the footprints in an image, with their peaks"
-          "image"_a, "min_separation"_a, "min_area"_a, "thresh"_a, "find_peaks"_a);
+          "image"_a, "min_separation"_a, "min_area"_a, "peak_thresh"_a, "footprint_thresh"_a,
+          "find_peaks"_a=true, "y0"_a=0, "x0"_a=0);
 
   py::class_<Footprint>(mod, "Footprint")
         .def(py::init<MatrixB, std::vector<Peak>, Bounds>(),

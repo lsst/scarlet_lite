@@ -27,6 +27,7 @@ __all__ = [
     "get_multiresolution_support",
 ]
 
+from dataclasses import dataclass
 from typing import Callable, Sequence
 
 import numpy as np
@@ -53,7 +54,7 @@ def bspline_convolve(image: np.ndarray, scale: int) -> np.ndarray:
         The result of convolving the `image` with the spline.
     """
     # Filter for the scarlet transform. Here bspline
-    h1d = np.array([1.0 / 16, 1.0 / 4, 3.0 / 8, 1.0 / 4, 1.0 / 16])
+    h1d = np.array([1.0 / 16, 1.0 / 4, 3.0 / 8, 1.0 / 4, 1.0 / 16]).astype(image.dtype)
     j = scale
 
     slice0 = slice(None, -(2 ** (j + 1)))
@@ -226,11 +227,17 @@ def multiband_starlet_reconstruction(
     See `starlet_reconstruction` for a description of the
     remainder of the parameters.
     """
-    scales, bands, width, height = starlets.shape
+    _, bands, width, height = starlets.shape
     result = np.zeros((bands, width, height), dtype=starlets.dtype)
     for band in range(bands):
         result[band] = starlet_reconstruction(starlets[:, band], generation=generation, convolve2d=convolve2d)
     return result
+
+
+@dataclass
+class MultiResolutionSupport:
+    support: np.ndarray
+    sigma: np.ndarray
 
 
 def get_multiresolution_support(
@@ -241,7 +248,7 @@ def get_multiresolution_support(
     epsilon: float = 1e-1,
     max_iter: int = 20,
     image_type: str = "ground",
-) -> np.ndarray:
+) -> MultiResolutionSupport:
     """Calculate the multi-resolution support for a
     dictionary of starlet coefficients.
 
@@ -302,6 +309,7 @@ def get_multiresolution_support(
             if np.abs(sigma_i - last_sigma_i) / sigma_i < epsilon:
                 break
             last_sigma_i = sigma_i
+        sigma_j = sigma_je
     else:
         # Sigma to use for significance at each scale
         # Initially we use the input `sigma`
@@ -322,7 +330,7 @@ def get_multiresolution_support(
 
             last_sigma_j = sigma_j
     # noinspection PyUnboundLocalVariable
-    return m.astype(int)
+    return MultiResolutionSupport(support=m.astype(int), sigma=sigma_j)
 
 
 def apply_wavelet_denoising(
@@ -380,7 +388,7 @@ def apply_wavelet_denoising(
 
     for n in range(max_iter):
         coeffs = starlet_transform(x)
-        x = x + starlet_reconstruction(support * (image_coeffs - coeffs))
+        x = x + starlet_reconstruction(support.support * (image_coeffs - coeffs))
         if positive:
             x[x < 0] = 0
     return x

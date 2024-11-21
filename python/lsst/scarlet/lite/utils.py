@@ -30,6 +30,7 @@ ScalarTypes = (bool, int, float, complex)
 
 
 sqrt2 = np.sqrt(2)
+sqrt_pi = np.sqrt(np.pi)
 
 
 def integrated_gaussian_value(x: np.ndarray, sigma: float) -> np.ndarray:
@@ -48,9 +49,9 @@ def integrated_gaussian_value(x: np.ndarray, sigma: float) -> np.ndarray:
     gaussian:
         A Gaussian function integrated over `x`
     """
-    lhs = erfc((0.5 - x) / (sqrt2 * sigma))
-    rhs = erfc((2 * x + 1) / (2 * sqrt2 * sigma))
-    return np.sqrt(np.pi / 2) * sigma * (1 - lhs + 1 - rhs)
+    lhs = erfc((x - 0.5) / (sqrt2 * sigma))
+    rhs = erfc((x + 0.5) / (sqrt2 * sigma))
+    return sqrt_pi * 0.5 * sigma * (lhs - rhs)
 
 
 def integrated_circular_gaussian(
@@ -87,7 +88,9 @@ def integrated_circular_gaussian(
     elif y is None:
         raise ValueError(f"Either X and Y must be specified, or neither must be specified, got {x=} and {y=}")
 
-    result = integrated_gaussian_value(x, sigma)[None, :] * integrated_gaussian_value(y, sigma)[:, None]
+    _x = integrated_gaussian_value(np.abs(x), sigma)[None, :]
+    _y = integrated_gaussian_value(np.abs(y), sigma)[:, None]
+    result = _x * _y
     return result / np.sum(result)
 
 

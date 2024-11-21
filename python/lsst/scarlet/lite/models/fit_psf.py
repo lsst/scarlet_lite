@@ -27,7 +27,8 @@ import numpy as np
 
 from ..bbox import Box
 from ..blend import Blend
-from ..fft import Fourier, get_fft_shape
+from ..fft import Fourier, centered
+from ..fft import convolve as fft_convolve
 from ..image import Image
 from ..observation import Observation
 from ..parameters import parameter
@@ -48,6 +49,7 @@ class FittedPsfObservation(Observation):
         bands: tuple | None = None,
         padding: int = 3,
         convolution_mode: str = "fft",
+        shape: tuple[int, int] | None = None,
     ):
         """Initialize a `FitPsfObservation`
 
@@ -68,18 +70,38 @@ class FittedPsfObservation(Observation):
 
         self.axes = (-2, -1)
 
-        self.fft_shape = get_fft_shape(self.images.data[0], psfs[0], padding, self.axes)
+        if shape is None:
+            shape = (41, 41)
 
         # Make the DFT of the psf a fittable parameter
-        self._fitted_kernel = parameter(cast(Fourier, self.diff_kernel).fft(self.fft_shape, self.axes))
+        self._fitted_kernel = parameter(cast(Fourier, self.diff_kernel).image)
 
-    def grad_fit_kernel(
-        self, input_grad: np.ndarray, kernel: np.ndarray, model_fft: np.ndarray
-    ) -> np.ndarray:
-        # Transform the upstream gradient into k-space
-        grad_fft = Fourier(input_grad)
-        _grad_fft = grad_fft.fft(self.fft_shape, self.axes)
-        return _grad_fft * model_fft
+    def grad_fit_kernel(self, input_grad: np.ndarray, psf: np.ndarray, model: np.ndarray) -> np.ndarray:
+        """Gradient of the loss wrt the PSF
+
+        This is just the cross correlation of the input gradient
+        with the model.
+
+        Parameters
+        ----------
+        input_grad:
+            The gradient of the loss wrt the model
+        psf:
+            The PSF of the model.
+        model:
+            The deconvolved model.
+        """
+        grad = cast(
+            np.ndarray,
+            fft_convolve(
+                Fourier(model),
+                Fourier(input_grad[:, ::-1, ::-1]),
+                axes=(1, 2),
+                return_fourier=False,
+            ),
+        )
+
+        return centered(grad, psf.shape)
 
     def prox_kernel(self, kernel: np.ndarray) -> np.ndarray:
         # No prox for now
@@ -91,7 +113,7 @@ class FittedPsfObservation(Observation):
 
     @property
     def cached_kernel(self):
-        return self.fitted_kernel.real - self.fitted_kernel.imag * 1j
+        return self.fitted_kernel[:, ::-1, ::-1]
 
     def convolve(self, image: Image, mode: str | None = None, grad: bool = False) -> Image:
         """Convolve the model into the observed seeing in each band.
@@ -117,16 +139,27 @@ class FittedPsfObservation(Observation):
         if mode != "fft" and mode is not None:
             return super().convolve(image, mode, grad)
 
-        fft_image = Fourier(image.data)
-        fft = fft_image.fft(self.fft_shape, self.axes)
+        result = fft_convolve(
+            Fourier(image.data),
+            Fourier(kernel),
+            axes=(1, 2),
+            return_fourier=False,
+        )
+        return Image(cast(np.ndarray, result), bands=image.bands, yx0=image.yx0)
 
-        result = Fourier.from_fft(fft * kernel, self.fft_shape, image.shape, self.axes)
-        return Image(result.image, bands=image.bands, yx0=image.yx0)
+    def update(self, it: int, input_grad: np.ndarray, model: np.ndarray):
+        """Update the PSF given the gradient of the loss
 
-    def update(self, it: int, input_grad: np.ndarray, model: Image):
-        _model = Fourier(model.data[:, ::-1, ::-1])
-        model_fft = _model.fft(self.fft_shape, self.axes)
-        self._fitted_kernel.update(it, input_grad, model_fft)
+        Parameters
+        ----------
+        it: int
+            The current iteration
+        input_grad: np.ndarray
+            The gradient of the loss wrt the model
+        model: np.ndarray
+            The deconvolved model.
+        """
+        self._fitted_kernel.update(it, input_grad, model)
 
     def parameterize(self, parameterization: Callable) -> None:
         """Convert the component parameter arrays into Parameter instances
@@ -138,7 +171,7 @@ class FittedPsfObservation(Observation):
             a `Parameter` in place. It should take a single argument that
             is the `Component` or `Source` that is to be parameterized.
         """
-        # Update the spectrum and morph in place
+        # Update the fitted kernel in place
         parameterization(self)
         # update the parameters
         self._fitted_kernel.grad = self.grad_fit_kernel
@@ -148,14 +181,15 @@ class FittedPsfObservation(Observation):
 class FittedPsfBlend(Blend):
     """A blend that attempts to fit the PSF along with the source models."""
 
-    def _grad_log_likelihood(self) -> Image:
+    def _grad_log_likelihood(self) -> tuple[Image, np.ndarray]:
         """Gradient of the likelihood wrt the unconvolved model"""
         model = self.get_model(convolve=True)
         # Update the loss
         self.loss.append(self.observation.log_likelihood(model))
         # Calculate the gradient wrt the model d(logL)/d(model)
-        result = self.observation.weights * (model - self.observation.images)
-        return result
+        residual = self.observation.weights * (model - self.observation.images)
+
+        return residual, model.data
 
     def fit(
         self,
@@ -182,7 +216,7 @@ class FittedPsfBlend(Blend):
         it = self.it
         while it < max_iter:
             # Calculate the gradient wrt the on-convolved model
-            grad_log_likelihood = self._grad_log_likelihood()
+            grad_log_likelihood, model = self._grad_log_likelihood()
             _grad_log_likelihood = self.observation.convolve(grad_log_likelihood, grad=True)
             # Check if resizing needs to be performed in this iteration
             if resize is not None and self.it > 0 and self.it % resize == 0:
@@ -199,7 +233,9 @@ class FittedPsfBlend(Blend):
 
             # Update the PSF
             cast(FittedPsfObservation, self.observation).update(
-                it, grad_log_likelihood.data, self.get_model()
+                self.it,
+                grad_log_likelihood.data,
+                model,
             )
             # Stopping criteria
             it += 1
@@ -207,3 +243,17 @@ class FittedPsfBlend(Blend):
                 break
         self.it = it
         return it, self.loss[-1]
+
+    def parameterize(self, parameterization: Callable):
+        """Convert the component parameter arrays into Parameter instances
+
+        Parameters
+        ----------
+        parameterization:
+            A function to use to convert parameters of a given type into
+            a `Parameter` in place. It should take a single argument that
+            is the `Component` or `Source` that is to be parameterized.
+        """
+        for source in self.sources:
+            source.parameterize(parameterization)
+        cast(FittedPsfObservation, self.observation).parameterize(parameterization)

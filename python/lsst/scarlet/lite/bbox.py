@@ -228,7 +228,7 @@ class Box:
             nonzero = np.where(sel)
             bounds = []
             for dim in range(len(x.shape)):
-                bounds.append((nonzero[dim].min(), nonzero[dim].max() + 1))
+                bounds.append((int(nonzero[dim].min()), int(nonzero[dim].max() + 1)))
         else:
             bounds = [(0, 0)] * len(x.shape)
         return Box.from_bounds(*bounds)

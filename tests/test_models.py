@@ -26,19 +26,15 @@ from typing import cast
 import lsst.scarlet.lite.models as models
 import numpy as np
 from lsst.scarlet.lite import Blend, Box, FistaParameter, Image, Observation, Source
-from lsst.scarlet.lite.component import (
-    Component,
-    default_adaprox_parameterization,
-    default_fista_parameterization,
-)
+from lsst.scarlet.lite.component import Component, FactorizedComponent, default_adaprox_parameterization
 from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
 from lsst.scarlet.lite.models import (
     CartesianFrame,
     EllipseFrame,
     EllipticalParametricComponent,
+    FactorizedFreeFormComponent,
     FittedPsfBlend,
     FittedPsfObservation,
-    FreeFormComponent,
     ParametricComponent,
 )
 from lsst.scarlet.lite.operators import Monotonicity
@@ -89,7 +85,7 @@ class TestFreeForm(ScarletTestCase):
         # Test with no thresholding (sparsity)
         sources = []
         for i in range(5):
-            component = FreeFormComponent(
+            component = FactorizedFreeFormComponent(
                 self.observation.bands,
                 np.ones(5),
                 images[i].copy(),
@@ -104,7 +100,7 @@ class TestFreeForm(ScarletTestCase):
         # Test with thresholding (sparsity)
         sources = []
         for i in range(5):
-            component = FreeFormComponent(
+            component = FactorizedFreeFormComponent(
                 self.observation.bands,
                 np.ones(5),
                 images[i].copy(),
@@ -123,7 +119,7 @@ class TestFreeForm(ScarletTestCase):
         sources = []
         peaks = list(np.array([self.data["catalog"]["y"], self.data["catalog"]["x"]]).T.astype(int))
         for i in range(5):
-            component = FreeFormComponent(
+            component = FactorizedFreeFormComponent(
                 self.observation.bands,
                 np.ones(5),
                 images[i].copy(),
@@ -403,12 +399,16 @@ class TestParametric(ScarletTestCase):
             bands=self.data["filters"],
         )
 
-        def obs_params(cls):
-            if isinstance(cls, FittedPsfObservation):
-                cls._fitted_kernel = FistaParameter(cls._fitted_kernel.x, step=1e-2)
+        def fista_parameterization(component: Component):
+            if isinstance(component, FactorizedComponent):
+                component._spectrum = FistaParameter(component.spectrum, step=0.5)
+                component._morph = FistaParameter(component.morph, step=0.5)
+            else:
+                if isinstance(component, FittedPsfObservation):
+                    component._fitted_kernel = FistaParameter(component._fitted_kernel.x, step=1e-2)
 
         init = FactorizedChi2Initialization(observation, self.centers, monotonicity=monotonicity)
         blend = FittedPsfBlend(init.sources, observation).fit_spectra()
-        blend.parameterize(default_fista_parameterization)
-        cast(FittedPsfObservation, blend.observation).parameterize(obs_params)
+        blend.parameterize(fista_parameterization)
+        assert isinstance(cast(FittedPsfObservation, blend.observation)._fitted_kernel, FistaParameter)
         blend.fit(12, e_rel=1e-4)

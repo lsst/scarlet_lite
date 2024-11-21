@@ -113,15 +113,25 @@ class Blend:
                 return self.observation.convolve(model)
         return model
 
-    def _grad_log_likelihood(self) -> Image:
-        """Gradient of the likelihood wrt the unconvolved model"""
+    def _grad_log_likelihood(self) -> tuple[Image, np.ndarray]:
+        """Gradient of the likelihood wrt the unconvolved model
+
+        Returns
+        -------
+        result:
+            The gradient of the likelihood wrt the model
+        model_data:
+           The convol model data used to calculate the gradient.
+           This can be useful for debugging but is not used in
+           production.
+        """
         model = self.get_model(convolve=True)
         # Update the loss
         self.loss.append(self.observation.log_likelihood(model))
         # Calculate the gradient wrt the model d(logL)/d(model)
         result = self.observation.weights * (model - self.observation.images)
         result = self.observation.convolve(result, grad=True)
-        return result
+        return result, model.data
 
     @property
     def log_likelihood(self) -> float:
@@ -244,7 +254,7 @@ class Blend:
             # Update each component given the current gradient
             for component in self.components:
                 overlap = component.bbox & self.bbox
-                component.update(self.it, grad_log_likelihood[overlap].data)
+                component.update(self.it, grad_log_likelihood[0][overlap].data)
                 # Check to see if any components need to be resized
                 if do_resize:
                     component.resize(self.bbox)
