@@ -65,10 +65,7 @@ def trim_morphology(
     """
     # Temporarily support bg_thresh
     if bg_thresh is not None:
-        logger.warning(
-            "bg_thresh is deprecated and will be removed in v28.0. "
-            "Use thresh instead."
-        )
+        logger.warning("bg_thresh is deprecated and will be removed in v28.0. " "Use thresh instead.")
         thresh = bg_thresh
 
     # trim morph to pixels above threshold
@@ -76,6 +73,7 @@ def trim_morphology(
     morph[~mask] = 0
     bbox = Box.from_data(morph, threshold=0).grow(padding)
     return morph, bbox
+
 
 def init_monotonic_morph(
     detect: np.ndarray,
@@ -86,8 +84,8 @@ def init_monotonic_morph(
     monotonicity: Monotonicity | None = None,
     thresh: float = 0,
     max_iter: int = 0,
-    center_radius: int = 2,
-    variance_factor: float = 1
+    center_radius: int = 1,
+    variance_factor: float = 0,
 ) -> tuple[Box, np.ndarray | None]:
     """Initialize a morphology for a monotonic source
 
@@ -274,6 +272,7 @@ class FactorizedInitialization:
         Deprecated. This is now calculated in __init__, but the
         old API is supported until v28.0.
     """
+
     def __init__(
         self,
         observation: Observation,
@@ -350,10 +349,7 @@ class FactorizedInitialization:
 
     @property
     def thresh(self):
-        logger.warning(
-            "thresh is deprecated and will be removed in v28.0. "
-            "Use initial_bg_thresh instead."
-        )
+        logger.warning("thresh is deprecated and will be removed in v28.0. " "Use initial_bg_thresh instead.")
         return self.initial_bg_thresh
 
     def get_snr(self, center: tuple[int, int]) -> float:
@@ -626,14 +622,15 @@ class FactorizedChi2Initialization(FactorizedInitialization):
         The amount to pad the morphology to allow for extra flux
         in the first few iterations before resizing.
     """
+
     pass
 
 
 @deprecated(
     reason="FactorizedWaveletInitialization will be removed in v28.0 "
-           "since it does not appear to offer any advantages over "
-           "FactorizedChi2Initialization. Consider switching to "
-           "FactorizedInitialization now.",
+    "since it does not appear to offer any advantages over "
+    "FactorizedChi2Initialization. Consider switching to "
+    "FactorizedInitialization now.",
     version="v28.0",
     category=FutureWarning,
 )
