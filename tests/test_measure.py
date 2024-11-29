@@ -24,7 +24,7 @@ import os
 import numpy as np
 from lsst.scarlet.lite import Blend, Image, Observation, Source, io
 from lsst.scarlet.lite.component import default_adaprox_parameterization
-from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
+from lsst.scarlet.lite.initialization import FactorizedInitialization
 from lsst.scarlet.lite.measure import calculate_snr
 from lsst.scarlet.lite.operators import Monotonicity
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
@@ -73,7 +73,7 @@ class TestMeasurements(ScarletTestCase):
             bands=bands,
         )
         monotonicity = Monotonicity((101, 101))
-        init = FactorizedChi2Initialization(observation, centers, monotonicity=monotonicity)
+        init = FactorizedInitialization(observation, centers, monotonicity=monotonicity)
 
         blend = Blend(init.sources, observation).fit_spectra()
         blend.sources.append(Source([]))

@@ -243,7 +243,7 @@ class MultiResolutionSupport:
 def get_multiresolution_support(
     image: np.ndarray,
     starlets: np.ndarray,
-    sigma: float,
+    sigma: np.floating,
     sigma_scaling: float = 3,
     epsilon: float = 1e-1,
     max_iter: int = 20,
@@ -335,7 +335,7 @@ def get_multiresolution_support(
 
 def apply_wavelet_denoising(
     image: np.ndarray,
-    sigma: float | None = None,
+    sigma: np.floating | None = None,
     sigma_scaling: float = 3,
     epsilon: float = 1e-1,
     max_iter: int = 20,

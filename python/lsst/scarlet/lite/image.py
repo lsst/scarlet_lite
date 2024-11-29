@@ -734,6 +734,50 @@ class Image:
             yx0 = self.yx0
         return Image(data, bands, yx0)
 
+    def trimmed(self, threshold: float = 0) -> Image:
+        """Return a copy of the image trimmed to a threshold.
+
+        Parameters
+        ----------
+        threshold:
+            The threshold to use for trimming the image.
+
+        Returns
+        -------
+        image:
+            A copy of the image trimmed to the threshold.
+        """
+        data = self.data.copy()
+        bbox = Box.from_data(data, threshold=threshold)
+        data = data[bbox.slices]
+        y0, x0 = bbox.origin
+
+        return Image(data, yx0=(y0 + self.y0, x0 + self.x0))
+
+    def at(self, y: int, x: int) -> ScalarLike | np.ndarray:
+        """The value of the image at a given location.
+
+        Image does not implment single index access because the
+        result is a scalar, while indexing an image returns another image.
+
+        Parameters
+        ----------
+        y:
+            The y-coordinate of the location.
+        x:
+            The x-coordinate of the location.
+
+        Returns
+        -------
+        value:
+            The value of the image at the given location.
+        """
+        _y = y - self.y0
+        _x = x - self.x0
+        if len(self.shape) == 2:
+            return self.data[_y, _x]
+        return self.data[:, _y, _x]
+
     def _i_update(self, op: Callable, other: Image | ScalarLike) -> Image:
         """Update the data array in place.
 
