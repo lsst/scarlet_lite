@@ -242,7 +242,7 @@ class Observation:
             raise ValueError("convolution_mode must be either 'fft' or 'real'")
         self.mode = convolution_mode
         if noise_rms is None:
-            noise_rms = np.array(np.mean(np.sqrt(variance.data), axis=(1, 2)))
+            noise_rms = np.array([np.mean(np.sqrt(v[np.isfinite(v)])) for v in self.variance.data])
         self.noise_rms = noise_rms
 
         # Create a difference kernel to convolve the model to the PSF
@@ -347,6 +347,108 @@ class Observation:
         """
         result = 0.5 * -np.sum((self.weights * (self.images - model) ** 2).data)
         return result
+
+    def __getitem__(self, indices: Any) -> Observation:
+        """Get the subset of an image
+
+        Parameters
+        ----------
+        indices:
+            The indices to select a subsection of the image.
+
+        Returns
+        -------
+        result:
+            The resulting image obtained by selecting subsets of the iamge
+            based on the `indices`.
+        """
+        new_image = self.images[indices]
+        new_variance = self.variance[indices]
+        new_weights = self.weights[indices]
+
+        # Extract the appropriate bands from the PSF
+        bands = self.images.bands
+        new_bands = new_image.bands
+        if bands != new_bands:
+            band_indices = self.images.spectral_indices(new_bands)
+            psfs = self.psfs[band_indices,]
+            noise_rms = self.noise_rms[band_indices,]
+        else:
+            psfs = self.psfs
+            noise_rms = self.noise_rms
+
+        return Observation(
+            images=new_image,
+            variance=new_variance,
+            weights=new_weights,
+            psfs=psfs,
+            model_psf=self.model_psf,
+            noise_rms=noise_rms,
+            bbox=new_image.bbox,
+            bands=self.bands,
+            padding=self.padding,
+            convolution_mode=self.mode,
+        )
+
+    def __copy__(self, deep: bool = False) -> Observation:
+        """Create a copy of the observation
+
+        Parameters
+        ----------
+        deep:
+            Whether to perform a deep copy or not.
+
+        Returns
+        -------
+        result:
+            The copy of the observation.
+        """
+        if deep:
+            if self.model_psf is None:
+                model_psf = None
+            else:
+                model_psf = self.model_psf.copy()
+
+            if self.noise_rms is None:
+                noise_rms = None
+            else:
+                noise_rms = self.noise_rms.copy()
+
+            if self.bands is None:
+                bands = None
+            else:
+                bands = tuple([b for b in self.bands])
+        else:
+            model_psf = self.model_psf
+            noise_rms = self.noise_rms
+            bands = self.bands
+
+        return Observation(
+            images=self.images.copy(),
+            variance=self.variance.copy(),
+            weights=self.weights.copy(),
+            psfs=self.psfs.copy(),
+            model_psf=model_psf,
+            noise_rms=noise_rms,
+            bands=bands,
+            padding=self.padding,
+            convolution_mode=self.mode,
+        )
+
+    def copy(self, deep: bool = False) -> Observation:
+        """Create a copy of the observation
+
+        Parameters
+        ----------
+        deep:
+            Whether to perform a deep copy or not.
+
+        Returns
+        -------
+        result:
+            The copy of the observation.
+        """
+        return self.__copy__(deep)
 
     @property
     def shape(self) -> tuple[int, int, int]:

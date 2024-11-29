@@ -256,6 +256,10 @@ public:
         return _bounds;
     }
 
+    void addPeak(Peak peak){
+        peaks.push_back(peak);
+    }
+
 private:
     MatrixB _data;
     Bounds _bounds;
@@ -376,11 +380,11 @@ PYBIND11_MODULE(detect_pybind11, mod) {
           "Get a list of peaks in a footprint created by get_connected_pixels");
 
   mod.def("get_footprints", &get_footprints<MatrixF, float>,
-          "Create a list of all of the footprints in an image, with their peaks"
+          "Create a list of all of the footprints in an image, with their peaks",
           "image"_a, "min_separation"_a, "min_area"_a, "peak_thresh"_a, "footprint_thresh"_a,
           "find_peaks"_a=true, "y0"_a=0, "x0"_a=0);
   mod.def("get_footprints", &get_footprints<MatrixD, double>,
-          "Create a list of all of the footprints in an image, with their peaks"
+          "Create a list of all of the footprints in an image, with their peaks",
           "image"_a, "min_separation"_a, "min_area"_a, "peak_thresh"_a, "footprint_thresh"_a,
           "find_peaks"_a=true, "y0"_a=0, "x0"_a=0);
 
@@ -389,7 +393,8 @@ PYBIND11_MODULE(detect_pybind11, mod) {
              "footprint"_a, "peaks"_a, "bounds"_a)
         .def_property_readonly("data", &Footprint::getFootprint)
         .def_readwrite("peaks", &Footprint::peaks)
-        .def_property_readonly("bounds", &Footprint::getBounds);
+        .def_property_readonly("bounds", &Footprint::getBounds)
+        .def("add_peak", &Footprint::addPeak);
 
   py::class_<Peak>(mod, "Peak")
         .def(py::init<int, int, double>(),

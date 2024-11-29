@@ -63,6 +63,33 @@ def bounds_to_bbox(bounds: tuple[int, int, int, int]) -> Box:
     )
 
 
+def bbox_to_bounds(bbox: Box) -> tuple[int, int, int, int]:
+    """Convert a Box into the bounds of a Footprint
+
+    Notes
+    -----
+    Unlike slices, the bounds are _inclusive_ of the end points.
+
+    Parameters
+    ----------
+    bbox:
+        The `Box` to convert into bounds.
+
+    Returns
+    -------
+    result:
+        The bounds of the `Footprint` as a `tuple` of
+        ``(bottom, top, left, right)``.
+    """
+    bounds = (
+        bbox.origin[0],
+        bbox.origin[0] + bbox.shape[0] - 1,
+        bbox.origin[1],
+        bbox.origin[1] + bbox.shape[1] - 1,
+    )
+    return bounds
+
+
 @continue_class
 class Footprint:  # type: ignore # noqa
     @property
@@ -222,7 +249,7 @@ def get_detect_wavelets(images: np.ndarray, variance: np.ndarray, scales: int = 
 def detect_footprints(
     images: np.ndarray,
     variance: np.ndarray,
-    scales: int = 2,
+    scales: int = 1,
     generation: int = 2,
     origin: tuple[int, int] | None = None,
     min_separation: float = 4,
