@@ -222,7 +222,7 @@ def get_detect_wavelets(images: np.ndarray, variance: np.ndarray, scales: int = 
 def detect_footprints(
     images: np.ndarray,
     variance: np.ndarray,
-    scales: int = 2,
+    scales: int = 1,
     generation: int = 2,
     origin: tuple[int, int] | None = None,
     min_separation: float = 4,

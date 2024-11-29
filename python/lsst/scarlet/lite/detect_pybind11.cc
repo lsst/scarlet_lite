@@ -256,6 +256,10 @@ public:
         return _bounds;
     }
 
+    void addPeak(Peak peak){
+        peaks.push_back(peak);
+    }
+
 private:
     MatrixB _data;
     Bounds _bounds;
@@ -389,7 +393,8 @@ PYBIND11_MODULE(detect_pybind11, mod) {
              "footprint"_a, "peaks"_a, "bounds"_a)
         .def_property_readonly("data", &Footprint::getFootprint)
         .def_readwrite("peaks", &Footprint::peaks)
-        .def_property_readonly("bounds", &Footprint::getBounds);
+        .def_property_readonly("bounds", &Footprint::getBounds)
+        .def("add_peak", &Footprint::addPeak);
 
   py::class_<Peak>(mod, "Peak")
         .def(py::init<int, int, double>(),

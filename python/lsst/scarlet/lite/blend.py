@@ -277,7 +277,7 @@ class Blend:
         for source in self.sources:
             source.parameterize(parameterization)
 
-    def conserve_flux(self, mask_footprint: bool = True) -> None:
+    def conserve_flux(self, mask_footprint: bool = True, weight_image: Image = None) -> None:
         """Use the source models as templates to re-distribute flux
         from the data
 
@@ -295,14 +295,20 @@ class Blend:
             The blend that is being fit
         mask_footprint:
             Whether or not to apply a mask for pixels with zero weight.
+        weight_image:
+            The weight image to use for the redistribution.
+            If `None` then the observation image is used.
         """
         observation = self.observation
         py = observation.psfs.shape[-2] // 2
         px = observation.psfs.shape[-1] // 2
 
-        images = observation.images.copy()
-        if mask_footprint:
-            images.data[observation.weights.data == 0] = 0
+        if weight_image is None:
+            images = observation.images.copy()
+            if mask_footprint:
+                images.data[observation.weights.data == 0] = 0
+        else:
+            images = weight_image.copy()
         model = self.get_model()
         # Always convolve in real space to avoid FFT artifacts
         model = observation.convolve(model, mode="real")
