@@ -303,16 +303,19 @@ class Blend:
         py = observation.psfs.shape[-2] // 2
         px = observation.psfs.shape[-1] // 2
 
+        images = observation.images.copy()
+        if mask_footprint:
+            images.data[observation.weights.data == 0] = 0
+
         if weight_image is None:
-            images = observation.images.copy()
-            if mask_footprint:
-                images.data[observation.weights.data == 0] = 0
-        else:
-            images = weight_image.copy()
-        model = self.get_model()
-        # Always convolve in real space to avoid FFT artifacts
-        model = observation.convolve(model, mode="real")
-        model.data[model.data < 0] = 0
+            weight_image = self.get_model()
+            # Always convolve in real space to avoid FFT artifacts
+            weight_image = observation.convolve(weight_image, mode="real")
+
+            # Due to ringing in the PSF, the convolved model can have
+            # negative values. We take the absolute value to avoid
+            # negative fluxes in the flux weighted images.
+            model.data[:] = np.abs(model.data)
 
         for src in self.sources:
             if src.is_null:
@@ -325,9 +328,9 @@ class Blend:
             overlap = observation.bbox & src_box
             src_model = src_model.project(bbox=overlap)
             src_model = observation.convolve(src_model, mode="real")
-            src_model.data[src_model.data < 0] = 0
+            src_model.data[:] = np.abs(src_model.data)
             numerator = src_model.data
-            denominator = model[overlap].data
+            denominator = weight_image[overlap].data
             cuts = denominator != 0
             ratio = np.zeros(numerator.shape, dtype=numerator.dtype)
             ratio[cuts] = numerator[cuts] / denominator[cuts]
