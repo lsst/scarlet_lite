@@ -294,7 +294,7 @@ class FactorizedComponent(Component):
             new_box = Box((1, 1), center).grow(self.padding) & model_box
         else:
             new_box = (
-                Box.from_data(significant, threshold=0).grow(self.padding) + self.bbox.origin
+                Box.from_data(significant, threshold=0).grow(self.padding) + self.bbox.origin  # type: ignore
             ) & model_box
         if new_box == self.bbox:
             return False

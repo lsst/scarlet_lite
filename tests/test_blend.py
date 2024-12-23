@@ -24,7 +24,7 @@ from typing import Callable, cast
 import numpy as np
 from lsst.scarlet.lite import Blend, Box, Image, Observation, Source
 from lsst.scarlet.lite.component import Component, FactorizedComponent, default_adaprox_parameterization
-from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
+from lsst.scarlet.lite.initialization import FactorizedInitialization
 from lsst.scarlet.lite.operators import Monotonicity
 from lsst.scarlet.lite.parameters import Parameter
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
@@ -196,7 +196,7 @@ class TestBlend(ScarletTestCase):
         observation.images._data += noise
 
         monotonicity = Monotonicity((101, 101))
-        init = FactorizedChi2Initialization(observation, self.centers, monotonicity=monotonicity)
+        init = FactorizedInitialization(observation, self.centers, monotonicity=monotonicity)
 
         blend = Blend(init.sources, self.observation).fit_spectra()
         blend.parameterize(default_adaprox_parameterization)

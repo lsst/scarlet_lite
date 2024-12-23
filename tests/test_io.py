@@ -24,7 +24,7 @@ import os
 
 import numpy as np
 from lsst.scarlet.lite import Blend, Image, Observation, io
-from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
+from lsst.scarlet.lite.initialization import FactorizedInitialization
 from lsst.scarlet.lite.models.free_form import FactorizedFreeFormComponent
 from lsst.scarlet.lite.operators import Monotonicity
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
@@ -50,7 +50,7 @@ class TestIo(ScarletTestCase):
             bands=bands,
         )
         monotonicity = Monotonicity((101, 101))
-        init = FactorizedChi2Initialization(self.observation, self.centers, monotonicity=monotonicity)
+        init = FactorizedInitialization(self.observation, self.centers, monotonicity=monotonicity)
         self.blend = Blend(init.sources, self.observation)
 
     def test_json(self):

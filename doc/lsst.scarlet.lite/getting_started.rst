@@ -11,6 +11,7 @@ First we import the necessary modules needed to process the data:
 >>> import os
 >>> import numpy as np
 >>> import lsst.scarlet.lite as scl
+>>> import lsst.scarlet.lite.display
 >>> import matplotlib
 >>> import matplotlib.pyplot as plt
 >>> # Use a good colormap and don't interpolate the pixels

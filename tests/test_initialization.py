@@ -22,9 +22,10 @@
 import os
 
 import numpy as np
+from deprecated.sphinx import deprecated
 from lsst.scarlet.lite import Box, Image, Observation
 from lsst.scarlet.lite.initialization import (
-    FactorizedChi2Initialization,
+    FactorizedInitialization,
     FactorizedWaveletInitialization,
     init_monotonic_morph,
     multifit_spectra,
@@ -203,7 +204,7 @@ class TestInitialization(ScarletTestCase):
 
     def test_factorized_chi2_init(self):
         # Test default parameters
-        init = FactorizedChi2Initialization(self.observation, self.centers)
+        init = FactorizedInitialization(self.observation, self.centers)
         self.assertEqual(init.observation, self.observation)
         self.assertEqual(init.min_snr, 50)
         self.assertIsNone(init.monotonicity)
@@ -215,11 +216,15 @@ class TestInitialization(ScarletTestCase):
             self.assertEqual(src.get_model().dtype, np.float32)
 
         centers = tuple(tuple(center.astype(int)) for center in self.centers) + ((1000, 2004),)
-        init = FactorizedChi2Initialization(self.observation, centers)
+        init = FactorizedInitialization(self.observation, centers)
         self.assertEqual(len(init.sources), 8)
         for src in init.sources:
             self.assertEqual(src.get_model().dtype, np.float32)
 
+    @deprecated(
+        version="v28.0",
+        reason="FactorizedWaveletInitialization is deprecated and will be removed in v28.0",
+    )
     def test_factorized_wavelet_init(self):
         # Test default parameters
         init = FactorizedWaveletInitialization(self.observation, self.centers)
