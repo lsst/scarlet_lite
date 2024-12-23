@@ -242,7 +242,7 @@ class Observation:
             raise ValueError("convolution_mode must be either 'fft' or 'real'")
         self.mode = convolution_mode
         if noise_rms is None:
-            noise_rms = np.sqrt(np.array([np.mean(v[~np.isinf(v)]) for v in self.variance.data]))
+            noise_rms = np.array([np.mean(np.sqrt(v[np.isfinite(v)])) for v in self.variance.data])
         self.noise_rms = noise_rms
 
         # Create a difference kernel to convolve the model to the PSF
