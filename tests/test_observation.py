@@ -236,4 +236,52 @@ class TestObservation(ScarletTestCase):
         )
 
     def test_slicing(self):
-        pass
+        np.random.seed(25)
+        all_bands = tuple("grizy")
+        images = np.random.random((5, 11, 13))
+        variance = np.arange(5)[:, None, None] * np.ones((5, 11, 13)) + 1
+        weights = 1 / variance
+        psfs = np.arange(5)[:, None, None] * np.ones((5, 2, 2))
+        model_psf = np.zeros(9).reshape(3, 3)
+        model_psf[1] = 1
+        model_psf[:, 1] = 1
+        model_psf[1, 1] = 2
+        bbox = Box((11, 13), origin=(12, 10))
+        observation = Observation(
+            images,
+            variance,
+            weights,
+            psfs,
+            model_psf[None],
+            bands=all_bands,
+            bbox=bbox,
+        )
+
+        new_box = Box((3, 4), origin=(15, 13))
+        sliced_bands = tuple("riz")
+        sliced_observation = observation[sliced_bands, new_box]
+        self.assertImageEqual(
+            sliced_observation.images["r":"z"],
+            Image(images[1:4, 3:6, 3:7], bands=sliced_bands, yx0=new_box.origin),
+        )
+        self.assertImageEqual(
+            sliced_observation.variance["r":"z"],
+            Image(variance[1:4, 3:6, 3:7], bands=sliced_bands, yx0=new_box.origin),
+        )
+        self.assertImageEqual(
+            sliced_observation.weights["r":"z"],
+            Image(weights[1:4, 3:6, 3:7], bands=sliced_bands, yx0=new_box.origin),
+        )
+        np.testing.assert_array_almost_equal(
+            sliced_observation.psfs,
+            psfs[1:4],
+        )
+        np.testing.assert_array_almost_equal(
+            sliced_observation.model_psf,
+            model_psf[None, :, :],
+        )
+        np.testing.assert_array_almost_equal(
+            sliced_observation.noise_rms,
+            observation.noise_rms[1:4],
+        )
+        self.assertBoxEqual(sliced_observation.bbox, new_box)

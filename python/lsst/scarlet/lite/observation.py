@@ -366,13 +366,24 @@ class Observation:
         new_variance = self.variance[indices]
         new_weights = self.weights[indices]
 
+        # Extract the appropriate bands from the PSF
+        bands = self.images.bands
+        new_bands = new_image.bands
+        if bands != new_bands:
+            band_indices = self.images.spectral_indices(new_bands)
+            psfs = self.psfs[band_indices,]
+            noise_rms = self.noise_rms[band_indices,]
+        else:
+            psfs = self.psfs
+            noise_rms = self.noise_rms
+
         return Observation(
             images=new_image,
             variance=new_variance,
             weights=new_weights,
-            psfs=self.psfs,
+            psfs=psfs,
             model_psf=self.model_psf,
-            noise_rms=self.noise_rms,
+            noise_rms=noise_rms,
             bbox=new_image.bbox,
             bands=self.bands,
             padding=self.padding,
