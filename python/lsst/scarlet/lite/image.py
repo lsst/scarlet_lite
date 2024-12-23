@@ -754,7 +754,7 @@ class Image:
 
         return Image(data, yx0=(y0 + self.y0, x0 + self.x0))
 
-    def at(self, y: int, x: int) -> ScalarLike:
+    def at(self, y: int, x: int) -> ScalarLike | np.ndarray:
         """The value of the image at a given location.
 
         Image does not implment single index access because the
@@ -776,7 +776,7 @@ class Image:
         _x = x - self.x0
         if len(self.shape) == 2:
             return self.data[_y, _x]
-        return self.data[:, _y, _x]  # type: ignore
+        return self.data[:, _y, _x]
 
     def _i_update(self, op: Callable, other: Image | ScalarLike) -> Image:
         """Update the data array in place.
