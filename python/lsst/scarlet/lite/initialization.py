@@ -20,10 +20,10 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-from deprecated.sphinx import deprecated
 from typing import Sequence, cast
 
 import numpy as np
+from deprecated.sphinx import deprecated
 
 from .bbox import Box
 from .component import FactorizedComponent

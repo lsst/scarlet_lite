@@ -21,8 +21,8 @@
 
 import os
 
-from deprecated.sphinx import deprecated
 import numpy as np
+from deprecated.sphinx import deprecated
 from lsst.scarlet.lite import Box, Image, Observation
 from lsst.scarlet.lite.initialization import (
     FactorizedInitialization,

@@ -752,7 +752,7 @@ class Image:
         data = data[bbox.slices]
         y0, x0 = bbox.origin
 
-        return Image(data, yx0=(y0 +self.y0, x0 + self.x0))
+        return Image(data, yx0=(y0 + self.y0, x0 + self.x0))
 
     def at(self, y: int, x: int) -> ScalarLike:
         """The value of the image at a given location.

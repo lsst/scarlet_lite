@@ -315,7 +315,7 @@ class Blend:
             # Due to ringing in the PSF, the convolved model can have
             # negative values. We take the absolute value to avoid
             # negative fluxes in the flux weighted images.
-            model.data[:] = np.abs(model.data)
+            weight_image.data[:] = np.abs(weight_image.data)
 
         for src in self.sources:
             if src.is_null:
