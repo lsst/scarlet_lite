@@ -234,3 +234,6 @@ class TestObservation(ScarletTestCase):
             observation.images[bands],
             Image(np.array([image_g, image_r, image_i]), bands=("g", "r", "i")),
         )
+
+    def test_slicing(self):
+        pass
