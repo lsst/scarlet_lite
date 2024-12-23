@@ -277,7 +277,7 @@ class Blend:
         for source in self.sources:
             source.parameterize(parameterization)
 
-    def conserve_flux(self, mask_footprint: bool = True, weight_image: Image = None) -> None:
+    def conserve_flux(self, mask_footprint: bool = True, weight_image: Image | None = None) -> None:
         """Use the source models as templates to re-distribute flux
         from the data
 

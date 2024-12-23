@@ -776,7 +776,7 @@ class Image:
         _x = x - self.x0
         if len(self.shape) == 2:
             return self.data[_y, _x]
-        return self.data[:, _y, _x]
+        return self.data[:, _y, _x]  # type: ignore
 
     def _i_update(self, op: Callable, other: Image | ScalarLike) -> Image:
         """Update the data array in place.

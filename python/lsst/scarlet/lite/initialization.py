@@ -23,7 +23,7 @@ import logging
 from typing import Sequence, cast
 
 import numpy as np
-from deprecated.sphinx import deprecated
+from deprecated.sphinx import deprecated  # type: ignore
 
 from .bbox import Box
 from .component import FactorizedComponent
@@ -343,7 +343,9 @@ class FactorizedInitialization:
             if max_components == 0:
                 source = Source([self.get_psf_component(center)])
             else:
-                source = self.init_source((int(center[0]), int(center[1])))
+                source = self.init_source((int(center[0]), int(center[1])))  # type: ignore
+                if source is None:
+                    raise ValueError(f"Source at {center} could not be initialized")
             sources.append(source)
         self.sources = sources
 
