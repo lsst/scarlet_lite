@@ -21,8 +21,8 @@
 
 import numpy as np
 from lsst.scarlet.lite import Box, Image, Observation
-from lsst.scarlet.lite.observation import convolve as scarlet_convolve
-from lsst.scarlet.lite.observation import get_filter_bounds, get_filter_coords
+from lsst.scarlet.lite.rendering import convolve as scarlet_convolve
+from lsst.scarlet.lite.rendering import get_filter_bounds, get_filter_coords
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_almost_equal, assert_array_equal
 from scipy.signal import convolve as scipy_convolve
@@ -122,7 +122,7 @@ class TestObservation(ScarletTestCase):
         self.assertIsNone(observation.grad_kernel)
         assert_array_equal(observation.noise_rms, np.mean(np.sqrt(variance), axis=(1, 2)))
         self.assertBoxEqual(observation.bbox, Box(variance.shape[-2:]))
-        self.assertIn(observation.mode, ["fft", "real"])
+        self.assertIn(observation.renderer.mode, ["fft", "real"])
 
         # Set all of the pixels in the model to 1 more than the images,
         # so that images - model = np.ones, meaning the log_likelihood

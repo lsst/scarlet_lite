@@ -56,16 +56,16 @@ class FittedPsfObservation(Observation):
         See `Observation` for a description of the parameters.
         """
         super().__init__(
-            images,
-            variance,
-            weights,
-            psfs,
-            model_psf,
-            noise_rms,
-            bbox,
-            bands,
-            padding,
-            convolution_mode,
+            images=images,
+            variance=variance,
+            weights=weights,
+            psfs=psfs,
+            model_psf=model_psf,
+            noise_rms=noise_rms,
+            bbox=bbox,
+            bands=bands,
+            padding=padding,
+            convolution_mode=convolution_mode,
         )
 
         self.axes = (-2, -1)

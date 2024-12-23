@@ -12,7 +12,7 @@ from .bbox import Box
 from .blend import Blend
 from .component import Component, FactorizedComponent
 from .image import Image
-from .observation import Observation
+from .observation import Observation, EmptyObservation
 from .parameters import FixedParameter
 from .source import Source
 
@@ -319,12 +319,10 @@ class ScarletBlendData:
         blend:
             A scarlet blend model extracted from persisted data.
         """
-        model_box = Box(self.shape, origin=(0, 0))
-        observation = Observation.empty(
+        observation = EmptyObservation(
             bands=self.bands,
             psfs=self.psf,
             model_psf=model_psf,
-            bbox=model_box,
             dtype=dtype,
         )
         return self.to_blend(observation)

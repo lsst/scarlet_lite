@@ -1127,8 +1127,11 @@ class Image:
         x_index = slice(x_start, x_stop)
         return y_index, x_index
 
-    def _get_sliced(self, indices: Any, value: Image | None = None) -> Image:
-        """Select a subset of an image
+    def _get_sliced_indices(
+        self,
+        indices: Any,
+    ) -> tuple[Any, tuple, slice, slice]:
+        """Extract the indices for slicing the image.
 
         Parameters
         ----------
@@ -1139,19 +1142,20 @@ class Image:
             single-band 2D image.
             The spatial index (if present) is a `Box`.
 
-        value:
-            The value used to set this slice of the image.
-            This allows the single `_get_sliced` method to be used for
-            both getting a slice of an image and setting it.
-
         Returns
         -------
-        result: Image | np.ndarray
-            The resulting image obtained by selecting subsets of the iamge
-            based on the `indices`.
+        full_index:
+            The full index to slice the image.
+        bands:
+            The bands that are being sliced.
+        y_index:
+            The slice for the y-dimension.
+        x_index:
+            The slice for the x-dimension.
         """
         if not isinstance(indices, tuple):
             indices = (indices,)
+        indices = cast(tuple, indices)
 
         if self.is_multiband:
             if self._is_spectral_index(indices[0]):
@@ -1196,6 +1200,33 @@ class Image:
             y_index, x_index = self._get_box_slices(indices[0])
             full_index = (y_index, x_index)  # type: ignore
 
+        return full_index, bands, y_index, x_index
+
+    def _get_sliced(self, indices: Any, value: Image | None = None) -> Image:
+        """Select a subset of an image
+
+        Parameters
+        ----------
+        indices:
+            The indices to select a subsection of the image.
+            The spectral index can either be a tuple of indices,
+            a slice of indices, or a single index used to select a
+            single-band 2D image.
+            The spatial index (if present) is a `Box`.
+
+        value:
+            The value used to set this slice of the image.
+            This allows the single `_get_sliced` method to be used for
+            both getting a slice of an image and setting it.
+
+        Returns
+        -------
+        result: Image | np.ndarray
+            The resulting image obtained by selecting subsets of the iamge
+            based on the `indices`.
+        """
+        full_index, bands, y_index, x_index = self._get_sliced_indices(indices)
+
         y0 = y_index.start
         if y0 is None:
             y0 = 0
@@ -1219,6 +1250,7 @@ class Image:
         # Set the data
         self._data[full_index] = value.data
         return self
+
 
     def overlapped_slices(self, bbox: Box) -> tuple[tuple[slice, ...], tuple[slice, ...]]:
         """Get the slices needed to insert this image into a bounding box.

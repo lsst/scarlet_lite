@@ -23,79 +23,26 @@ from __future__ import annotations
 
 __all__ = ["Observation", "convolve"]
 
+import logging
 from typing import Any, cast
+
+from deprecated.sphinx import deprecated
 
 import numpy as np
 import numpy.typing as npt
 
 from .bbox import Box
-from .fft import Fourier, _pad, centered
-from .fft import convolve as fft_convolve
-from .fft import match_kernel
 from .image import Image
+from . import fft
+from . import rendering
 
 
-def get_filter_coords(filter_values: np.ndarray, center: tuple[int, int] | None = None) -> np.ndarray:
-    """Create filter coordinate grid needed for the apply filter function
-
-    Parameters
-    ----------
-    filter_values:
-        The 2D array of the filter to apply.
-    center:
-        The center (y,x) of the filter. If `center` is `None` then
-        `filter_values` must have an odd number of rows and columns
-        and the center will be set to the center of `filter_values`.
-
-    Returns
-    -------
-    coords:
-        The coordinates of the pixels in `filter_values`,
-        where the coordinates of the `center` pixel are `(0,0)`.
-    """
-    if filter_values.ndim != 2:
-        raise ValueError("`filter_values` must be 2D")
-    if center is None:
-        if filter_values.shape[0] % 2 == 0 or filter_values.shape[1] % 2 == 0:
-            msg = """Ambiguous center of the `filter_values` array,
-                     you must use a `filter_values` array
-                     with an odd number of rows and columns or
-                     calculate `coords` on your own."""
-            raise ValueError(msg)
-        center = tuple([filter_values.shape[0] // 2, filter_values.shape[1] // 2])  # type: ignore
-    x = np.arange(filter_values.shape[1])
-    y = np.arange(filter_values.shape[0])
-    x, y = np.meshgrid(x, y)
-    x -= center[1]
-    y -= center[0]
-    coords = np.dstack([y, x])
-    return coords
-
-
-def get_filter_bounds(coords: np.ndarray) -> tuple[int, int, int, int]:
-    """Get the slices in x and y to apply a filter
-
-    Parameters
-    ----------
-    coords:
-        The coordinates of the filter,
-        defined by `get_filter_coords`.
-
-    Returns
-    -------
-    y_start, y_end, x_start, x_end:
-        The start and end of each slice that is passed to `apply_filter`.
-    """
-    z = np.zeros((len(coords),), dtype=int)
-    # Set the y slices
-    y_start = np.max([z, coords[:, 0]], axis=0)
-    y_end = -np.min([z, coords[:, 0]], axis=0)
-    # Set the x slices
-    x_start = np.max([z, coords[:, 1]], axis=0)
-    x_end = -np.min([z, coords[:, 1]], axis=0)
-    return y_start, y_end, x_start, x_end
-
-
+@deprecated(
+    version="v28.0",
+    reason="Use scarlet_lite.renderer.convolve instead."
+           "This function will be removed in v29.0.",
+    category=FutureWarning
+)
 def convolve(image: np.ndarray, psf: np.ndarray, bounds: tuple[int, int, int, int]):
     """Convolve an image with a PSF in real space
 
@@ -109,22 +56,7 @@ def convolve(image: np.ndarray, psf: np.ndarray, bounds: tuple[int, int, int, in
         The filter bounds required by the ``apply_filter`` C++ method,
         usually obtained by calling `get_filter_bounds`.
     """
-    from lsst.scarlet.lite.operators_pybind11 import apply_filter  # type: ignore
-
-    result = np.empty(image.shape, dtype=image.dtype)
-    for band in range(len(image)):
-        img = image[band]
-
-        apply_filter(
-            img,
-            psf[band].reshape(-1),
-            bounds[0],
-            bounds[1],
-            bounds[2],
-            bounds[3],
-            result[band],
-        )
-    return result
+    return rendering.convolve(image, psf, bounds)
 
 
 def _set_image_like(images: np.ndarray | Image, bands: tuple | None = None, bbox: Box | None = None) -> Image:
@@ -214,8 +146,9 @@ class Observation:
         images: np.ndarray | Image,
         variance: np.ndarray | Image,
         weights: np.ndarray | Image,
-        psfs: np.ndarray,
+        psfs: np.ndarray | None = None,
         model_psf: np.ndarray | None = None,
+        renderer: rendering.Renderer | None = None,
         noise_rms: np.ndarray | None = None,
         bbox: Box | None = None,
         bands: tuple | None = None,
@@ -230,38 +163,21 @@ class Observation:
         self.images = images
         self.variance = _set_image_like(variance, bands, bbox)
         self.weights = _set_image_like(weights, bands, bbox)
-        # make sure that the images and psfs have the same dtype
-        if psfs.dtype != images.dtype:
-            psfs = psfs.astype(images.dtype)
-        self.psfs = psfs
 
-        if convolution_mode not in [
-            "fft",
-            "real",
-        ]:
-            raise ValueError("convolution_mode must be either 'fft' or 'real'")
-        self.mode = convolution_mode
         if noise_rms is None:
             noise_rms = np.array([np.mean(np.sqrt(v[np.isfinite(v)])) for v in self.variance.data])
         self.noise_rms = noise_rms
 
-        # Create a difference kernel to convolve the model to the PSF
-        # in each band
-        self.model_psf = model_psf
-        self.padding = padding
-        if model_psf is not None:
-            if model_psf.dtype != images.dtype:
-                self.model_psf = model_psf.astype(images.dtype)
-            self.diff_kernel: Fourier | None = cast(Fourier, match_kernel(psfs, model_psf, padding=padding))
-            # The gradient of a convolution is another convolution,
-            # but with the flipped and transposed kernel.
-            diff_img = self.diff_kernel.image
-            self.grad_kernel: Fourier | None = Fourier(diff_img[:, ::-1, ::-1])
-        else:
-            self.diff_kernel = None
-            self.grad_kernel = None
+        # make sure that the images and psfs have the same dtype
+        if renderer is None:
+            if psfs is None:
+                raise ValueError("psfs must be provided if renderer is not provided")
+            if psfs.dtype != images.dtype:
+                psfs = psfs.astype(images.dtype)
 
-        self._convolution_bounds: tuple[int, int, int, int] | None = None
+            renderer = rendering.Renderer(bands, psfs, model_psf, padding, convolution_mode)
+
+        self.renderer = renderer
 
     @property
     def bands(self) -> tuple:
@@ -273,64 +189,28 @@ class Observation:
         """The bounding box for the full observation."""
         return self.images.bbox
 
+    @property
+    def psfs(self) -> np.ndarray:
+        """The PSF in each band."""
+        return self.renderer.psfs
+
+    @property
+    def model_psf(self) -> np.ndarray | None:
+        """The model PSF in each band."""
+        return self.renderer.model_psf
+
+    @property
+    def diff_kernel(self) -> fft.Fourier | None:
+        """The difference kernel for the renderer."""
+        return self.renderer.diff_kernel
+
+    @property
+    def grad_kernel(self) -> fft.Fourier | None:
+        """The gradient kernel for the renderer."""
+        return self.renderer.grad_kernel
+
     def convolve(self, image: Image, mode: str | None = None, grad: bool = False) -> Image:
-        """Convolve the model into the observed seeing in each band.
-
-        Parameters
-        ----------
-        image:
-            The 3D image to convolve.
-        mode:
-            The convolution mode to use.
-            This should be "real" or "fft" or `None`,
-            where `None` will use the default `convolution_mode`
-            specified during init.
-        grad:
-            Whether this is a backward gradient convolution
-            (`grad==True`) or a pure convolution with the PSF.
-
-        Returns
-        -------
-        result:
-            The convolved image.
-        """
-        if grad:
-            kernel = self.grad_kernel
-        else:
-            kernel = self.diff_kernel
-
-        if kernel is None:
-            return image
-
-        if mode is None:
-            mode = self.mode
-        if mode == "fft":
-            result = fft_convolve(
-                Fourier(image.data),
-                kernel,
-                axes=(1, 2),
-                return_fourier=False,
-            )
-        elif mode == "real":
-            dy = image.shape[1] - kernel.image.shape[1]
-            dx = image.shape[2] - kernel.image.shape[2]
-            if dy < 0 or dx < 0:
-                # The image needs to be padded because it is smaller than
-                # the psf kernel
-                _image = image.data
-                newshape = list(_image.shape)
-                if dy < 0:
-                    newshape[1] += kernel.image.shape[1] - image.shape[1]
-                if dx < 0:
-                    newshape[2] += kernel.image.shape[2] - image.shape[2]
-                _image = _pad(_image, newshape)
-                result = convolve(_image, kernel.image, self.convolution_bounds)
-                result = centered(result, image.data.shape)  # type: ignore
-            else:
-                result = convolve(image.data, kernel.image, self.convolution_bounds)
-        else:
-            raise ValueError(f"mode must be either 'fft' or 'real', got {mode}")
-        return Image(cast(np.ndarray, result), bands=image.bands, yx0=image.yx0)
+        return self.renderer.convolve(image, mode, grad)
 
     def log_likelihood(self, model: Image) -> float:
         """Calculate the log likelihood of the given model
@@ -349,7 +229,7 @@ class Observation:
         return result
 
     def __getitem__(self, indices: Any) -> Observation:
-        """Get the subset of an image
+        """Get the subset of an Observation
 
         Parameters
         ----------
@@ -371,23 +251,27 @@ class Observation:
         new_bands = new_image.bands
         if bands != new_bands:
             band_indices = self.images.spectral_indices(new_bands)
-            psfs = self.psfs[band_indices,]
+            psfs = self.renderer.psfs[band_indices,]
+            renderer = rendering.Renderer(
+                bands=new_bands,
+                psfs=psfs,
+                model_psf=self.renderer.model_psf,
+                padding=self.renderer.padding,
+                mode=self.renderer.mode
+            )
             noise_rms = self.noise_rms[band_indices,]
         else:
-            psfs = self.psfs
+            renderer = self.renderer
             noise_rms = self.noise_rms
 
         return Observation(
             images=new_image,
             variance=new_variance,
             weights=new_weights,
-            psfs=psfs,
-            model_psf=self.model_psf,
+            renderer=renderer,
             noise_rms=noise_rms,
             bbox=new_image.bbox,
             bands=self.bands,
-            padding=self.padding,
-            convolution_mode=self.mode,
         )
 
     def __copy__(self, deep: bool = False) -> Observation:
@@ -404,10 +288,7 @@ class Observation:
             The copy of the observation.
         """
         if deep:
-            if self.model_psf is None:
-                model_psf = None
-            else:
-                model_psf = self.model_psf.copy()
+            renderer = self.renderer.copy(deep=deep)
 
             if self.noise_rms is None:
                 noise_rms = None
@@ -419,7 +300,7 @@ class Observation:
             else:
                 bands = tuple([b for b in self.bands])
         else:
-            model_psf = self.model_psf
+            renderer = self.renderer
             noise_rms = self.noise_rms
             bands = self.bands
 
@@ -427,12 +308,9 @@ class Observation:
             images=self.images.copy(),
             variance=self.variance.copy(),
             weights=self.weights.copy(),
-            psfs=self.psfs.copy(),
-            model_psf=model_psf,
+            renderer=renderer,
             noise_rms=noise_rms,
             bands=bands,
-            padding=self.padding,
-            convolution_mode=self.mode,
         )
 
     def copy(self, deep: bool = False) -> Observation:
@@ -465,28 +343,115 @@ class Observation:
         """The dtype of the observation is the dtype of the images"""
         return self.images.dtype
 
+
+class EmptyObservation(Observation):
+    """An empty observation
+
+    This class is used to represent an observation with no image data
+    but includes the PSF and model PSF information for rendering.
+
+    Parameters
+    ----------
+    bands:
+        The bands in the observation.
+    psfs:
+        The PSF in each band.
+    model_psf:
+        The model PSF in each band.
+    """
+
+    def __init__(
+        self,
+        bands: tuple,
+        psfs: np.ndarray | None = None,
+        model_psf: np.ndarray | None = None,
+        renderer: rendering.Renderer | None = None,
+        dtype: npt.DTypeLike | None = None,
+        padding: int = 3,
+        convolution_mode: str = "fft",
+    ):
+        if renderer is None:
+            if psfs is None:
+                raise ValueError("psfs must be provided if renderer is not provided")
+            if dtype is not None:
+                if psfs.dtype != dtype:
+                    psfs = psfs.astype(dtype)
+                if model_psf is not None and model_psf.dtype != dtype:
+                    model_psf = model_psf.astype(dtype)
+            renderer = rendering.Renderer(bands, psfs, model_psf, padding=padding, mode=convolution_mode)
+        self.renderer = renderer
+        self._bands = bands
+
     @property
-    def convolution_bounds(self) -> tuple[int, int, int, int]:
-        """Build the slices needed for convolution in real space"""
-        if self._convolution_bounds is None:
-            coords = get_filter_coords(cast(Fourier, self.diff_kernel).image[0])
-            self._convolution_bounds = get_filter_bounds(coords.reshape(-1, 2))
-        return self._convolution_bounds
+    def bbox(self) -> Box:
+        raise AttributeError("bbox is not available for EmptyObservation")
 
-    @staticmethod
-    def empty(
-        bands: tuple[Any], psfs: np.ndarray, model_psf: np.ndarray, bbox: Box, dtype: npt.DTypeLike
-    ) -> Observation:
-        dummy_image = np.zeros((len(bands),) + bbox.shape, dtype=dtype)
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        raise AttributeError("shape is not available for EmptyObservation")
 
-        return Observation(
-            images=dummy_image,
-            variance=dummy_image,
-            weights=dummy_image,
+    @property
+    def bands(self) -> tuple:
+        return self._bands
+
+    @property
+    def n_bands(self) -> int:
+        return len(self.bands)
+
+    @property
+    def images(self) -> Image:
+        raise AttributeError("images is not available for EmptyObservation")
+
+    @property
+    def variance(self) -> Image:
+        raise AttributeError("variance is not available for EmptyObservation")
+
+    @property
+    def weights(self) -> Image:
+        raise AttributeError("weights is not available for EmptyObservation")
+
+    def log_likelihood(self, model: Image) -> float:
+        raise AttributeError("log_likelihood is not available for EmptyObservation")
+
+    def __getitem__(self, indices: Any) -> Observation:
+        """Get the subset of an Observation
+
+        This overrides the `__getitem__` method of the `Observation` class
+        to return an `EmptyObservation` with only the spectral dimension
+        sliced.
+
+        Parameters
+        ----------
+        indices:
+            The indices to select a subsection of the image.
+
+        Returns
+        -------
+        result:
+            The resulting image obtained by selecting subsets of the iamge
+            based on the `indices`.
+        """
+        bands = self.bands
+        test_image = Image(np.zeros((len(bands), 1, 1), dtype=self.renderer.psfs.dtype), bands=bands)
+        test_image = test_image[indices]
+
+        if test_image.bands == bands:
+            # The slicing was in the spatial dimensions,
+            # so the rendering information is unchanged.
+            return self
+
+        new_bands = test_image.bands
+        band_indices = self.images.spectral_indices(new_bands)
+        psfs = self.renderer.psfs[band_indices,]
+        renderer = rendering.Renderer(
+            bands=new_bands,
             psfs=psfs,
-            model_psf=model_psf,
-            noise_rms=np.zeros((len(bands),), dtype=dtype),
-            bbox=bbox,
-            bands=bands,
-            convolution_mode="real",
+            model_psf=self.renderer.model_psf,
+            padding=self.renderer.padding,
+            mode=self.renderer.mode
+        )
+
+        return EmptyObservation(
+            bands=new_bands,
+            renderer=renderer,
         )

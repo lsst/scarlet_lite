@@ -15,5 +15,6 @@ from .fft import *
 from .image import *
 from .observation import *
 from .parameters import *
+from .rendering import *
 from .source import *
 from .version import *
