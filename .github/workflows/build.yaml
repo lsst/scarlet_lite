@@ -28,18 +28,18 @@ jobs:
         run: sudo apt-get install libyaml-dev
 
       - name: Install prereqs for setuptools
-        run: pip install wheel
+        run: pip install wheel uv
 
       # We have two cores so we can speed up the testing with xdist
       - name: Install xdist and cov for pytest
         run:
-          pip install pytest-xdist pytest-cov
+          uv pip install --system pytest-xdist pytest-cov
 
       - name: Build and install
-        run: pip install -v -e .[plotting]
+        run: uv pip install --system -v -e .[plotting]
 
-      - name: Install documenteer
-        run: pip install 'documenteer[pipelines]<0.7'
+      - name: Install documenteer for doctest
+        run: uv pip install --system 'documenteer[pipelines]<0.7'
 
       - name: Run tests
         run: >
