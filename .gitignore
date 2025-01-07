@@ -1,3 +1,4 @@
+_build*
 __pycache__/
 *.py[cod]
 build/
@@ -35,3 +36,4 @@ pytest_session.txt
 # IDEs
 .idea
 .vscode
+python/*.dist-info/

@@ -40,11 +40,9 @@ dynamic = ["version"]
 [project.optional-dependencies]
 test = [
     "pytest >= 3.2",
-    "flake8 >= 3.7.5",
-    "pytest-flake8 >= 1.0.4",
 ]
 yaml = ["pyyaml >= 5.1"]
-plotting = ["matplotlib", "astropy"]
+plotting = ["matplotlib", "astropy < 7.0"]
 
 [tool.setuptools.packages.find]
 where = ["python"]
