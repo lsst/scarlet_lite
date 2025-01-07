@@ -35,3 +35,4 @@ pytest_session.txt
 # IDEs
 .idea
 .vscode
+python/*.dist-info/
