@@ -44,7 +44,7 @@ test = [
     "pytest-flake8 >= 1.0.4",
 ]
 yaml = ["pyyaml >= 5.1"]
-plotting = ["matplotlib", "astropy"]
+plotting = ["matplotlib", "astropy < 7.0"]
 
 [tool.setuptools.packages.find]
 where = ["python"]
