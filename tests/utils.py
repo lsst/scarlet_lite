@@ -75,7 +75,7 @@ def execute_doc_scripts(filename: str):
             code_block_start = n
             tab, directive = line.split("..")
             whitespace = len(tab) + 4
-            full_script += f"# {n+1}: " + line
+            full_script += f"# {n + 1}: " + line
         elif code_block_start is not None:
             indent = len(line) - len(line.lstrip())
             if indent < whitespace and indent != 1:
@@ -88,7 +88,7 @@ def execute_doc_scripts(filename: str):
             else:
                 script += line[whitespace:]
         else:
-            full_script += f"# {n+1}: " + line
+            full_script += f"# {n + 1}: " + line
 
     try:
         exec(full_script)
