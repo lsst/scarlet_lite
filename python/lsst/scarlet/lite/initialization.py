@@ -349,7 +349,9 @@ class FactorizedInitialization:
 
     @property
     def thresh(self):
-        logger.warning("thresh is deprecated and will be removed after v29.0. " "Use initial_bg_thresh instead.")
+        logger.warning(
+            "thresh is deprecated and will be removed after v29.0. " "Use initial_bg_thresh instead."
+        )
         return self.initial_bg_thresh
 
     def get_snr(self, center: tuple[int, int]) -> float:
@@ -757,7 +759,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
             if bulge_morph is None or disk_morph is None:
                 if bulge_morph is None:
                     if disk_morph is None:
-                        return None
+                        raise RuntimeError("Both components are None")
                 # One of the components was null,
                 # so initialize as a single component
                 component = self.get_single_component(center, self.detectlets, 0, self.disk_grow)
