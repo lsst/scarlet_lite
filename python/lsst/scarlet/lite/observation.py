@@ -349,7 +349,7 @@ class Observation:
         return result
 
     def __getitem__(self, indices: Any) -> Observation:
-        """Get the subset of an image
+        """Get a view for the subset of an image
 
         Parameters
         ----------

@@ -66,10 +66,6 @@ def bounds_to_bbox(bounds: tuple[int, int, int, int]) -> Box:
 def bbox_to_bounds(bbox: Box) -> tuple[int, int, int, int]:
     """Convert a Box into the bounds of a Footprint
 
-    Notes
-    -----
-    Unlike slices, the bounds are _inclusive_ of the end points.
-
     Parameters
     ----------
     bbox:
@@ -80,6 +76,10 @@ def bbox_to_bounds(bbox: Box) -> tuple[int, int, int, int]:
     result:
         The bounds of the `Footprint` as a `tuple` of
         ``(bottom, top, left, right)``.
+
+    Notes
+    -----
+    Unlike slices, the bounds are _inclusive_ of the end points.
     """
     bounds = (
         bbox.origin[0],

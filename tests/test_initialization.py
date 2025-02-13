@@ -222,8 +222,8 @@ class TestInitialization(ScarletTestCase):
             self.assertEqual(src.get_model().dtype, np.float32)
 
     @deprecated(
-        version="v28.0",
-        reason="FactorizedWaveletInitialization is deprecated and will be removed in v28.0",
+        version="v29.0",
+        reason="FactorizedWaveletInitialization is deprecated and will be removed after v29.0",
     )
     def test_factorized_wavelet_init(self):
         # Test default parameters

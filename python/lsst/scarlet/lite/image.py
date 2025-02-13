@@ -364,10 +364,10 @@ class Image:
         if bands is None or len(bands) == 0:
             # Using an empty tuple for the bands will result in a 2D image
             bands = ()
-            assert len(data.shape) == 2
+            assert data.ndim == 2
         else:
             bands = tuple(bands)
-            assert len(data.shape) == 3
+            assert data.ndim == 3
             if data.shape[0] != len(bands):
                 raise ValueError(f"Array has spectral size {data.shape[0]}, but {bands} bands")
         if yx0 is None:
@@ -468,6 +468,11 @@ class Image:
     def data(self) -> np.ndarray:
         """The image viewed as a numpy array."""
         return self._data
+
+    @property
+    def ndim(self) -> int:
+        """Number of dimensions in the image."""
+        return self._data.ndim
 
     def spectral_indices(self, bands: Sequence | slice) -> tuple[int, ...] | slice:
         """The indices to extract each band in `bands` in order from the image
@@ -737,6 +742,9 @@ class Image:
     def trimmed(self, threshold: float = 0) -> Image:
         """Return a copy of the image trimmed to a threshold.
 
+        This is essentially the smallest image that contains all of the
+        pixels above the threshold.
+
         Parameters
         ----------
         threshold:
@@ -774,7 +782,7 @@ class Image:
         """
         _y = y - self.y0
         _x = x - self.x0
-        if len(self.shape) == 2:
+        if self.ndim == 2:
             return self.data[_y, _x]
         return self.data[:, _y, _x]
 
@@ -1211,7 +1219,7 @@ class Image:
 
             data = self.data[full_index]
 
-            if len(data.shape) == 2:
+            if data.ndim == 2:
                 # Only a single band was selected, so return that band
                 return Image(data, yx0=yx0)
             return Image(data, bands=bands, yx0=yx0)
