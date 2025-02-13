@@ -39,7 +39,7 @@ logger = logging.getLogger("scarlet.lite.initialization")
 
 def trim_morphology(
     morph: np.ndarray,
-    thresh: float = 0,
+    threshold: float = 0,
     padding: int = 5,
     bg_thresh: float | None = None,
 ) -> tuple[np.ndarray, Box]:
@@ -65,11 +65,11 @@ def trim_morphology(
     """
     # Temporarily support bg_thresh
     if bg_thresh is not None:
-        logger.warning("bg_thresh is deprecated and will be removed in v28.0. " "Use thresh instead.")
-        thresh = bg_thresh
+        logger.warning("bg_thresh is deprecated and will be after v29.0. " "Use threshold instead.")
+        threshold = bg_thresh
 
     # trim morph to pixels above threshold
-    mask = morph > thresh
+    mask = morph > threshold
     morph[~mask] = 0
     bbox = Box.from_data(morph, threshold=0).grow(padding)
     return morph, bbox
@@ -82,7 +82,7 @@ def init_monotonic_morph(
     padding: int = 5,
     normalize: bool = True,
     monotonicity: Monotonicity | None = None,
-    thresh: float = 0,
+    threshold: float = 0,
     max_iter: int = 0,
     center_radius: int = 1,
     variance_factor: float = 0,
@@ -108,8 +108,8 @@ def init_monotonic_morph(
         the component is initialized with only the
         monotonic pixels, otherwise the monotonicity operator is used to
         project the morphology to a monotonic solution.
-    thresh:
-        The threshold to use for trimming the
+    threshold:
+        The minimum value to use for trimming the
         morphology.
     max_iter:
         The maximum number of iterations to use in the monotonicity operator.
@@ -145,14 +145,14 @@ def init_monotonic_morph(
         if bbox.shape == (1, 1) and morph[bbox.slices][0, 0] == 0:
             return Box((0, 0)), None
 
-        if thresh > 0:
-            morph, bbox = trim_morphology(morph, thresh=thresh, padding=padding)
+        if threshold > 0:
+            morph, bbox = trim_morphology(morph, threshold=threshold, padding=padding)
 
     else:
         morph = monotonicity(detect, center)
 
         # truncate morph at thresh * bg_rms
-        morph, bbox = trim_morphology(morph, thresh=thresh, padding=padding)
+        morph, bbox = trim_morphology(morph, threshold=threshold, padding=padding)
 
     # Shift the bounding box to account for the non-zero origin
     bbox += full_box.origin
@@ -270,7 +270,7 @@ class FactorizedInitialization:
         This should be one or two.
     convolved:
         Deprecated. This is now calculated in __init__, but the
-        old API is supported until v28.0.
+        old API is supported until v29.0.
     """
 
     def __init__(
@@ -302,7 +302,7 @@ class FactorizedInitialization:
             convolved = observation.convolve(_detect.repeat(observation.bands), mode="real")
         else:
             logger.warning(
-                "convolved is deprecated and will be removed in v28.0. "
+                "convolved is deprecated and will be removed after v29.0. "
                 "The convolved image is now calculated in __init__ and does "
                 "not need to be specified."
             )
@@ -343,15 +343,13 @@ class FactorizedInitialization:
             if max_components == 0:
                 source = Source([self.get_psf_component(center)])
             else:
-                source = self.init_source((int(center[0]), int(center[1])))  # type: ignore
-                if source is None:
-                    raise ValueError(f"Source at {center} could not be initialized")
+                source = self.init_source((int(center[0]), int(center[1])))
             sources.append(source)
         self.sources = sources
 
     @property
     def thresh(self):
-        logger.warning("thresh is deprecated and will be removed in v28.0. " "Use initial_bg_thresh instead.")
+        logger.warning("thresh is deprecated and will be removed after v29.0. " "Use initial_bg_thresh instead.")
         return self.initial_bg_thresh
 
     def get_snr(self, center: tuple[int, int]) -> float:
@@ -461,7 +459,7 @@ class FactorizedInitialization:
             padding=padding,
             normalize=False,
             monotonicity=monotonicity,
-            thresh=thresh,
+            threshold=thresh,
         )
 
         if morph is None:
@@ -489,7 +487,7 @@ class FactorizedInitialization:
             monotonicity=self.monotonicity,
         )
 
-    def init_source(self, center: tuple[int, int]) -> Source | None:
+    def init_source(self, center: tuple[int, int]) -> Source:
         """Initialize a source from a chi^2 detection.
 
         Parameter
@@ -517,8 +515,11 @@ class FactorizedInitialization:
         component = self.get_single_component(center, detect, thresh, self.padding)
 
         if component is None:
+            # There wasn't enough flux to initialize the source as
+            # as single component, so initialize it with the model PSF.
             components = [self.get_psf_component(center)]
         elif component_snr < 2 or self.max_components < 2:
+            # There isn't sufficient flux to add a second component.
             components = [component]
         else:
             # There was enough flux for a 2-component source,
@@ -584,8 +585,8 @@ class FactorizedInitialization:
 
 
 @deprecated(
-    reason="This class is replaced by FactorizedInitialization and will be removed in v28.0",
-    version="v28.0",
+    reason="This class is replaced by FactorizedInitialization and will be removed after v29.0",
+    version="v29.0",
     category=FutureWarning,
 )
 class FactorizedChi2Initialization(FactorizedInitialization):
@@ -629,11 +630,11 @@ class FactorizedChi2Initialization(FactorizedInitialization):
 
 
 @deprecated(
-    reason="FactorizedWaveletInitialization will be removed in v28.0 "
+    reason="FactorizedWaveletInitialization will be removed after v29.0 "
     "since it does not appear to offer any advantages over "
     "FactorizedChi2Initialization. Consider switching to "
     "FactorizedInitialization now.",
-    version="v28.0",
+    version="v29.0",
     category=FutureWarning,
 )
 class FactorizedWaveletInitialization(FactorizedInitialization):
@@ -722,7 +723,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
             use_sparse_init=use_sparse_init,
         )
 
-    def init_source(self, center: tuple[int, int]) -> Source | None:
+    def init_source(self, center: tuple[int, int]) -> Source:
         """Initialize a source from a chi^2 detection.
 
         Parameter
