@@ -4,6 +4,7 @@
 #include <pybind11/eigen.h>
 #include <math.h>
 #include <algorithm>
+#include <queue>
 
 namespace py = pybind11;
 
@@ -82,65 +83,72 @@ void apply_filter(
 // and create a boolean map of "orphans" that are non-monotonic in all directions.
 template <typename M>
 void get_valid_monotonic_pixels(
-    const int i,
-    const int j,
+    const int start_i,
+    const int start_j,
     Eigen::Ref<M, 0, Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic>> image,
     Eigen::Ref<MatrixB, 0, Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic>> unchecked,
     Eigen::Ref<MatrixB, 0, Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic>> orphans,
     const double variance,
     Eigen::Ref<Bounds, 0, Eigen::Stride<4, 1>> bounds,
     const double thresh=0
-){
-    // Check the pixel below this one
-    if(i>0 && unchecked(i-1,j)){
-        if(image(i-1,j) <= image(i,j)+variance && image(i-1,j) > thresh){
-            unchecked(i-1,j) = false;
-            orphans(i-1,j) = false;
-            if(i-1 < bounds(0)){
-                bounds(0) = i-1;
+) {
+    // Create a queue to store pixels that need to be processed
+    std::queue<std::pair<int, int>> pixel_queue;
+    pixel_queue.push({start_i, start_j});
+
+    // Define directions: down, up, left, right
+    const int di[] = {-1, 1, 0, 0};
+    const int dj[] = {0, 0, -1, 1};
+
+    // Define image dimensions
+    const int nrows = image.rows();
+    const int ncols = image.cols();
+
+    while (!pixel_queue.empty()) {
+        auto [i, j] = pixel_queue.front();
+        pixel_queue.pop();
+
+        const auto image_i_j_var = image(i, j) + variance;
+
+        // Check all four directions
+        for (int dir = 0; dir < 4; dir++) {
+            int ni = i + di[dir];
+            int nj = j + dj[dir];
+
+            // Check bounds
+            if ((ni < 0) || (ni >= nrows) || (nj < 0) || (nj >= ncols)) {
+                continue;
             }
-            get_valid_monotonic_pixels(i-1, j, image, unchecked, orphans, variance, bounds);
-        } else {
-            orphans(i-1,j) = true;
-        }
-    }
-    // Check the pixel above this one
-    if(i < image.rows()-1 && unchecked(i+1,j)){
-        if(image(i+1,j) <= image(i,j)+variance && image(i+1,j) > thresh){
-            unchecked(i+1,j) = false;
-            orphans(i+1,j) = false;
-            if(i+1 > bounds(1)){
-                bounds(1) = i+1;
+
+            const auto image_ni_nj = image(ni, nj);
+
+            // Check if pixel needs to be processed
+            if (!unchecked(ni, nj)) {
+                continue;
             }
-            get_valid_monotonic_pixels(i+1, j, image, unchecked, orphans, variance, bounds);
-        } else {
-            orphans(i+1,j) = true;
-        }
-    }
-    // Check the pixel to the left of this one
-    if(j>0 && unchecked(i,j-1)){
-        if(image(i,j-1) <= image(i,j)+variance && image(i,j-1) > thresh){
-            unchecked(i,j-1) = false;
-            orphans(i,j-1) = false;
-            if(j-1 < bounds(2)){
-                bounds(2) = j-1;
+
+            // Check monotonicity condition
+            if (image_ni_nj <= image_i_j_var && (image_ni_nj > thresh)) {
+                // Mark as checked and not orphaned
+                unchecked(ni, nj) = false;
+                orphans(ni, nj) = false;
+
+                // Update bounds
+                if (dir == 0 && ni < bounds(0)) {  // down
+                    bounds(0) = ni;
+                } else if (dir == 1 && ni > bounds(1)) {  // up
+                    bounds(1) = ni;
+                } else if (dir == 2 && nj < bounds(2)) {  // left
+                    bounds(2) = nj;
+                } else if (dir == 3 && nj > bounds(3)) {  // right
+                    bounds(3) = nj;
+                }
+
+                // Add to queue for processing
+                pixel_queue.push({ni, nj});
+            } else {
+                orphans(ni, nj) = true;
             }
-            get_valid_monotonic_pixels(i, j-1, image, unchecked, orphans, variance, bounds);
-        } else {
-            orphans(i,j-1) = true;
-        }
-    }
-    // Check the pixel to the right of this one
-    if(j < image.cols()-1 && unchecked(i,j+1)){
-        if(image(i,j+1) <= image(i,j)+variance && image(i,j+1) > thresh){
-            unchecked(i,j+1) = false;
-            orphans(i,j+1) = false;
-            if(j+1 > bounds(3)){
-                bounds(3) = j+1;
-            }
-            get_valid_monotonic_pixels(i, j+1, image, unchecked, orphans, variance, bounds);
-        } else {
-            orphans(i,j+1) = true;
         }
     }
 }
