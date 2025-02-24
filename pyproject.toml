@@ -31,6 +31,7 @@ dependencies = [
    "numpy>=1.18",
    "scipy",
    "pydantic",
+   "Deprecated",
 ]
 dynamic = ["version"]
 
@@ -42,7 +43,7 @@ test = [
     "pytest >= 3.2",
 ]
 yaml = ["pyyaml >= 5.1"]
-plotting = ["matplotlib", "astropy < 7.0"]
+plotting = ["matplotlib", "astropy < 7"]
 
 [tool.setuptools.packages.find]
 where = ["python"]

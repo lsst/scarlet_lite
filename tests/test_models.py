@@ -27,7 +27,7 @@ import lsst.scarlet.lite.models as models
 import numpy as np
 from lsst.scarlet.lite import Blend, Box, FistaParameter, Image, Observation, Source
 from lsst.scarlet.lite.component import Component, FactorizedComponent, default_adaprox_parameterization
-from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
+from lsst.scarlet.lite.initialization import FactorizedInitialization
 from lsst.scarlet.lite.models import (
     CartesianFrame,
     EllipseFrame,
@@ -407,7 +407,7 @@ class TestParametric(ScarletTestCase):
                 if isinstance(component, FittedPsfObservation):
                     component._fitted_kernel = FistaParameter(component._fitted_kernel.x, step=1e-2)
 
-        init = FactorizedChi2Initialization(observation, self.centers, monotonicity=monotonicity)
+        init = FactorizedInitialization(observation, self.centers, monotonicity=monotonicity)
         blend = FittedPsfBlend(init.sources, observation).fit_spectra()
         blend.parameterize(fista_parameterization)
         assert isinstance(cast(FittedPsfObservation, blend.observation)._fitted_kernel, FistaParameter)

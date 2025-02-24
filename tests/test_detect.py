@@ -24,6 +24,7 @@ import os
 import numpy as np
 from lsst.scarlet.lite import Box, Image
 from lsst.scarlet.lite.detect import (
+    bbox_to_bounds,
     bounds_to_bbox,
     detect_footprints,
     footprints_to_image,
@@ -215,6 +216,10 @@ class TestDetect(ScarletTestCase):
         truth = Box((25, 42), (3, 11))
         bbox = bounds_to_bbox(bounds)
         self.assertBoxEqual(bbox, truth)
+
+        # Check that the reverse operation also works
+        new_bounds = bbox_to_bounds(bbox)
+        self.assertTupleEqual(new_bounds, bounds)
 
     def test_footprint(self):
         footprint = self.sources[0].data

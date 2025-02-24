@@ -132,9 +132,9 @@ class Monotonicity:
         # and calculate the distance to each pixel from the center
         cx = (shape[1] - 1) // 2
         cy = (shape[0] - 1) // 2
-        x = np.arange(shape[1], dtype=self.dtype) - cx
-        y = np.arange(shape[0], dtype=self.dtype) - cy
-        x, y = np.meshgrid(x, y)
+        _x = np.arange(shape[1], dtype=self.dtype) - cx
+        _y = np.arange(shape[0], dtype=self.dtype) - cy
+        x, y = np.meshgrid(_x, _y)
         distance = np.sqrt(x**2 + y**2)
 
         # Calculate the distance from each pixel to its 8 nearest neighbors
