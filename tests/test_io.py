@@ -25,7 +25,7 @@ import os
 import numpy as np
 from lsst.scarlet.lite import Blend, Image, Observation, io
 from lsst.scarlet.lite.initialization import FactorizedChi2Initialization
-from lsst.scarlet.lite.models.free_form import FactorizedFreeFormComponent
+from lsst.scarlet.lite.io import ComponentCube
 from lsst.scarlet.lite.operators import Monotonicity
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_almost_equal
@@ -101,11 +101,11 @@ class TestIo(ScarletTestCase):
             blend.sources[i].peak_id = i
         component = blend.sources[-1].components[-1]
         # Replace one of the components with a Free-Form component.
-        blend.sources[-1].components[-1] = FactorizedFreeFormComponent(
+        blend.sources[-1].components[-1] = ComponentCube(
             bands=self.observation.bands,
-            spectrum=component.spectrum,
-            morph=component.morph,
-            model_bbox=self.observation.bbox,
+            model=component.get_model(),
+            peak=component.peak,
+            bbox=component.bbox,
         )
 
         blend_data = io.ScarletBlendData.from_blend(blend, (51, 67))
