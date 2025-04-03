@@ -120,8 +120,8 @@ def get_circle_mask(diameter: int, dtype: npt.DTypeLike = np.float64):
         radius = diameter / 2
     else:
         radius = c
-    x = np.arange(diameter)
-    x, y = np.meshgrid(x, x)
+    _x = np.arange(diameter)
+    x, y = np.meshgrid(_x, _x)
     r = np.sqrt((x - c) ** 2 + (y - c) ** 2)
 
     circle = np.ones((diameter, diameter), dtype=dtype)

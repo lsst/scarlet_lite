@@ -313,7 +313,7 @@ def get_multiresolution_support(
     else:
         # Sigma to use for significance at each scale
         # Initially we use the input `sigma`
-        sigma_j = np.ones((len(starlets),), dtype=image.dtype) * sigma
+        sigma_j = np.full(len(starlets), sigma, dtype=image.dtype)
         last_sigma_j = sigma_j
         for it in range(max_iter):
             m = np.abs(starlets) > sigma_scaling * sigma_j[:, None, None]
