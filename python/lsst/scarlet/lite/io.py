@@ -403,9 +403,16 @@ class ScarletSourceData:
         result :
             The reconstructed object
         """
-        components = [
-            ScarletComponentBaseData.from_dict(component, dtype=dtype) for component in data["components"]
-        ]
+        # Check for legacy models
+        if "factorized" in data:
+            components: list[ScarletComponentBaseData] = [
+                ScarletFactorizedComponentData.from_dict(component, dtype=dtype)
+                for component in data["factorized"]
+            ]
+        else:
+            components = [
+                ScarletComponentBaseData.from_dict(component, dtype=dtype) for component in data["components"]
+            ]
         return cls(components=components, peak_id=int(data["peak_id"]))
 
     @classmethod
@@ -521,7 +528,7 @@ class ScarletBlendData:
         blend :
             A scarlet blend model extracted from persisted data.
         """
-        model_box = Box(self.shape, origin=(0, 0))
+        model_box = Box(self.shape, origin=self.origin)
         observation = Observation.empty(
             bands=self.bands,
             psfs=self.psf,
