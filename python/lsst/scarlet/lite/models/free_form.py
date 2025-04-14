@@ -158,8 +158,6 @@ class FreeFormComponent(Component):
         peaks: list[tuple[int, int]] | None = None,
         min_area: float = 0,
     ):
-        if len(bands) != 1:
-            raise ValueError(f"{type(self)} only supports one band")
         super().__init__(bands=bands, bbox=model_bbox)
         self._model = parameter(model)
         self.bg_rms = bg_rms
