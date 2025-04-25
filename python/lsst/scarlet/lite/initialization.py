@@ -351,7 +351,7 @@ class FactorizedInitialization:
             if max_components == 0:
                 source = Source([self.get_psf_component(center)])
             else:
-                source = self.init_source((int(center[0]), int(center[1])))
+                source = self.init_source((int(round(center[0])), int(round(center[1]))))
             sources.append(source)
         self.sources = sources
 
