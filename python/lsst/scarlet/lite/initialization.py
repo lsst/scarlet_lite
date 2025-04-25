@@ -577,6 +577,7 @@ class FactorizedInitialization:
                         bg_rms=self.observation.noise_rms,
                         bg_thresh=self.bg_thresh,
                         monotonicity=self.monotonicity,
+                        is_symmetric=self.is_symmetric,
                     ),
                     FactorizedComponent(
                         bands=self.observation.bands,
@@ -587,6 +588,7 @@ class FactorizedInitialization:
                         bg_rms=self.observation.noise_rms,
                         bg_thresh=self.bg_thresh,
                         monotonicity=self.monotonicity,
+                        is_symmetric=self.is_symmetric,
                     ),
                 ]
             except np.linalg.LinAlgError:
@@ -798,6 +800,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                             bulge_box,
                             center,
                             monotonicity=self.monotonicity,
+                            is_symmetric=self.is_symmetric,
                         )
                     )
                 else:
@@ -811,6 +814,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                             disk_box,
                             center,
                             monotonicity=self.monotonicity,
+                            is_symmetric=self.is_symmetric,
                         )
                     )
                 else:
