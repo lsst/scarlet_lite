@@ -254,13 +254,13 @@ class FactorizedComponent(Component):
                 self.peak[1] - self.bbox.origin[-1],
             )
 
-        # symmetry
-        if self.is_symmetric:
-            morph = prox_uncentered_symmetry(morph, peak, fill=0.0)
-
         # monotonicity
         if self.monotonicity is not None:
             morph = self.monotonicity(morph, cast(tuple[int, int], self.component_center))
+
+        # symmetry
+        if self.is_symmetric:
+            morph = prox_uncentered_symmetry(morph, peak, fill=0.0)
 
         if self.bg_thresh is not None and self.bg_rms is not None:
             bg_thresh = self.bg_rms * self.bg_thresh
