@@ -34,7 +34,7 @@ import numpy as np
 
 from .bbox import Box
 from .image import Image
-from .operators import Monotonicity
+from .operators import Monotonicity, prox_uncentered_symmetry
 from .parameters import AdaproxParameter, FistaParameter, Parameter, parameter, relative_step
 
 
@@ -151,6 +151,7 @@ class FactorizedComponent(Component):
         floor: float = 1e-20,
         monotonicity: Monotonicity | None = None,
         padding: int = 5,
+        is_symmetric: bool = False,
     ):
         # Initialize all of the base attributes
         super().__init__(
@@ -166,6 +167,7 @@ class FactorizedComponent(Component):
         self.floor = floor
         self.monotonicity = monotonicity
         self.padding = padding
+        self.is_symmetric = is_symmetric
 
     @property
     def peak(self) -> tuple[int, int] | None:
@@ -242,6 +244,20 @@ class FactorizedComponent(Component):
 
     def prox_morph(self, morph: np.ndarray) -> np.ndarray:
         """Apply a prox-like update to the morphology"""
+        # Get the peak position in the current bbox
+        shape = morph.shape
+        if self.peak is None:
+            peak = (shape[0] // 2, shape[1] // 2)
+        else:
+            peak = (
+                self.peak[0] - self.bbox.origin[-2],
+                self.peak[1] - self.bbox.origin[-1],
+            )
+
+        # symmetry
+        if self.is_symmetric:
+            morph = prox_uncentered_symmetry(morph, peak, fill=0.0)
+
         # monotonicity
         if self.monotonicity is not None:
             morph = self.monotonicity(morph, cast(tuple[int, int], self.component_center))
@@ -256,14 +272,6 @@ class FactorizedComponent(Component):
             morph[morph < 0] = 0
 
         # prevent divergent morphology
-        shape = morph.shape
-        if self.peak is None:
-            peak = (shape[0] // 2, shape[1] // 2)
-        else:
-            peak = (
-                self.peak[0] - self.bbox.origin[-2],
-                self.peak[1] - self.bbox.origin[-1],
-            )
         morph[peak] = np.max([morph[peak], self.floor])
 
         # Ensure that the morphology is finite

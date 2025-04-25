@@ -271,6 +271,10 @@ class FactorizedInitialization:
     convolved:
         Deprecated. This is now calculated in __init__, but the
         old API is supported until v29.0.
+    is_symmetric:
+        Whether or not the source is symmetric.
+        This is used to determine if the morphology should be
+        forced to be symmetric.
     """
 
     def __init__(
@@ -288,6 +292,7 @@ class FactorizedInitialization:
         use_sparse_init: bool = True,
         max_components: int = 2,
         convolved: Image | None = None,
+        is_symmetric: bool = False,
     ):
         if detect is None:
             # Build the morphology detection image
@@ -316,6 +321,7 @@ class FactorizedInitialization:
         self.min_snr = min_snr
         self.monotonicity = monotonicity
         self.use_sparse_init = use_sparse_init
+        self.is_symmetric = is_symmetric
 
         # Get the model PSF
         # Convolve the PSF in order to set the spectrum
@@ -415,6 +421,7 @@ class FactorizedInitialization:
             center,
             self.observation.noise_rms,
             monotonicity=self.monotonicity,
+            is_symmetric=self.is_symmetric,
         )
         return component
 
@@ -488,6 +495,7 @@ class FactorizedInitialization:
             bg_rms=self.observation.noise_rms,
             bg_thresh=self.bg_thresh,
             monotonicity=self.monotonicity,
+            is_symmetric=self.is_symmetric,
         )
 
     def init_source(self, center: tuple[int, int]) -> Source:
