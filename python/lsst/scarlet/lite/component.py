@@ -34,7 +34,7 @@ import numpy as np
 
 from .bbox import Box
 from .image import Image
-from .operators import Monotonicity, prox_uncentered_symmetry
+from .operators import Monotonicity, prox_uncentered_symmetry, prox_connected
 from .parameters import AdaproxParameter, FistaParameter, Parameter, parameter, relative_step
 
 
@@ -152,6 +152,7 @@ class FactorizedComponent(Component):
         monotonicity: Monotonicity | None = None,
         padding: int = 5,
         is_symmetric: bool = False,
+        is_connected: bool = False,
     ):
         # Initialize all of the base attributes
         super().__init__(
@@ -168,6 +169,7 @@ class FactorizedComponent(Component):
         self.monotonicity = monotonicity
         self.padding = padding
         self.is_symmetric = is_symmetric
+        self.is_connected = is_connected
 
     @property
     def peak(self) -> tuple[int, int] | None:
@@ -270,6 +272,10 @@ class FactorizedComponent(Component):
         else:
             # enforce positivity
             morph[morph < 0] = 0
+
+        # clip pixels not connected to the peak
+        if self.is_connected:
+            morph = prox_connected(morph, [peak])
 
         # prevent divergent morphology
         morph[peak] = np.max([morph[peak], self.floor])

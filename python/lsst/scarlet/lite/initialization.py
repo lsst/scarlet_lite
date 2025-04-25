@@ -293,6 +293,7 @@ class FactorizedInitialization:
         max_components: int = 2,
         convolved: Image | None = None,
         is_symmetric: bool = False,
+        is_connected: bool = False,
     ):
         if detect is None:
             # Build the morphology detection image
@@ -322,6 +323,7 @@ class FactorizedInitialization:
         self.monotonicity = monotonicity
         self.use_sparse_init = use_sparse_init
         self.is_symmetric = is_symmetric
+        self.is_connected = is_connected
 
         # Get the model PSF
         # Convolve the PSF in order to set the spectrum
@@ -422,6 +424,7 @@ class FactorizedInitialization:
             self.observation.noise_rms,
             monotonicity=self.monotonicity,
             is_symmetric=self.is_symmetric,
+            is_connected=self.is_connected,
         )
         return component
 
@@ -496,6 +499,7 @@ class FactorizedInitialization:
             bg_thresh=self.bg_thresh,
             monotonicity=self.monotonicity,
             is_symmetric=self.is_symmetric,
+            is_connected=self.is_connected,
         )
 
     def init_source(self, center: tuple[int, int]) -> Source:
@@ -578,6 +582,7 @@ class FactorizedInitialization:
                         bg_thresh=self.bg_thresh,
                         monotonicity=self.monotonicity,
                         is_symmetric=self.is_symmetric,
+                        is_connected=self.is_connected,
                     ),
                     FactorizedComponent(
                         bands=self.observation.bands,
@@ -589,6 +594,7 @@ class FactorizedInitialization:
                         bg_thresh=self.bg_thresh,
                         monotonicity=self.monotonicity,
                         is_symmetric=self.is_symmetric,
+                        is_connected=self.is_connected,
                     ),
                 ]
             except np.linalg.LinAlgError:
@@ -801,6 +807,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                             center,
                             monotonicity=self.monotonicity,
                             is_symmetric=self.is_symmetric,
+                            is_connected=self.is_connected,
                         )
                     )
                 else:
@@ -815,6 +822,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                             center,
                             monotonicity=self.monotonicity,
                             is_symmetric=self.is_symmetric,
+                            is_connected=self.is_connected,
                         )
                     )
                 else:
