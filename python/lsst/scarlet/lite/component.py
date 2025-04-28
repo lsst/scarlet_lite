@@ -34,7 +34,7 @@ import numpy as np
 
 from .bbox import Box
 from .image import Image
-from .operators import Monotonicity, prox_uncentered_symmetry, prox_connected
+from .operators import Monotonicity, prox_connected, prox_uncentered_symmetry
 from .parameters import AdaproxParameter, FistaParameter, Parameter, parameter, relative_step
 
 

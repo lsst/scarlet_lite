@@ -357,10 +357,7 @@ class FactorizedInitialization:
 
     @property
     def thresh(self):
-        logger.warning(
-            "thresh is deprecated and will be removed after v29.0. "
-            "Use initial_bg_thresh instead."
-        )
+        logger.warning("thresh is deprecated and will be removed after v29.0. Use initial_bg_thresh instead.")
         return self.initial_bg_thresh
 
     def get_snr(self, center: tuple[int, int]) -> float:
