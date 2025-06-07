@@ -48,11 +48,16 @@ class Blend:
     observation:
         The observation that contains the images,
             PSF, etc. that are being fit.
+    metadata:
+        Additional metadata to store with the blend.
     """
 
-    def __init__(self, sources: Sequence[Source], observation: Observation):
+    def __init__(self, sources: Sequence[Source], observation: Observation, metadata: dict | None = None):
         self.sources = list(sources)
         self.observation = observation
+        if metadata is not None and len(metadata) == 0:
+            metadata = None
+        self.metadata = metadata
 
         # Initialize the iteration count and loss function
         self.it = 0

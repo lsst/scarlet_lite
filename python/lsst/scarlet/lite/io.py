@@ -29,6 +29,156 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
+def _numpy_to_json(arr: np.ndarray) -> dict[str, Any]:
+    """
+    Encode a numpy array as JSON-serializable dictionary.
+
+    Parameters
+    ----------
+    arr :
+        The numpy array to encode
+
+    Returns
+    -------
+    result :
+        A JSON formatted dictionary containing the dtype, shape, and data of the array.
+    """
+    # Convert to native Python types for JSON serialization
+    flattened = arr.flatten()
+
+    # Convert numpy scalars to native Python types
+    if np.issubdtype(arr.dtype, np.integer):
+        data = [int(x) for x in flattened]
+    elif np.issubdtype(arr.dtype, np.floating):
+        data = [float(x) for x in flattened]
+    elif np.issubdtype(arr.dtype, np.complexfloating):
+        data = [complex(x) for x in flattened]
+    elif np.issubdtype(arr.dtype, np.bool_):
+        data = [bool(x) for x in flattened]
+    else:
+        # For other types (strings, objects, etc.), convert to string
+        data = [str(x) for x in flattened]
+
+    return {
+        'dtype': str(arr.dtype),
+        'shape': tuple(arr.shape),
+        'data': data
+    }
+
+def _json_to_numpy(encoded_dict: dict[str, Any]) -> np.ndarray:
+    """
+    Decode a JSON dictionary back to a numpy array.
+
+    Parameters
+    ----------
+    encoded_dict :
+        Dictionary with 'dtype', 'shape', and 'data' keys.
+
+    Returns
+    -------
+    result :
+        The reconstructed numpy array.
+    """
+    if 'dtype' not in encoded_dict or 'shape' not in encoded_dict or 'data' not in encoded_dict:
+        raise ValueError("Encoded dictionary must contain 'dtype', 'shape', and 'data' keys.")
+    return np.array(encoded_dict['data'], dtype=encoded_dict['dtype']).reshape(encoded_dict['shape'])
+
+
+def _encode_metadata(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Pack metadata into a JSON compatible format.
+
+    Parameters
+    ----------
+    metadata :
+        The metadata to be packed.
+
+    Returns
+    -------
+    result :
+        The packed metadata.
+    """
+    if metadata is None:
+        return None
+    encoded = {}
+    array_keys = []
+    for key, value in metadata.items():
+        if isinstance(value, np.ndarray):
+            _encoded = _numpy_to_json(value)
+            encoded[key] = _encoded['data']
+            encoded[f"{key}_shape"] = _encoded['shape']
+            encoded[f"{key}_dtype"] = _encoded['dtype']
+            array_keys.append(key)
+        else:
+            encoded[key] = value
+    if len(array_keys) > 0:
+        encoded["array_keys"] = array_keys
+    return encoded
+
+
+def _decode_metadata(metadata: dict[str, Any]| None) -> dict[str, Any] | None:
+    """Unpack metadata from a JSON compatible format.
+
+    Parameters
+    ----------
+    metadata :
+        The metadata to be unpacked.
+
+    Returns
+    -------
+    result :
+        The unpacked metadata.
+    """
+    if metadata is None:
+        return None
+    if "array_keys" in metadata:
+        for key in metadata["array_keys"]:
+            # Default dtype is float32 to support legacy models
+            dtype = metadata.get(f"{key}_dtype", "float32")
+            shape = metadata.get(f"{key}_shape", None)
+            if shape is None and f"{key}Shape" in metadata:
+                # Support legacy models that use `keyShape`
+                shape = metadata[f"{key}Shape"]
+            decoded = _json_to_numpy({
+                'dtype': dtype,
+                'shape': shape,
+                'data': metadata[key]
+            })
+            metadata[key] = decoded
+    # Remove the array keys after decoding
+    del metadata["array_keys"]
+    return metadata
+
+
+def _extract_from_metadata(
+    data: Any,
+    metadata: dict[str, Any] | None,
+    key: str,
+) -> Any:
+    """Extract relevant information from the metadata.
+
+    Parameters
+    ----------
+    data :
+        The data to extract information from.
+    metadata :
+        The metadata to extract information from.
+    key :
+        The key to extract from the metadata.
+
+    Returns
+    -------
+    result :
+        A tuple containing the extracted data and metadata.
+    """
+    if data is not None:
+        return data
+    if metadata is None:
+        raise ValueError("Both data and metadata cannot be None")
+    if key not in metadata:
+        raise ValueError(f"'{key}' not found in metadata")
+    return metadata[key]
+
+
 @dataclass(kw_only=True)
 class ScarletComponentBaseData(ABC):
     """Base data for a scarlet component"""
@@ -446,23 +596,14 @@ class ScarletBlendData:
     sources :
         Data for the sources contained in the blend,
         indexed by the source id.
-    psf_center :
-        The location used for the center of the PSF for
-        the blend.
     psf :
         The PSF of the observation.
-    bands : `list` of `str`
-        The names of the bands.
-        The order of the bands must be the same as the order of
-        the multiband model arrays, and SEDs.
     """
-
+    blend_type: str = "blend"
     origin: tuple[int, int]
     shape: tuple[int, int]
     sources: dict[int, ScarletSourceData]
-    psf_center: tuple[float, float]
-    psf: np.ndarray
-    bands: tuple[str]
+    metadata: dict[str, Any] | None = None
 
     def as_dict(self) -> dict:
         """Return the object encoded into a dict for JSON serialization
@@ -473,14 +614,13 @@ class ScarletBlendData:
             The object encoded as a JSON compatible dict
         """
         result = {
+            "blend_type": self.blend_type,
             "origin": self.origin,
             "shape": self.shape,
-            "psf_center": self.psf_center,
-            "psf_shape": self.psf.shape,
-            "psf": tuple(self.psf.flatten().astype(float)),
             "sources": {bid: source.as_dict() for bid, source in self.sources.items()},
-            "bands": self.bands,
         }
+        if self.metadata is not None:
+            result["metadata"] = _encode_metadata(self.metadata)
         return result
 
     @classmethod
@@ -500,26 +640,46 @@ class ScarletBlendData:
         result :
             The reconstructed object
         """
-        psf_shape = data["psf_shape"]
+        if "metadata" not in data and "psf" in data:
+            # Support legacy models before metadata was used
+            metadata = {
+                "psf": data["psf"],
+                "psf_shape": data["psf_shape"],
+                "bands": tuple(data["bands"]),
+                "array_keys": ["psf"],
+            }
+        else:
+            metadata = data.get("metadata", None)
+
         return cls(
             origin=tuple(data["origin"]),  # type: ignore
             shape=tuple(data["shape"]),  # type: ignore
-            psf_center=tuple(data["psf_center"]),  # type: ignore
-            psf=np.array(data["psf"]).reshape(psf_shape).astype(dtype),
             sources={
                 int(bid): ScarletSourceData.from_dict(source, dtype=dtype)
                 for bid, source in data["sources"].items()
             },
-            bands=tuple(data["bands"]),  # type: ignore
+            metadata=_decode_metadata(metadata),
         )
 
-    def minimal_data_to_blend(self, model_psf: np.ndarray, dtype: DTypeLike) -> Blend:
+    def minimal_data_to_blend(
+        self,
+        model_psf: np.ndarray | None = None,
+        psf: np.ndarray | None = None,
+        bands: tuple[str] | None = None,
+        dtype: DTypeLike = np.float32,
+    ) -> Blend:
         """Convert the storage data model into a scarlet lite blend
 
         Parameters
         ----------
         model_psf :
             PSF in model space (usually a nyquist sampled circular Gaussian).
+        psf :
+            The PSF of the observation.
+            If not provided, the PSF stored in the blend data is used.
+        bands :
+            The bands in the blend model.
+            If not provided, the bands stored in the blend data are used.
         dtype :
             The data type of the model that is generated.
 
@@ -528,11 +688,14 @@ class ScarletBlendData:
         blend :
             A scarlet blend model extracted from persisted data.
         """
+        _model_psf: np.ndarray = _extract_from_metadata(model_psf, self.metadata, "model_psf")
+        _psf: np.ndarray = _extract_from_metadata(psf, self.metadata, "psf")
+        _bands: tuple[str] = _extract_from_metadata(bands, self.metadata, "bands")
         model_box = Box(self.shape, origin=self.origin)
         observation = Observation.empty(
-            bands=self.bands,
-            psfs=self.psf,
-            model_psf=model_psf,
+            bands=_bands,
+            psfs=_psf,
+            model_psf=_model_psf,
             bbox=model_box,
             dtype=dtype,
         )
@@ -565,18 +728,18 @@ class ScarletBlendData:
             source.peak_id = source_data.peak_id  # type: ignore
             sources.append(source)
 
-        return Blend(sources=sources, observation=observation)
+        return Blend(sources=sources, observation=observation, metadata=self.metadata)
 
     @staticmethod
-    def from_blend(blend: Blend, psf_center: tuple[int, int]) -> ScarletBlendData:
+    def from_blend(
+        blend: Blend,
+    ) -> ScarletBlendData:
         """Convert a scarlet lite blend into a persistable data object
 
         Parameters
         ----------
         blend :
             The blend that is being persisted.
-        psf_center :
-            The center of the PSF.
 
         Returns
         -------
@@ -591,31 +754,92 @@ class ScarletBlendData:
             origin=blend.bbox.origin,  # type: ignore
             shape=blend.bbox.shape,  # type: ignore
             sources=sources,
-            psf_center=psf_center,
-            psf=blend.observation.psfs,
-            bands=blend.observation.bands,  # type: ignore
+            metadata=blend.metadata,
         )
 
         return blend_data
 
 
-class ScarletModelData:
-    """A container that propagates scarlet models for an entire catalog."""
+@dataclass(kw_only=True)
+class HierarchicalBlendData:
+    """Data for a hierarchical blend.
 
-    def __init__(self, psf: np.ndarray, blends: dict[int, ScarletBlendData] | None = None):
-        """Initialize an instance
+    Attributes
+    ----------
+    children :
+        Map from blend IDs to
+    """
+    blend_type: str = "hierarchical_blend"
+    children: dict[str, ScarletBlendData | HierarchicalBlendData] | None = None
+    metadata: dict[str, Any] | None = None
+
+    def as_dict(self) -> dict:
+        """Return the object encoded into a dict for JSON serialization
+
+        Returns
+        -------
+        result :
+            The object encoded as a JSON compatible dict
+        """
+        result = {
+            "blend_type": self.blend_type,
+            "children": {bid: child.as_dict() for bid, child in (self.children or {}).items()},
+        }
+        if self.metadata is not None:
+            result["metadata"] = _encode_metadata(self.metadata)
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict, dtype: DTypeLike = np.float32) -> HierarchicalBlendData:
+        """Reconstruct `HierarchicalBlendData` from JSON compatible dict.
 
         Parameters
         ----------
-        psf :
-            The 2D array of the PSF in scarlet model space.
-            This is typically a narrow Gaussian integrated over the
-            pixels in the exposure.
-        blends :
-            Map from parent IDs in the source catalog
-            to scarlet model data for each parent ID (blend).
+        data :
+            Dictionary representation of the object
+        dtype :
+            Datatype of the resulting model.
+
+        Returns
+        -------
+        result :
+            The reconstructed object
         """
-        self.psf = psf
+        children = {}
+        for blend_id, child in data["children"].items():
+            if child["blend_type"] == "hierarchical_blend":
+                children[blend_id] = HierarchicalBlendData.from_dict(child, dtype=dtype)
+            elif child["blend_type"] == "blend":
+                children[blend_id] = ScarletBlendData.from_dict(child, dtype=dtype)
+            else:
+                raise ValueError(f"Unknown blend type: {child['blend_type']} for blend ID: {blend_id}")
+
+        metadata = _decode_metadata(data.get("metadata", None))
+        return cls(children=children, metadata=metadata)
+
+
+class ScarletModelData:
+    """A container that propagates scarlet models for an entire catalog.
+
+    Attributes
+    ----------
+    blends :
+        Map from parent IDs in the source catalog
+        to scarlet model data for each parent ID (blend).
+    metadata :
+        Metadata associated with the model,
+        for example the order of bands.
+    """
+    blends: dict[int, ScarletBlendData]
+    metadata: dict[str, Any] | None
+
+    def __init__(
+        self,
+        blends: dict[int, ScarletBlendData] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ):
+        """Initialize an instance"""
+        self.metadata = metadata
         if blends is None:
             blends = {}
         self.blends = blends
@@ -629,9 +853,8 @@ class ScarletModelData:
             The object encoded as a JSON compatible dict
         """
         result = {
-            "psfShape": self.psf.shape,
-            "psf": list(self.psf.flatten().astype(float)),
             "blends": {bid: blend.as_dict() for bid, blend in self.blends.items()},
+            "metadata": _encode_metadata(self.metadata),
         }
         return result
 
@@ -647,6 +870,39 @@ class ScarletModelData:
         return json.dumps(result)
 
     @classmethod
+    def from_dict(cls, data: dict, dtype: DTypeLike = np.float32) -> ScarletModelData:
+        """Reconstruct `ScarletModelData` from JSON compatible dict.
+
+        Parameters
+        ----------
+        data :
+            Dictionary representation of the object
+        dtype :
+            Datatype of the resulting model.
+
+        Returns
+        -------
+        result :
+            The reconstructed object
+        """
+        if "psfShape" in data:
+            # Support legacy models before metadata was used
+            metadata = {
+                "model_psf": data["psf"],
+                "model_psf_shape": data["psfShape"],
+                "array_keys": ["model_psf"],
+            }
+        else:
+            metadata = data.get("metadata", None)
+        return cls(
+            blends={
+                int(bid): ScarletBlendData.from_dict(data=blend, dtype=dtype)
+                for bid, blend in data["blends"].items()
+            },
+            metadata=_decode_metadata(metadata),
+        )
+
+    @classmethod
     def parse_obj(cls, data: dict) -> ScarletModelData:
         """Construct a ScarletModelData from python decoded JSON object.
 
@@ -660,11 +916,7 @@ class ScarletModelData:
         result :
             The `ScarletModelData` that was loaded the from the input object
         """
-        model_psf = np.array(data["psf"]).reshape(data["psfShape"]).astype(np.float32)
-        return cls(
-            psf=model_psf,
-            blends={int(bid): ScarletBlendData.from_dict(blend) for bid, blend in data["blends"].items()},
-        )
+        return cls.from_dict(data, dtype=np.float32)
 
 
 class ComponentCube(Component):

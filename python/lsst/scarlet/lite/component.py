@@ -34,7 +34,7 @@ import numpy as np
 
 from .bbox import Box
 from .image import Image
-from .operators import Monotonicity
+from .operators import Monotonicity, prox_uncentered_symmetry
 from .parameters import AdaproxParameter, FistaParameter, Parameter, parameter, relative_step
 
 
@@ -131,12 +131,26 @@ class FactorizedComponent(Component):
     bg_rms:
         The RMS of the background used to threshold, grow,
         and shrink the component.
+    bg_thresh:
+        The threshold to use for the background RMS.
+        If `None`, no background thresholding is applied, otherwise
+        a sparsity constraint is applied to the morpholigy that
+        requires flux in at least one band to be bg_thresh multiplied by
+        `bg_rms` in that band.
     floor:
         Minimum value of the spectrum or center morphology pixel
         (depending on which is normalized).
     monotonicity:
         The monotonicity operator to use for making the source monotonic.
         If this parameter is `None`, the source will not be made monotonic.
+    padding:
+        The amount of padding to add to the component bounding box
+        when resizing the component.
+    is_symmetric:
+        Whether the component is symmetric or not.
+        If `True`, the morphology will be symmetrized using
+        `prox_uncentered_symmetry`.
+        If `False`, the morphology will not be symmetrized.
     """
 
     def __init__(
@@ -151,6 +165,7 @@ class FactorizedComponent(Component):
         floor: float = 1e-20,
         monotonicity: Monotonicity | None = None,
         padding: int = 5,
+        is_symmetric: bool = False,
     ):
         # Initialize all of the base attributes
         super().__init__(
@@ -166,6 +181,7 @@ class FactorizedComponent(Component):
         self.floor = floor
         self.monotonicity = monotonicity
         self.padding = padding
+        self.is_symmetric = is_symmetric
 
     @property
     def peak(self) -> tuple[int, int] | None:
@@ -242,9 +258,24 @@ class FactorizedComponent(Component):
 
     def prox_morph(self, morph: np.ndarray) -> np.ndarray:
         """Apply a prox-like update to the morphology"""
+        # Get the peak position in the current bbox
+        shape = morph.shape
+        if self.peak is None:
+            peak = (shape[0] // 2, shape[1] // 2)
+        else:
+            peak = (
+                self.peak[0] - self.bbox.origin[-2],
+                self.peak[1] - self.bbox.origin[-1],
+            )
+
         # monotonicity
         if self.monotonicity is not None:
             morph = self.monotonicity(morph, cast(tuple[int, int], self.component_center))
+
+        # symmetry
+        if self.is_symmetric:
+            # Apply the symmetry operator
+            morph = prox_uncentered_symmetry(morph, peak, fill=0.0)
 
         if self.bg_thresh is not None and self.bg_rms is not None:
             bg_thresh = self.bg_rms * self.bg_thresh
@@ -256,14 +287,6 @@ class FactorizedComponent(Component):
             morph[morph < 0] = 0
 
         # prevent divergent morphology
-        shape = morph.shape
-        if self.peak is None:
-            peak = (shape[0] // 2, shape[1] // 2)
-        else:
-            peak = (
-                self.peak[0] - self.bbox.origin[-2],
-                self.peak[1] - self.bbox.origin[-1],
-            )
         morph[peak] = np.max([morph[peak], self.floor])
 
         # Ensure that the morphology is finite

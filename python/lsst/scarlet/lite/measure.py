@@ -64,3 +64,65 @@ def calculate_snr(
     numerator = img * _psfs
     denominator = (_psfs * noise) * _psfs
     return np.sum(numerator) / np.sqrt(np.sum(denominator))
+
+
+def conserve_flux(blend, mask_footprint: bool = True, images: Image | None = None) -> None:
+    """Use the source models as templates to re-distribute flux
+    from the data
+
+    The source models are used as approximations to the data,
+    which redistribute the flux in the data according to the
+    ratio of the models for each source.
+    There is no return value for this function,
+    instead it adds (or modifies) a ``flux_weighted_image``
+    attribute to each the sources with the flux attributed to
+    that source.
+
+    Parameters
+    ----------
+    blend:
+        The blend that is being fit
+    mask_footprint:
+        Whether or not to apply a mask for pixels with zero weight.
+    """
+    observation = blend.observation
+    py = observation.psfs.shape[-2] // 2
+    px = observation.psfs.shape[-1] // 2
+
+    if images is None:
+        images = observation.images.copy()
+        if mask_footprint:
+            images.data[observation.weights.data == 0] = 0
+        model = blend.get_model()
+        bands = None
+    else:
+        bands = images.bands
+        model = blend.get_model()[bands,]
+    # Always convolve in real space to avoid FFT artifacts
+    model = observation.convolve(model, mode="real")
+    model.data[model.data < 0] = 0
+
+    for src in blend.sources:
+        if src.is_null:
+            src.flux_weighted_image = Image.from_box(Box((0, 0)), bands=observation.bands)  # type: ignore
+            continue
+        src_model = src.get_model()
+
+        # Grow the model to include the wings of the PSF
+        src_box = src.bbox.grow((py, px))
+        overlap = observation.bbox & src_box
+        src_model = src_model.project(bbox=overlap)
+        src_model = observation.convolve(src_model, mode="real")
+        if bands is not None:
+            src_model = src_model[bands,]
+        src_model.data[src_model.data < 0] = 0
+        numerator = src_model.data
+        denominator = model[overlap].data
+        cuts = denominator != 0
+        ratio = np.zeros(numerator.shape, dtype=numerator.dtype)
+        ratio[cuts] = numerator[cuts] / denominator[cuts]
+        ratio[denominator == 0] = 0
+        # sometimes numerical errors can cause a hot pixel to have a
+        # slightly higher ratio than 1
+        ratio[ratio > 1] = 1
+        src.flux_weighted_image = src_model.copy_with(data=ratio) * images[overlap]

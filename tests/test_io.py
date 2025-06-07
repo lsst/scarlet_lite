@@ -58,10 +58,17 @@ class TestIo(ScarletTestCase):
         for i in range(len(blend.sources)):
             blend.sources[i].record_id = i * 10
             blend.sources[i].peak_id = i
-        blend_data = io.ScarletBlendData.from_blend(blend, (51, 67))
+        blend.metadata = {
+            "psf": self.observation.model_psf,
+            "bands": tuple(str(band) for band in self.observation.bands),
+        }
+        blend_data = io.ScarletBlendData.from_blend(blend)
+        metadata = {
+            "model_psf": self.observation.model_psf,
+        }
         model_data = io.ScarletModelData(
-            psf=self.observation.model_psf,
             blends={1: blend_data},
+            metadata=metadata,
         )
 
         # Get the json string for the model
@@ -70,9 +77,11 @@ class TestIo(ScarletTestCase):
         model_dict = json.loads(model_str)
         # Load the full set of model data classes from the json string
         model_data = io.ScarletModelData.parse_obj(model_dict)
+        metadata = model_data.metadata
+        self.assertIsNotNone(metadata)
         # Convert the model data into scarlet models
         loaded_blend = model_data.blends[1].minimal_data_to_blend(
-            model_psf=model_data.psf,
+            model_psf=metadata["model_psf"],  # type: ignore
             dtype=blend.observation.dtype,
         )
 
@@ -108,10 +117,14 @@ class TestIo(ScarletTestCase):
             bbox=component.bbox,
         )
 
-        blend_data = io.ScarletBlendData.from_blend(blend, (51, 67))
+        blend_data = io.ScarletBlendData.from_blend(blend)
         model_data = io.ScarletModelData(
-            psf=self.observation.model_psf,
             blends={1: blend_data},
+            metadata={
+                "model_psf": self.observation.model_psf,
+                "psf": self.observation.psfs,
+                "bands": tuple(str(band) for band in self.observation.bands),
+            },
         )
 
         # Get the json string for the model
@@ -122,7 +135,53 @@ class TestIo(ScarletTestCase):
         model_data = io.ScarletModelData.parse_obj(model_dict)
         # Convert the model data into scarlet models
         loaded_blend = model_data.blends[1].minimal_data_to_blend(
-            model_psf=model_data.psf,
+            model_psf=model_data.metadata["model_psf"],  # type: ignore
+            bands=model_data.metadata["bands"],  # type: ignore
+            psf=model_data.metadata["psf"],  # type: ignore
+            dtype=blend.observation.dtype,
+        )
+
+        self.assertEqual(len(blend.sources), len(loaded_blend.sources))
+        self.assertEqual(len(blend.components), len(loaded_blend.components))
+        self.assertImageAlmostEqual(blend.get_model(), loaded_blend.get_model())
+
+    def test_legacy_json(self):
+        blend = self.blend
+        for i in range(len(blend.sources)):
+            blend.sources[i].record_id = i * 10
+            blend.sources[i].peak_id = i
+
+        # Create legacy blend JSON data
+        blend_data = io.ScarletBlendData.from_blend(blend).as_dict()
+        encoded_psf = io._numpy_to_json(self.observation.psfs)
+        blend_data["psf"] = encoded_psf["data"]
+        blend_data["psf_shape"] = encoded_psf["shape"]
+        blend_data["bands"] = tuple(str(band) for band in self.observation.bands)
+        blend_data["psf_center"] = (10, 10)
+
+        # Create legacy model data
+        model_data = io.ScarletModelData(
+            blends={}
+        ).as_dict()
+        model_data["blends"][1] = blend_data
+        encoded_psf = io._numpy_to_json(self.observation.model_psf)
+        model_data["psf"] = encoded_psf["data"]
+        model_data["psfShape"] = encoded_psf["shape"]
+
+        self.assertIsNone(model_data["metadata"])
+
+        # Get the json string for the model
+        model_str = json.dumps(model_data)
+        # Load the model string from the json
+        model_dict = json.loads(model_str)
+        # Load the full set of model data classes from the json string
+        model_data = io.ScarletModelData.parse_obj(model_dict)
+        metadata = model_data.metadata
+        self.assertIsNotNone(metadata)
+
+        # Convert the model data into scarlet models
+        loaded_blend = model_data.blends[1].minimal_data_to_blend(
+            model_psf=metadata["model_psf"],  # type: ignore
             dtype=blend.observation.dtype,
         )
 
