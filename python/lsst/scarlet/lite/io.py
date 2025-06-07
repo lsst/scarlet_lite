@@ -49,7 +49,7 @@ def _numpy_to_json(arr: np.ndarray) -> dict[str, Any]:
 
     # Convert numpy scalars to native Python types
     if np.issubdtype(arr.dtype, np.integer):
-        data = [int(x) for x in flattened]
+        data: list = [int(x) for x in flattened]
     elif np.issubdtype(arr.dtype, np.floating):
         data = [float(x) for x in flattened]
     elif np.issubdtype(arr.dtype, np.complexfloating):
@@ -608,7 +608,7 @@ class ScarletBlendData:
         result :
             The object encoded as a JSON compatible dict
         """
-        result = {
+        result: dict[str, Any] = {
             "blend_type": self.blend_type,
             "origin": self.origin,
             "shape": self.shape,
@@ -637,7 +637,7 @@ class ScarletBlendData:
         """
         if "metadata" not in data and "psf" in data:
             # Support legacy models before metadata was used
-            metadata = {
+            metadata: dict[str, Any] | None = {
                 "psf": data["psf"],
                 "psf_shape": data["psf_shape"],
                 "bands": tuple(data["bands"]),
@@ -766,7 +766,7 @@ class HierarchicalBlendData:
     """
 
     blend_type: str = "hierarchical_blend"
-    children: dict[str, ScarletBlendData | HierarchicalBlendData] | None = None
+    children: dict[str, ScarletBlendData | HierarchicalBlendData]
     metadata: dict[str, Any] | None = None
 
     def as_dict(self) -> dict:
@@ -777,7 +777,7 @@ class HierarchicalBlendData:
         result :
             The object encoded as a JSON compatible dict
         """
-        result = {
+        result: dict[str, Any] = {
             "blend_type": self.blend_type,
             "children": {bid: child.as_dict() for bid, child in (self.children or {}).items()},
         }
@@ -801,7 +801,7 @@ class HierarchicalBlendData:
         result :
             The reconstructed object
         """
-        children = {}
+        children: dict[str, ScarletBlendData | HierarchicalBlendData] = {}
         for blend_id, child in data["children"].items():
             if child["blend_type"] == "hierarchical_blend":
                 children[blend_id] = HierarchicalBlendData.from_dict(child, dtype=dtype)
@@ -884,7 +884,7 @@ class ScarletModelData:
         """
         if "psfShape" in data:
             # Support legacy models before metadata was used
-            metadata = {
+            metadata: dict[str, Any] | None = {
                 "model_psf": data["psf"],
                 "model_psf_shape": data["psfShape"],
                 "array_keys": ["model_psf"],
