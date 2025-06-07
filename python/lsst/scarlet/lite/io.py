@@ -41,7 +41,8 @@ def _numpy_to_json(arr: np.ndarray) -> dict[str, Any]:
     Returns
     -------
     result :
-        A JSON formatted dictionary containing the dtype, shape, and data of the array.
+        A JSON formatted dictionary containing the dtype, shape,
+        and data of the array.
     """
     # Convert to native Python types for JSON serialization
     flattened = arr.flatten()
@@ -59,11 +60,8 @@ def _numpy_to_json(arr: np.ndarray) -> dict[str, Any]:
         # For other types (strings, objects, etc.), convert to string
         data = [str(x) for x in flattened]
 
-    return {
-        'dtype': str(arr.dtype),
-        'shape': tuple(arr.shape),
-        'data': data
-    }
+    return {"dtype": str(arr.dtype), "shape": tuple(arr.shape), "data": data}
+
 
 def _json_to_numpy(encoded_dict: dict[str, Any]) -> np.ndarray:
     """
@@ -79,9 +77,9 @@ def _json_to_numpy(encoded_dict: dict[str, Any]) -> np.ndarray:
     result :
         The reconstructed numpy array.
     """
-    if 'dtype' not in encoded_dict or 'shape' not in encoded_dict or 'data' not in encoded_dict:
+    if "dtype" not in encoded_dict or "shape" not in encoded_dict or "data" not in encoded_dict:
         raise ValueError("Encoded dictionary must contain 'dtype', 'shape', and 'data' keys.")
-    return np.array(encoded_dict['data'], dtype=encoded_dict['dtype']).reshape(encoded_dict['shape'])
+    return np.array(encoded_dict["data"], dtype=encoded_dict["dtype"]).reshape(encoded_dict["shape"])
 
 
 def _encode_metadata(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -104,9 +102,9 @@ def _encode_metadata(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
     for key, value in metadata.items():
         if isinstance(value, np.ndarray):
             _encoded = _numpy_to_json(value)
-            encoded[key] = _encoded['data']
-            encoded[f"{key}_shape"] = _encoded['shape']
-            encoded[f"{key}_dtype"] = _encoded['dtype']
+            encoded[key] = _encoded["data"]
+            encoded[f"{key}_shape"] = _encoded["shape"]
+            encoded[f"{key}_dtype"] = _encoded["dtype"]
             array_keys.append(key)
         else:
             encoded[key] = value
@@ -115,7 +113,7 @@ def _encode_metadata(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
     return encoded
 
 
-def _decode_metadata(metadata: dict[str, Any]| None) -> dict[str, Any] | None:
+def _decode_metadata(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
     """Unpack metadata from a JSON compatible format.
 
     Parameters
@@ -138,11 +136,7 @@ def _decode_metadata(metadata: dict[str, Any]| None) -> dict[str, Any] | None:
             if shape is None and f"{key}Shape" in metadata:
                 # Support legacy models that use `keyShape`
                 shape = metadata[f"{key}Shape"]
-            decoded = _json_to_numpy({
-                'dtype': dtype,
-                'shape': shape,
-                'data': metadata[key]
-            })
+            decoded = _json_to_numpy({"dtype": dtype, "shape": shape, "data": metadata[key]})
             metadata[key] = decoded
         # Remove the array keys after decoding
         del metadata["array_keys"]
@@ -599,6 +593,7 @@ class ScarletBlendData:
     psf :
         The PSF of the observation.
     """
+
     blend_type: str = "blend"
     origin: tuple[int, int]
     shape: tuple[int, int]
@@ -769,6 +764,7 @@ class HierarchicalBlendData:
     children :
         Map from blend IDs to
     """
+
     blend_type: str = "hierarchical_blend"
     children: dict[str, ScarletBlendData | HierarchicalBlendData] | None = None
     metadata: dict[str, Any] | None = None
@@ -830,6 +826,7 @@ class ScarletModelData:
         Metadata associated with the model,
         for example the order of bands.
     """
+
     blends: dict[int, ScarletBlendData]
     metadata: dict[str, Any] | None
 

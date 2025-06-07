@@ -160,9 +160,7 @@ class TestIo(ScarletTestCase):
         blend_data["psf_center"] = (10, 10)
 
         # Create legacy model data
-        model_data = io.ScarletModelData(
-            blends={}
-        ).as_dict()
+        model_data = io.ScarletModelData(blends={}).as_dict()
         model_data["blends"][1] = blend_data
         encoded_psf = io._numpy_to_json(self.observation.model_psf)
         model_data["psf"] = encoded_psf["data"]
