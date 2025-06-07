@@ -133,8 +133,8 @@ def _decode_metadata(metadata: dict[str, Any]| None) -> dict[str, Any] | None:
     if "array_keys" in metadata:
         for key in metadata["array_keys"]:
             # Default dtype is float32 to support legacy models
-            dtype = metadata.get(f"{key}_dtype", "float32")
-            shape = metadata.get(f"{key}_shape", None)
+            dtype = metadata.pop(f"{key}_dtype", "float32")
+            shape = metadata.pop(f"{key}_shape", None)
             if shape is None and f"{key}Shape" in metadata:
                 # Support legacy models that use `keyShape`
                 shape = metadata[f"{key}Shape"]
@@ -144,8 +144,8 @@ def _decode_metadata(metadata: dict[str, Any]| None) -> dict[str, Any] | None:
                 'data': metadata[key]
             })
             metadata[key] = decoded
-    # Remove the array keys after decoding
-    del metadata["array_keys"]
+        # Remove the array keys after decoding
+        del metadata["array_keys"]
     return metadata
 
 
