@@ -766,7 +766,7 @@ class HierarchicalBlendData:
     """
 
     blend_type: str = "hierarchical_blend"
-    children: dict[str, ScarletBlendData | HierarchicalBlendData]
+    children: dict[int, ScarletBlendData | HierarchicalBlendData]
     metadata: dict[str, Any] | None = None
 
     def as_dict(self) -> dict:
@@ -779,7 +779,7 @@ class HierarchicalBlendData:
         """
         result: dict[str, Any] = {
             "blend_type": self.blend_type,
-            "children": {bid: child.as_dict() for bid, child in (self.children or {}).items()},
+            "children": {bid: child.as_dict() for bid, child in self.children.items()},
         }
         if self.metadata is not None:
             result["metadata"] = _encode_metadata(self.metadata)
@@ -801,12 +801,12 @@ class HierarchicalBlendData:
         result :
             The reconstructed object
         """
-        children: dict[str, ScarletBlendData | HierarchicalBlendData] = {}
+        children: dict[int, ScarletBlendData | HierarchicalBlendData] = {}
         for blend_id, child in data["children"].items():
             if child["blend_type"] == "hierarchical_blend":
-                children[blend_id] = HierarchicalBlendData.from_dict(child, dtype=dtype)
+                children[int(blend_id)] = HierarchicalBlendData.from_dict(child, dtype=dtype)
             elif child["blend_type"] == "blend":
-                children[blend_id] = ScarletBlendData.from_dict(child, dtype=dtype)
+                children[int(blend_id)] = ScarletBlendData.from_dict(child, dtype=dtype)
             else:
                 raise ValueError(f"Unknown blend type: {child['blend_type']} for blend ID: {blend_id}")
 
@@ -827,12 +827,12 @@ class ScarletModelData:
         for example the order of bands.
     """
 
-    blends: dict[int, ScarletBlendData]
+    blends: dict[int, ScarletBlendData | HierarchicalBlendData]
     metadata: dict[str, Any] | None
 
     def __init__(
         self,
-        blends: dict[int, ScarletBlendData] | None = None,
+        blends: dict[int, ScarletBlendData | HierarchicalBlendData] | None = None,
         metadata: dict[str, Any] | None = None,
     ):
         """Initialize an instance"""
@@ -891,11 +891,22 @@ class ScarletModelData:
             }
         else:
             metadata = data.get("metadata", None)
+
+        blends = {}
+        for bid, blend in data.get("blends", {}).items():
+            if "blend_type" not in blend:
+                # Assume that this is a legacy model
+                blend["blend_type"] = "blend"
+            if blend["blend_type"] == "hierarchical_blend":
+                blendData = HierarchicalBlendData.from_dict(blend, dtype=dtype)
+            elif blend["blend_type"] == "blend":
+                blendData = ScarletBlendData.from_dict(blend, dtype=dtype)
+            else:
+                raise ValueError(f"Unknown blend type: {blend['blend_type']} for blend ID: {bid}")
+            blends[int(bid)] = blendData
+
         return cls(
-            blends={
-                int(bid): ScarletBlendData.from_dict(data=blend, dtype=dtype)
-                for bid, blend in data["blends"].items()
-            },
+            blends=blends,
             metadata=_decode_metadata(metadata),
         )
 
