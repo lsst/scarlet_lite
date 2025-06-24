@@ -892,18 +892,19 @@ class ScarletModelData:
         else:
             metadata = data.get("metadata", None)
 
-        blends = {}
+        blends: dict[int, ScarletBlendData | HierarchicalBlendData] | None = {}
         for bid, blend in data.get("blends", {}).items():
             if "blend_type" not in blend:
                 # Assume that this is a legacy model
                 blend["blend_type"] = "blend"
+            blend_data: ScarletBlendData | HierarchicalBlendData
             if blend["blend_type"] == "hierarchical_blend":
-                blendData = HierarchicalBlendData.from_dict(blend, dtype=dtype)
+                blend_data = HierarchicalBlendData.from_dict(blend, dtype=dtype)
             elif blend["blend_type"] == "blend":
-                blendData = ScarletBlendData.from_dict(blend, dtype=dtype)
+                blend_data = ScarletBlendData.from_dict(blend, dtype=dtype)
             else:
                 raise ValueError(f"Unknown blend type: {blend['blend_type']} for blend ID: {bid}")
-            blends[int(bid)] = blendData
+            blends[int(bid)] = blend_data  # type: ignore
 
         return cls(
             blends=blends,

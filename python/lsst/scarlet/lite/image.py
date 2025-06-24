@@ -811,7 +811,7 @@ class Image:
             if hasattr(other, "dtype"):
                 _dtype = cast(np.ndarray, other).dtype
             else:
-                _dtype = type(other)
+                _dtype = type(other)  # type: ignore
             msg = f"Cannot update an array with type {self.dtype} with {_dtype}"
             raise ValueError(msg)
         result = op(other)

@@ -16,12 +16,22 @@ template <typename T, typename M>
 void new_monotonicity(
     Eigen::Ref<const IndexVector> coord_y,
     Eigen::Ref<const IndexVector> coord_x,
-    std::vector<M> weights,
+    std::vector<M>& weights,
     Eigen::Ref<M, 0, Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic>> image
 ){
+    const int height = image.rows();
+    const int width = image.cols();
+
     for(int n=0; n<coord_x.size(); n++){
         int px = coord_x[n];
         int py = coord_y[n];
+
+        // Check bounds for 3x3 neighborhood access
+        if (py < 0 || py + 2 >= height || px < 0 || px + 2 >= width) {
+            throw std::out_of_range("Coordinate (" + std::to_string(py) + ", " +
+                                  std::to_string(px) + ") requires 3x3 neighborhood that exceeds image bounds [0, " +
+                                  std::to_string(height) + ") x [0, " + std::to_string(width) + ")");
+        }
 
         T ref_flux = 0;
         for(int i=0; i<3; i++){
@@ -33,6 +43,7 @@ void new_monotonicity(
         image(py + 1, px + 1) = std::min(image(py+1, px+1), ref_flux);
     }
 }
+
 
 template <typename T, typename M, typename V>
 void prox_weighted_monotonic(
@@ -165,9 +176,20 @@ void linear_interpolate_invalid_pixels(
     bool recursive,
     Eigen::Ref<Bounds, 0, Eigen::Stride<4, 1>> bounds
 ){
+    const int nrows = model.rows();
+    const int ncols = model.cols();
+
     for(int n=0; n<row_indices.size(); n++){
         int i = row_indices(n);
         int j = column_indices(n);
+
+        // Add bounds check for the current pixel
+        if (i < 0 || i >= nrows || j < 0 || j >= ncols) {
+            throw std::out_of_range("Pixel coordinates (" + std::to_string(i) + ", " +
+                                  std::to_string(j) + ") are out of model bounds [0, " +
+                                  std::to_string(nrows) + ") x [0, " + std::to_string(ncols) + ")");
+        }
+
         P neighborTotal = 0.0;
         int validNeighbors = 0;
         bool uncheckedNeighbors = false;
@@ -182,7 +204,7 @@ void linear_interpolate_invalid_pixels(
 
         // Check all of the neighboring pixels with negative gradients and
         // use the maximum value for the interpolation
-        if(i < model.rows()-2 && model(i+2,j) > model(i+1,j)){
+        if(i < nrows-2 && model(i+2,j) > model(i+1,j)){
             if(unchecked(i+2, j) || unchecked(i+1, j)){
                 uncheckedNeighbors = true;
             } else {
@@ -191,7 +213,7 @@ void linear_interpolate_invalid_pixels(
                 validNeighbors += 1;
             }
         }
-        if(i > 2 && model(i-2,j) > model(i-1,j)){
+        if(i >= 2 && model(i-2,j) > model(i-1,j)){
             if(unchecked(i-2, j) || unchecked(i-1, j)){
                 uncheckedNeighbors = true;
             } else {
@@ -200,8 +222,8 @@ void linear_interpolate_invalid_pixels(
                 validNeighbors += 1;
             }
         }
-        if(j < model.cols()-2 && model(i,j+2) > model(i,j+1)){
-            if(unchecked(i,j+2), unchecked(i,j+1)){
+        if(j < ncols-2 && model(i,j+2) > model(i,j+1)){
+            if(unchecked(i,j+2) || unchecked(i,j+1)){
                 uncheckedNeighbors = true;
             } else {
                 P grad = model(i,j+2) - model(i,j+1);
@@ -209,8 +231,8 @@ void linear_interpolate_invalid_pixels(
                 validNeighbors += 1;
             }
         }
-        if(j > 2 && model(i,j-2) > model(i,j-1)){
-            if(unchecked(i, j-2), unchecked(i,j-1)){
+        if(j >= 2 && model(i,j-2) > model(i,j-1)){
+            if(unchecked(i, j-2) || unchecked(i,j-1)){
                 uncheckedNeighbors = true;
             } else {
                 P grad = model(i,j-2) - model(i,j-1);
@@ -238,16 +260,16 @@ void linear_interpolate_invalid_pixels(
             if(recursive){
                 get_valid_monotonic_pixels(i, j, model, unchecked, orphans, variance, bounds);
             } else {
-                if(unchecked(i-1,j)){
+                if(i > 0 && unchecked(i-1,j)){
                     orphans(i-1,j) = true;
                 }
-                if(unchecked(i+1,j)){
+                if(i < nrows-1 && unchecked(i+1,j)){
                     orphans(i+1,j) = true;
                 }
-                if(unchecked(i,j-1)){
+                if(j > 0 && unchecked(i,j-1)){
                     orphans(i,j-1) = true;
                 }
-                if(unchecked(i,j+1)){
+                if(j < ncols-1 && unchecked(i,j+1)){
                     orphans(i,j+1) = true;
                 }
             }

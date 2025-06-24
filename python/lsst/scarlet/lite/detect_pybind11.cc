@@ -90,6 +90,14 @@ MatrixB get_connected_multipeak(
     for(const auto& center : centers){
         const int y = center[0];
         const int x = center[1];
+
+        // Validate center coordinates
+        if (y < 0 || y >= height || x < 0 || x >= width) {
+            throw std::out_of_range("Center coordinates (" + std::to_string(y) + ", " +
+                                  std::to_string(x) + ") are out of image bounds [0, " +
+                                  std::to_string(height) + ") x [0, " + std::to_string(width) + ")");
+        }
+
         if (!footprint(y, x) && image(y, x) > thresh) {
             footprint(y, x) = true;
             pixel_queue.emplace(y, x);

@@ -247,7 +247,7 @@ class Monotonicity:
         result_shape = (image.shape[0] + 2, image.shape[1] + 2)
         result = np.zeros(result_shape, dtype=image.dtype)
         result[1:-1, 1:-1] = image
-        new_monotonicity(coords[0], coords[1], [w for w in weights], result)
+        new_monotonicity(coords[0], coords[1], weights, result)
         image[:] = result[1:-1, 1:-1]
         return image
 
