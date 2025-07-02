@@ -272,7 +272,7 @@ class TestObservation(ScarletTestCase):
             sliced_observation.weights["r":"z"],
             Image(weights[1:4, 3:6, 3:7], bands=sliced_bands, yx0=new_box.origin),
         )
-        np.testing.assert_array_almost_equal(
+        np.testing.assert_array_equal(
             sliced_observation.psfs,
             psfs[1:4],
         )
