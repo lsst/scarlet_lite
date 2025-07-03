@@ -35,7 +35,7 @@ jobs:
         run: ls python/lsst/scarlet/lite
 
       - name: Install documenteer
-        run: pip install 'documenteer[pipelines]==0.8.2'
+        run: pip install 'documenteer[pipelines]==0.8.2' 'sphinx-automodapi<0.20' 'sphinx-prompt<1.10'
 
       - name: Build documentation
         working-directory: ./doc

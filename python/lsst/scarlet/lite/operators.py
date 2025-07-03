@@ -247,7 +247,7 @@ class Monotonicity:
         result_shape = (image.shape[0] + 2, image.shape[1] + 2)
         result = np.zeros(result_shape, dtype=image.dtype)
         result[1:-1, 1:-1] = image
-        new_monotonicity(coords[0], coords[1], [w for w in weights], result)
+        new_monotonicity(coords[0], coords[1], weights, result)
         image[:] = result[1:-1, 1:-1]
         return image
 
@@ -275,7 +275,7 @@ def get_peak(image: np.ndarray, center: tuple[int, int], radius: int = 1) -> tup
     new_center:
         The true center of the source.
     """
-    cy, cx = int(center[0]), int(center[1])
+    cy, cx = int(round(center[0])), int(round(center[1]))
     y0 = np.max([cy - radius, 0])
     x0 = np.max([cx - radius, 0])
     y_slice = slice(y0, cy + radius + 1)
@@ -395,8 +395,8 @@ def uncentered_operator(
     if py == cy and px == cx:
         return func(x, **kwargs)
 
-    dy = int(2 * (py - cy))
-    dx = int(2 * (px - cx))
+    dy = int(round(2 * (py - cy)))
+    dx = int(round(2 * (px - cx)))
     if not x.shape[0] % 2:
         dy += 1
     if not x.shape[1] % 2:

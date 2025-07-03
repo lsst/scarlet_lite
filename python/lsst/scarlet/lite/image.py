@@ -364,10 +364,10 @@ class Image:
         if bands is None or len(bands) == 0:
             # Using an empty tuple for the bands will result in a 2D image
             bands = ()
-            assert len(data.shape) == 2
+            assert data.ndim == 2
         else:
             bands = tuple(bands)
-            assert len(data.shape) == 3
+            assert data.ndim == 3
             if data.shape[0] != len(bands):
                 raise ValueError(f"Array has spectral size {data.shape[0]}, but {bands} bands")
         if yx0 is None:
@@ -468,6 +468,11 @@ class Image:
     def data(self) -> np.ndarray:
         """The image viewed as a numpy array."""
         return self._data
+
+    @property
+    def ndim(self) -> int:
+        """Number of dimensions in the image."""
+        return self._data.ndim
 
     def spectral_indices(self, bands: Sequence | slice) -> tuple[int, ...] | slice:
         """The indices to extract each band in `bands` in order from the image
@@ -734,6 +739,53 @@ class Image:
             yx0 = self.yx0
         return Image(data, bands, yx0)
 
+    def trimmed(self, threshold: float = 0) -> Image:
+        """Return a copy of the image trimmed to a threshold.
+
+        This is essentially the smallest image that contains all of the
+        pixels above the threshold.
+
+        Parameters
+        ----------
+        threshold:
+            The threshold to use for trimming the image.
+
+        Returns
+        -------
+        image:
+            A copy of the image trimmed to the threshold.
+        """
+        data = self.data.copy()
+        bbox = Box.from_data(data, threshold=threshold)
+        data = data[bbox.slices]
+        y0, x0 = bbox.origin
+
+        return Image(data, yx0=(y0 + self.y0, x0 + self.x0))
+
+    def at(self, y: int, x: int) -> ScalarLike | np.ndarray:
+        """The value of the image at a given location.
+
+        Image does not implment single index access because the
+        result is a scalar, while indexing an image returns another image.
+
+        Parameters
+        ----------
+        y:
+            The y-coordinate of the location.
+        x:
+            The x-coordinate of the location.
+
+        Returns
+        -------
+        value:
+            The value of the image at the given location.
+        """
+        _y = y - self.y0
+        _x = x - self.x0
+        if self.ndim == 2:
+            return self.data[_y, _x]
+        return self.data[:, _y, _x]
+
     def _i_update(self, op: Callable, other: Image | ScalarLike) -> Image:
         """Update the data array in place.
 
@@ -759,7 +811,7 @@ class Image:
             if hasattr(other, "dtype"):
                 _dtype = cast(np.ndarray, other).dtype
             else:
-                _dtype = type(other)
+                _dtype = type(other)  # type: ignore
             msg = f"Cannot update an array with type {self.dtype} with {_dtype}"
             raise ValueError(msg)
         result = op(other)
@@ -1167,7 +1219,7 @@ class Image:
 
             data = self.data[full_index]
 
-            if len(data.shape) == 2:
+            if data.ndim == 2:
                 # Only a single band was selected, so return that band
                 return Image(data, yx0=yx0)
             return Image(data, bands=bands, yx0=yx0)

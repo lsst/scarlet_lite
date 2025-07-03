@@ -48,11 +48,16 @@ class Blend:
     observation:
         The observation that contains the images,
             PSF, etc. that are being fit.
+    metadata:
+        Additional metadata to store with the blend.
     """
 
-    def __init__(self, sources: Sequence[Source], observation: Observation):
+    def __init__(self, sources: Sequence[Source], observation: Observation, metadata: dict | None = None):
         self.sources = list(sources)
         self.observation = observation
+        if metadata is not None and len(metadata) == 0:
+            metadata = None
+        self.metadata = metadata
 
         # Initialize the iteration count and loss function
         self.it = 0
@@ -277,7 +282,7 @@ class Blend:
         for source in self.sources:
             source.parameterize(parameterization)
 
-    def conserve_flux(self, mask_footprint: bool = True) -> None:
+    def conserve_flux(self, mask_footprint: bool = True, weight_image: Image | None = None) -> None:
         """Use the source models as templates to re-distribute flux
         from the data
 
@@ -295,6 +300,9 @@ class Blend:
             The blend that is being fit
         mask_footprint:
             Whether or not to apply a mask for pixels with zero weight.
+        weight_image:
+            The weight image to use for the redistribution.
+            If `None` then the observation image is used.
         """
         observation = self.observation
         py = observation.psfs.shape[-2] // 2
@@ -303,10 +311,16 @@ class Blend:
         images = observation.images.copy()
         if mask_footprint:
             images.data[observation.weights.data == 0] = 0
-        model = self.get_model()
-        # Always convolve in real space to avoid FFT artifacts
-        model = observation.convolve(model, mode="real")
-        model.data[model.data < 0] = 0
+
+        if weight_image is None:
+            weight_image = self.get_model()
+            # Always convolve in real space to avoid FFT artifacts
+            weight_image = observation.convolve(weight_image, mode="real")
+
+            # Due to ringing in the PSF, the convolved model can have
+            # negative values. We take the absolute value to avoid
+            # negative fluxes in the flux weighted images.
+            weight_image.data[:] = np.abs(weight_image.data)
 
         for src in self.sources:
             if src.is_null:
@@ -319,9 +333,9 @@ class Blend:
             overlap = observation.bbox & src_box
             src_model = src_model.project(bbox=overlap)
             src_model = observation.convolve(src_model, mode="real")
-            src_model.data[src_model.data < 0] = 0
+            src_model.data[:] = np.abs(src_model.data)
             numerator = src_model.data
-            denominator = model[overlap].data
+            denominator = weight_image[overlap].data
             cuts = denominator != 0
             ratio = np.zeros(numerator.shape, dtype=numerator.dtype)
             ratio[cuts] = numerator[cuts] / denominator[cuts]

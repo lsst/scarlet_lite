@@ -90,6 +90,14 @@ MatrixB get_connected_multipeak(
     for(const auto& center : centers){
         const int y = center[0];
         const int x = center[1];
+
+        // Validate center coordinates
+        if (y < 0 || y >= height || x < 0 || x >= width) {
+            throw std::out_of_range("Center coordinates (" + std::to_string(y) + ", " +
+                                  std::to_string(x) + ") are out of image bounds [0, " +
+                                  std::to_string(height) + ") x [0, " + std::to_string(width) + ")");
+        }
+
         if (!footprint(y, x) && image(y, x) > thresh) {
             footprint(y, x) = true;
             pixel_queue.emplace(y, x);
@@ -256,6 +264,10 @@ public:
         return _bounds;
     }
 
+    void addPeak(Peak peak){
+        peaks.push_back(peak);
+    }
+
 private:
     MatrixB _data;
     Bounds _bounds;
@@ -376,11 +388,11 @@ PYBIND11_MODULE(detect_pybind11, mod) {
           "Get a list of peaks in a footprint created by get_connected_pixels");
 
   mod.def("get_footprints", &get_footprints<MatrixF, float>,
-          "Create a list of all of the footprints in an image, with their peaks"
+          "Create a list of all of the footprints in an image, with their peaks",
           "image"_a, "min_separation"_a, "min_area"_a, "peak_thresh"_a, "footprint_thresh"_a,
           "find_peaks"_a=true, "y0"_a=0, "x0"_a=0);
   mod.def("get_footprints", &get_footprints<MatrixD, double>,
-          "Create a list of all of the footprints in an image, with their peaks"
+          "Create a list of all of the footprints in an image, with their peaks",
           "image"_a, "min_separation"_a, "min_area"_a, "peak_thresh"_a, "footprint_thresh"_a,
           "find_peaks"_a=true, "y0"_a=0, "x0"_a=0);
 
@@ -389,7 +401,8 @@ PYBIND11_MODULE(detect_pybind11, mod) {
              "footprint"_a, "peaks"_a, "bounds"_a)
         .def_property_readonly("data", &Footprint::getFootprint)
         .def_readwrite("peaks", &Footprint::peaks)
-        .def_property_readonly("bounds", &Footprint::getBounds);
+        .def_property_readonly("bounds", &Footprint::getBounds)
+        .def("add_peak", &Footprint::addPeak);
 
   py::class_<Peak>(mod, "Peak")
         .def(py::init<int, int, double>(),
