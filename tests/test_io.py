@@ -39,12 +39,15 @@ class TestIo(ScarletTestCase):
         data = np.load(filename)
         model_psf = integrated_circular_gaussian(sigma=0.8)
         self.detect = np.sum(data["images"], axis=0)
-        self.centers = np.array([data["catalog"]["y"], data["catalog"]["x"]]).T
+        y0 = 70
+        x0 = 10
+        origin = (y0, x0)
+        self.centers = np.array([data["catalog"]["y"] + y0, data["catalog"]["x"] + x0]).T
         bands = data["filters"]
         self.observation = Observation(
-            Image(data["images"], bands=bands),
-            Image(data["variance"], bands=bands),
-            Image(1 / data["variance"], bands=bands),
+            Image(data["images"], bands=bands, yx0=origin),
+            Image(data["variance"], bands=bands, yx0=origin),
+            Image(1 / data["variance"], bands=bands, yx0=origin),
             data["psfs"],
             model_psf[None],
             bands=bands,
