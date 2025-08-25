@@ -319,7 +319,7 @@ class ScarletBlendData:
         blend:
             A scarlet blend model extracted from persisted data.
         """
-        model_box = Box(self.shape, origin=(0, 0))
+        model_box = Box(self.shape, origin=self.origin)
         observation = Observation.empty(
             bands=self.bands,
             psfs=self.psf,
