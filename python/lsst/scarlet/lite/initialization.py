@@ -317,6 +317,8 @@ class FactorizedInitialization:
 
         self.observation = observation
         self.convolved = convolved
+        # Ensure that each center is a tuple of integers
+        centers = [(int(round(c[0])), int(round(c[1]))) for c in centers]
         self.centers = centers
         self.min_snr = min_snr
         self.monotonicity = monotonicity
@@ -349,7 +351,7 @@ class FactorizedInitialization:
             if max_components == 0:
                 source = Source([self.get_psf_component(center)])
             else:
-                source = self.init_source((int(center[0]), int(center[1])))
+                source = self.init_source(center)
             sources.append(source)
         self.sources = sources
 
