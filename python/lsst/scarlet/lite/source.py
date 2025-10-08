@@ -19,13 +19,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 __all__ = ["Source"]
 
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 
 from .bbox import Box
 from .component import Component
 from .image import Image
+
+if TYPE_CHECKING:
+    from .io import ScarletSourceData
 
 
 class Source:
@@ -136,6 +141,19 @@ class Source:
         """
         for component in self.components:
             component.parameterize(parameterization)
+
+    def to_source_data(self) -> ScarletSourceData:
+        """Convert to a `ScarletSourceData` for serialization
+
+        Returns
+        -------
+        source_data:
+            The `ScarletSourceData` representation of this source.
+        """
+        from .io import ScarletSourceData
+
+        component_data = [c.to_component_data() for c in self.components]
+        return ScarletSourceData(components=component_data, peak_id=self.peak_id)
 
     def __str__(self):
         return f"Source<{len(self.components)}>"

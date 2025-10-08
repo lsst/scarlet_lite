@@ -19,6 +19,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 from typing import Callable, cast
 
 import numpy as np
@@ -52,6 +54,9 @@ class DummyCubeComponent(Component):
         return Image(self.data, bands=self.bands, yx0=self.bbox.origin)
 
     def parameterize(self, parameterization: Callable) -> None:
+        pass
+
+    def to_component_data(self) -> DummyCubeComponent:
         pass
 
 

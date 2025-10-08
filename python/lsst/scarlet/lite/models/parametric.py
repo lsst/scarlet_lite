@@ -834,6 +834,9 @@ class ParametricComponent(Component):
         self._params.grad = self.grad_morph
         self._params.prox = self.prox_morph
 
+    def to_component_data(self) -> None:
+        raise NotImplementedError("Saving elliptical parametric components is not yet implemented")
+
 
 class EllipticalParametricComponent(ParametricComponent):
     """A radial density/surface brightness profile with elliptical symmetry

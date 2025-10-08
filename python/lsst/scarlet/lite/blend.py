@@ -23,7 +23,8 @@ from __future__ import annotations
 
 __all__ = ["Blend"]
 
-from typing import Callable, Sequence, cast
+from abc import ABC, abstractmethod
+from typing import Callable, Sequence, cast, TYPE_CHECKING
 
 import numpy as np
 
@@ -33,8 +34,66 @@ from .image import Image
 from .observation import Observation
 from .source import Source
 
+if TYPE_CHECKING:
+    from .io import ScarletBlendData
 
-class Blend:
+
+class BlendBase(ABC):
+    """A base class for blends that can be extended to add additional
+    functionality.
+
+    This class holds all of the sources and observation that are to be fit,
+    as well as performing fitting and joint initialization of the
+    spectral components (when applicable).
+
+    Parameters
+    ----------
+    sources:
+        The sources to fit.
+    observation:
+        The observation that contains the images,
+            PSF, etc. that are being fit.
+    metadata:
+        Additional metadata to store with the blend.
+    """
+    sources: list[Source]
+    components: list[Component]
+    observation: Observation
+    metadata: dict | None
+    shape: tuple[int, int]
+    bbox: Box
+
+    @abstractmethod
+    def get_model(self, convolve: bool = False, use_flux: bool = False) -> Image:
+        """Generate a model of the entire blend.
+
+        Parameters
+        ----------
+        convolve:
+            Whether to convolve the model with the observed PSF in each band.
+        use_flux:
+            Whether to use the re-distributed flux associated with the sources
+            instead of the component models.
+
+        Returns
+        -------
+        model:
+            The model created by combining all of the source models.
+        """
+
+    @abstractmethod
+    def to_blend_data(self) -> ScarletBlendData:
+        """Convert the blend into a serializable dictionary format.
+
+        Returns
+        -------
+        data:
+            A dictionary containing all of the information needed to
+            reconstruct the blend.
+        """
+
+
+class Blend(BlendBase):
     """A single blend.
 
     This class holds all of the sources and observation that are to be fit,
@@ -344,3 +403,31 @@ class Blend:
             # slightly higher ratio than 1
             ratio[ratio > 1] = 1
             src.flux_weighted_image = src_model.copy_with(data=ratio) * images[overlap]
+
+    def to_blend_data(self) -> ScarletBlendData:
+        """Convert the Blend into a persistable data object
+
+        Parameters
+        ----------
+        blend :
+            The blend that is being persisted.
+
+        Returns
+        -------
+        blend_data :
+            The data model for a single blend.
+        """
+        from .io import ScarletBlendData
+
+        sources = {}
+        for source in self.sources:
+            sources[source.record_id] = source.to_source_data()
+
+        blend_data = ScarletBlendData(
+            origin=self.bbox.origin,  # type: ignore
+            shape=self.bbox.shape,  # type: ignore
+            sources=sources,
+            metadata=self.metadata,
+        )
+
+        return blend_data

@@ -62,7 +62,7 @@ class TestIo(ScarletTestCase):
             "psf": self.observation.model_psf,
             "bands": tuple(str(band) for band in self.observation.bands),
         }
-        blend_data = io.ScarletBlendData.from_blend(blend)
+        blend_data = blend.to_blend_data()
         metadata = {
             "model_psf": self.observation.model_psf,
         }
@@ -111,13 +111,11 @@ class TestIo(ScarletTestCase):
         component = blend.sources[-1].components[-1]
         # Replace one of the components with a Free-Form component.
         blend.sources[-1].components[-1] = ComponentCube(
-            bands=self.observation.bands,
             model=component.get_model(),
             peak=component.peak,
-            bbox=component.bbox,
         )
 
-        blend_data = io.ScarletBlendData.from_blend(blend)
+        blend_data = blend.to_blend_data()
         model_data = io.ScarletModelData(
             blends={1: blend_data},
             metadata={
@@ -152,8 +150,8 @@ class TestIo(ScarletTestCase):
             blend.sources[i].peak_id = i
 
         # Create legacy blend JSON data
-        blend_data = io.ScarletBlendData.from_blend(blend).as_dict()
-        encoded_psf = io._numpy_to_json(self.observation.psfs)
+        blend_data = blend.to_blend_data().as_dict()
+        encoded_psf = io.metadata.numpy_to_json(self.observation.psfs)
         blend_data["psf"] = encoded_psf["data"]
         blend_data["psf_shape"] = encoded_psf["shape"]
         blend_data["bands"] = tuple(str(band) for band in self.observation.bands)
@@ -162,9 +160,17 @@ class TestIo(ScarletTestCase):
         # Create legacy model data
         model_data = io.ScarletModelData(blends={}).as_dict()
         model_data["blends"][1] = blend_data
-        encoded_psf = io._numpy_to_json(self.observation.model_psf)
+        encoded_psf = io.metadata.numpy_to_json(self.observation.model_psf)
         model_data["psf"] = encoded_psf["data"]
         model_data["psfShape"] = encoded_psf["shape"]
+
+        # Legacy models were pre-versioning, so delete any version key
+        model_data.pop("version", None)
+        blend_data.pop("version", None)
+        for source in blend_data["sources"].values():
+            source.pop("version", None)
+            for component in source["components"]:
+                component.pop("version", None)
 
         self.assertIsNone(model_data["metadata"])
 
