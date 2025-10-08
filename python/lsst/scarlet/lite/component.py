@@ -19,6 +19,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 __all__ = [
     "Component",
     "FactorizedComponent",
@@ -28,7 +30,7 @@ __all__ = [
 
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import Callable, cast
+from typing import TYPE_CHECKING, Callable, cast
 
 import numpy as np
 
@@ -36,6 +38,9 @@ from .bbox import Box
 from .image import Image
 from .operators import Monotonicity, prox_uncentered_symmetry
 from .parameters import AdaproxParameter, FistaParameter, Parameter, parameter, relative_step
+
+if TYPE_CHECKING:
+    from .io import ScarletComponentBaseData
 
 
 class Component(ABC):
@@ -109,6 +114,16 @@ class Component(ABC):
             A function to use to convert parameters of a given type into
             a `Parameter` in place. It should take a single argument that
             is the `Component` or `Source` that is to be parameterized.
+        """
+
+    @abstractmethod
+    def to_component_data(self) -> ScarletComponentBaseData:
+        """Convert the component to persistable ScarletComponentBaseData
+
+        Returns
+        -------
+        component_data: ScarletComponentBaseData
+            The data object containing the component information
         """
 
 
@@ -352,6 +367,23 @@ class FactorizedComponent(Component):
         self._spectrum.prox = self.prox_spectrum
         self._morph.grad = self.grad_morph
         self._morph.prox = self.prox_morph
+
+    def to_component_data(self) -> ScarletComponentBaseData:
+        """Convert the component to persistable ScarletComponentBaseData
+
+        Returns
+        -------
+        component_data: ScarletComponentBaseData
+            The data object containing the component information
+        """
+        from .io import ScarletFactorizedComponentData
+
+        return ScarletFactorizedComponentData(
+            origin=self.bbox.origin,  # type: ignore
+            peak=self.peak,  # type: ignore
+            spectrum=self.spectrum,
+            morph=self.morph,
+        )
 
     def __str__(self):
         result = (

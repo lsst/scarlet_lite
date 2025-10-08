@@ -55,14 +55,11 @@ class TestIo(ScarletTestCase):
 
     def test_json(self):
         blend = self.blend
-        for i in range(len(blend.sources)):
-            blend.sources[i].record_id = i * 10
-            blend.sources[i].peak_id = i
         blend.metadata = {
             "psf": self.observation.model_psf,
             "bands": tuple(str(band) for band in self.observation.bands),
         }
-        blend_data = io.ScarletBlendData.from_blend(blend)
+        blend_data = blend.to_blend_data()
         metadata = {
             "model_psf": self.observation.model_psf,
         }
@@ -106,18 +103,15 @@ class TestIo(ScarletTestCase):
     def test_cube_component(self):
         blend = self.blend
         for i in range(len(blend.sources)):
-            blend.sources[i].record_id = i * 10
-            blend.sources[i].peak_id = i
+            blend.sources[i].metadata = {"id": f"peak-{i}"}
         component = blend.sources[-1].components[-1]
         # Replace one of the components with a Free-Form component.
         blend.sources[-1].components[-1] = ComponentCube(
-            bands=self.observation.bands,
             model=component.get_model(),
             peak=component.peak,
-            bbox=component.bbox,
         )
 
-        blend_data = io.ScarletBlendData.from_blend(blend)
+        blend_data = blend.to_blend_data()
         model_data = io.ScarletModelData(
             blends={1: blend_data},
             metadata={
@@ -145,15 +139,16 @@ class TestIo(ScarletTestCase):
         self.assertEqual(len(blend.components), len(loaded_blend.components))
         self.assertImageAlmostEqual(blend.get_model(), loaded_blend.get_model())
 
+        # Check that the metadata was stored correctly
+        for i in range(len(blend.sources)):
+            self.assertEqual(blend.sources[i].metadata, loaded_blend.sources[i].metadata)
+
     def test_legacy_json(self):
         blend = self.blend
-        for i in range(len(blend.sources)):
-            blend.sources[i].record_id = i * 10
-            blend.sources[i].peak_id = i
 
         # Create legacy blend JSON data
-        blend_data = io.ScarletBlendData.from_blend(blend).as_dict()
-        encoded_psf = io._numpy_to_json(self.observation.psfs)
+        blend_data = blend.to_blend_data().as_dict()
+        encoded_psf = io.utils.numpy_to_json(self.observation.psfs)
         blend_data["psf"] = encoded_psf["data"]
         blend_data["psf_shape"] = encoded_psf["shape"]
         blend_data["bands"] = tuple(str(band) for band in self.observation.bands)
@@ -162,9 +157,17 @@ class TestIo(ScarletTestCase):
         # Create legacy model data
         model_data = io.ScarletModelData(blends={}).as_dict()
         model_data["blends"][1] = blend_data
-        encoded_psf = io._numpy_to_json(self.observation.model_psf)
+        encoded_psf = io.utils.numpy_to_json(self.observation.model_psf)
         model_data["psf"] = encoded_psf["data"]
         model_data["psfShape"] = encoded_psf["shape"]
+
+        # Legacy models were pre-versioning, so delete any version key
+        model_data.pop("version", None)
+        blend_data.pop("version", None)
+        for source in blend_data["sources"].values():
+            source.pop("version", None)
+            for component in source["components"]:
+                component.pop("version", None)
 
         self.assertIsNone(model_data["metadata"])
 
