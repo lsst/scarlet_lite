@@ -8,7 +8,7 @@ from numpy.typing import DTypeLike
 
 from .blend import ScarletBlendBaseData
 from .migration import PRE_SCHEMA, MigrationRegistry, migration
-from .utils import decode_metadata, encode_metadata
+from .utils import PersistenceError, decode_metadata, encode_metadata
 
 __all__ = ["ScarletModelData"]
 
@@ -102,7 +102,7 @@ class ScarletModelData:
             try:
                 blend_data = ScarletBlendBaseData.from_dict(blend, dtype=dtype)
             except KeyError:
-                raise ValueError(f"Unknown blend type: {blend['blend_type']} for blend ID: {bid}")
+                raise PersistenceError(f"Unknown blend type: {blend['blend_type']} for blend ID: {bid}")
             blends[int(bid)] = blend_data  # type: ignore
 
         return cls(
