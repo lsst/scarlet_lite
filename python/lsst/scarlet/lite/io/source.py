@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,7 @@ __all__ = ["ScarletSourceData"]
 CURRENT_SCHEMA = "1.0.0"
 SOURCE_TYPE = "source"
 MigrationRegistry.set_current(SOURCE_TYPE, CURRENT_SCHEMA)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(kw_only=True)
@@ -100,6 +102,23 @@ class ScarletSourceData(ScarletSourceBaseData):
         """
         components: list[Component] = [component.to_component(observation) for component in self.components]
         return Source(components=components, metadata=self.metadata)
+
+    @staticmethod
+    def from_source(source: Source) -> ScarletSourceData:
+        """Deprecated: Create a `ScarletSourceData` from a scarlet `Source`
+
+        Parameters
+        ----------
+        source:
+            The scarlet `Source` to convert.
+
+        Returns
+        -------
+        result:
+            The `ScarletSourceData` representation of the source.
+        """
+        logger.warning("from_source is deprecated and will be removed in a future release.")
+        return source.to_data()
 
 
 ScarletSourceData.register()

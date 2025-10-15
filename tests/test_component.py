@@ -49,7 +49,7 @@ class DummyComponent(Component):
     def parameterize(self, parameterization: Callable) -> None:
         parameterization(self)
 
-    def to_component_data(self) -> DummyComponent:
+    def to_data(self) -> DummyComponent:
         pass
 
 

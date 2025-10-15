@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,7 @@ __all__ = ["ScarletBlendData"]
 CURRENT_SCHEMA = "1.0.0"
 BLEND_TYPE = "blend"
 MigrationRegistry.set_current(BLEND_TYPE, CURRENT_SCHEMA)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(kw_only=True)
@@ -160,6 +162,22 @@ class ScarletBlendData(ScarletBlendBaseData):
             sources.append(source)
 
         return Blend(sources=sources, observation=observation, metadata=self.metadata)
+
+    @staticmethod
+    def from_blend(blend: Blend) -> ScarletBlendData:
+        """Deprecated: Convert a scarlet lite blend into a storage data model.
+
+        Parameters
+        ----------
+        blend :
+            The blend to convert.
+        Returns
+        -------
+        result :
+            The storage data model representing the blend.
+        """
+        logger.warning("ScarletBlendData.from_blend is deprecated. Use blend.to_data() instead.")
+        return blend.to_data()
 
 
 ScarletBlendData.register()

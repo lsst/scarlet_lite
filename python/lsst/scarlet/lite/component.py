@@ -117,7 +117,7 @@ class Component(ABC):
         """
 
     @abstractmethod
-    def to_component_data(self) -> ScarletComponentBaseData:
+    def to_data(self) -> ScarletComponentBaseData:
         """Convert the component to persistable ScarletComponentBaseData
 
         Returns
@@ -368,7 +368,7 @@ class FactorizedComponent(Component):
         self._morph.grad = self.grad_morph
         self._morph.prox = self.prox_morph
 
-    def to_component_data(self) -> ScarletComponentBaseData:
+    def to_data(self) -> ScarletComponentBaseData:
         """Convert the component to persistable ScarletComponentBaseData
 
         Returns

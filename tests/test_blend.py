@@ -56,7 +56,7 @@ class DummyCubeComponent(Component):
     def parameterize(self, parameterization: Callable) -> None:
         pass
 
-    def to_component_data(self) -> DummyCubeComponent:
+    def to_data(self) -> DummyCubeComponent:
         pass
 
 

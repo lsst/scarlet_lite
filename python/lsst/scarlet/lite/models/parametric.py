@@ -839,7 +839,7 @@ class ParametricComponent(Component):
         self._params.grad = self.grad_morph
         self._params.prox = self.prox_morph
 
-    def to_component_data(self) -> ScarletComponentBaseData:
+    def to_data(self) -> ScarletComponentBaseData:
         raise NotImplementedError("Saving elliptical parametric components is not yet implemented")
 
 

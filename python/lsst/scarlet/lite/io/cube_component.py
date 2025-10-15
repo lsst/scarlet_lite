@@ -68,7 +68,7 @@ class ComponentCube(Component):
     def parameterize(self, parameterization: Callable) -> None:
         """Implementation of unused abstract method"""
 
-    def to_component_data(self) -> ScarletCubeComponentData:
+    def to_data(self) -> ScarletCubeComponentData:
         """Convert the component to persistable ScarletComponentData
 
         Returns

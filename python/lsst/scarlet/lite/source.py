@@ -44,7 +44,7 @@ class SourceBase(ABC):
     metadata: dict[str, Any] | None = None
 
     @abstractmethod
-    def to_source_data(self) -> ScarletSourceBaseData:
+    def to_data(self) -> ScarletSourceBaseData:
         """Convert to a `ScarletSourceBaseData` for serialization
 
         Returns
@@ -164,7 +164,7 @@ class Source(SourceBase):
         for component in self.components:
             component.parameterize(parameterization)
 
-    def to_source_data(self) -> ScarletSourceData:
+    def to_data(self) -> ScarletSourceData:
         """Convert to a `ScarletSourceData` for serialization
 
         Returns
@@ -174,7 +174,7 @@ class Source(SourceBase):
         """
         from .io import ScarletSourceData
 
-        component_data = [c.to_component_data() for c in self.components]
+        component_data = [c.to_data() for c in self.components]
         return ScarletSourceData(components=component_data, metadata=self.metadata)
 
     def __str__(self):

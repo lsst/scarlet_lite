@@ -99,7 +99,7 @@ class BlendBase(ABC):
         """
 
     @abstractmethod
-    def to_blend_data(self) -> ScarletBlendData:
+    def to_data(self) -> ScarletBlendData:
         """Convert the blend into a serializable dictionary format.
 
         Returns
@@ -402,7 +402,7 @@ class Blend(BlendBase):
             ratio[ratio > 1] = 1
             src.flux_weighted_image = src_model.copy_with(data=ratio) * images[overlap]
 
-    def to_blend_data(self) -> ScarletBlendData:
+    def to_data(self) -> ScarletBlendData:
         """Convert the Blend into a persistable data object
 
         Parameters
@@ -421,9 +421,9 @@ class Blend(BlendBase):
         for sidx, source in enumerate(self.sources):
             metadata = source.metadata or {}
             if "id" in metadata:
-                sources[metadata["id"]] = source.to_source_data()
+                sources[metadata["id"]] = source.to_data()
             else:
-                sources[sidx] = source.to_source_data()
+                sources[sidx] = source.to_data()
 
         blend_data = ScarletBlendData(
             origin=self.bbox.origin,  # type: ignore
