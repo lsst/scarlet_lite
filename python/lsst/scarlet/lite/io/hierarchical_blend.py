@@ -23,8 +23,12 @@ class HierarchicalBlendData(ScarletBlendBaseData):
 
     Attributes
     ----------
+    blend_type :
+        The type of blend being stored
     children :
         Map from blend IDs to child blends.
+    version :
+        The schema version of the HierarchicalBlendData.
     """
 
     blend_type: str = BLEND_TYPE

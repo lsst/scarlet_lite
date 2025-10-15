@@ -20,14 +20,16 @@ class ScarletSourceBaseData(ABC):
 
     Attributes
     ----------
-    components :
-        The components contained in the source that are not factorized.
-    factorized_components :
-        The components contained in the source that are factorized.
+    source_type :
+        The type of source being stored.
+    source_registry :
+        A registry of all known source types used for deserialization.
     metadata :
         Metadata associated with the source.
         If `metadata` contains the `id` key, it is used as the
         key for the source in a `Blend`'s dictionary of sources.
+    version :
+        The schema version of the exact data class.
     """
 
     source_type: str

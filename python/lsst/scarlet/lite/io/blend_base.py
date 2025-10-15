@@ -13,7 +13,19 @@ __all__ = ["ScarletBlendBaseData"]
 
 @dataclass(kw_only=True)
 class ScarletBlendBaseData(ABC):
-    """Base data for a scarlet Blend data."""
+    """Base data for a scarlet Blend data.
+
+    Attributes
+    ----------
+    blend_registry :
+        A registry of all known blend types used for deserialization.
+    blend_type :
+        The type of blend being stored.
+    metadata :
+        Metadata associated with the blend.
+    version :
+        The schema version of the exact data class.
+    """
 
     blend_registry: ClassVar[dict[str, type[ScarletBlendBaseData]]] = {}
     blend_type: str

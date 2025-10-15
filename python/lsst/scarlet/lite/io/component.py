@@ -15,7 +15,17 @@ __all__ = ["ScarletComponentBaseData"]
 
 @dataclass(kw_only=True)
 class ScarletComponentBaseData(ABC):
-    """Base data for a scarlet component"""
+    """Base data for a scarlet component
+
+    Attributes
+    ----------
+    component_registry :
+        A registry of all known component types used for deserialization.
+    component_type :
+        The type of component being stored.
+    version :
+        The schema version of the exact data class.
+    """
 
     component_registry: ClassVar[dict[str, type[ScarletComponentBaseData]]] = {}
     component_type: str

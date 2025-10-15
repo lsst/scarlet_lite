@@ -28,6 +28,10 @@ class ScarletModelData:
     metadata :
         Metadata associated with the model,
         for example the order of bands.
+    model_type :
+        The type of model being stored.
+    version :
+        The schema version of the ScarletModelData.
     """
 
     model_type: str = MODEL_TYPE

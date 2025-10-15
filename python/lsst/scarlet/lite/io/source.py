@@ -29,12 +29,14 @@ class ScarletSourceData(ScarletSourceBaseData):
     ----------
     components :
         The components contained in the source that are not factorized.
-    factorized_components :
-        The components contained in the source that are factorized.
     metadata :
         Metadata associated with the source.
         If `metadata` contains the `id` key, it is used as the
         key for the source in a `Blend`'s dictionary of sources.
+    source_type :
+        The type of source being stored
+    version :
+        The schema version of the ScarletSourceData.
     """
 
     source_type: str = SOURCE_TYPE

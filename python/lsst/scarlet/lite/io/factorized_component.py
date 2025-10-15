@@ -28,6 +28,8 @@ class ScarletFactorizedComponentData(ScarletComponentBaseData):
 
     Attributes
     ----------
+    component_type :
+        The type of component being stored.
     origin :
         The lower bound of the component's bounding box.
     peak :
@@ -49,6 +51,7 @@ class ScarletFactorizedComponentData(ScarletComponentBaseData):
 
     @property
     def shape(self):
+        """The shape of the component's morphology"""
         return self.morph.shape
 
     def to_component(self, observation: Observation) -> FactorizedComponent:

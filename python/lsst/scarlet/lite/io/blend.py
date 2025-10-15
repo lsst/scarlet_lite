@@ -27,6 +27,11 @@ class ScarletBlendData(ScarletBlendBaseData):
 
     Attributes
     ----------
+    blend_type :
+        The type of blend being stored.
+    metadata :
+        Metadata associated with the blend,
+        for example the order of bands, the PSF, etc.
     origin :
         The lower bound of the blend's bounding box.
     shape :
@@ -34,9 +39,6 @@ class ScarletBlendData(ScarletBlendBaseData):
     sources :
         Data for the sources contained in the blend,
         indexed by the source id.
-    psf :
-        The PSF of the observation.
-
     version :
         The schema version of the stored data.
     """
