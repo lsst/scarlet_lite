@@ -19,6 +19,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 __all__ = [
     "bounded_prox",
     "gaussian2d",
@@ -35,7 +37,7 @@ __all__ = [
     "EllipticalParametricComponent",
 ]
 
-from typing import Callable, Sequence, cast
+from typing import TYPE_CHECKING, Callable, Sequence, cast
 
 import numpy as np
 from scipy.special import erf
@@ -45,6 +47,9 @@ from ..bbox import Box
 from ..component import Component
 from ..image import Image
 from ..parameters import Parameter, parameter
+
+if TYPE_CHECKING:
+    from ..io import ScarletComponentBaseData
 
 # Some operations fail at the origin in radial coordinates,
 # so we make use of a very small offset.
@@ -833,6 +838,9 @@ class ParametricComponent(Component):
         self._spectrum.prox = self.prox_spectrum
         self._params.grad = self.grad_morph
         self._params.prox = self.prox_morph
+
+    def to_data(self) -> ScarletComponentBaseData:
+        raise NotImplementedError("Saving elliptical parametric components is not yet implemented")
 
 
 class EllipticalParametricComponent(ParametricComponent):

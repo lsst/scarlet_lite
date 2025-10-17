@@ -37,3 +37,4 @@ pytest_session.txt
 .idea
 .vscode
 python/*.dist-info/
+.env

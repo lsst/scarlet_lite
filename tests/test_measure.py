@@ -85,12 +85,10 @@ class TestMeasurements(ScarletTestCase):
             Source(
                 [
                     io.ComponentCube(
-                        bands=observation.bands,
-                        bbox=observation.bbox,
                         model=Image(
                             np.ones(observation.shape, dtype=observation.dtype),
                             observation.bands,
-                            yx0=(0, 0),
+                            yx0=observation.bbox.origin,
                         ),
                         peak=(0, 0),
                     )

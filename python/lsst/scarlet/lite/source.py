@@ -19,16 +19,42 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 __all__ = ["Source"]
 
-from typing import Callable
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any, Callable
 
 from .bbox import Box
 from .component import Component
 from .image import Image
 
+if TYPE_CHECKING:
+    from .io import ScarletSourceBaseData, ScarletSourceData
 
-class Source:
+
+class SourceBase(ABC):
+    """Base class for a source
+
+    This is primarily to allow `isinstance` checks
+    without importing the full `Source` class.
+    """
+
+    metadata: dict[str, Any] | None = None
+
+    @abstractmethod
+    def to_data(self) -> ScarletSourceBaseData:
+        """Convert to a `ScarletSourceBaseData` for serialization
+
+        Returns
+        -------
+        source_data:
+            The `ScarletSourceData` representation of this source.
+        """
+
+
+class Source(SourceBase):
     """A container for components associated with the same astrophysical object
 
     A source can have a single component, or multiple components,
@@ -40,9 +66,10 @@ class Source:
         The components contained in the source.
     """
 
-    def __init__(self, components: list[Component]):
+    def __init__(self, components: list[Component], metadata: dict | None = None):
         self.components = components
         self.flux_weighted_image: Image | None = None
+        self.metadata = metadata
 
     @property
     def n_components(self) -> int:
@@ -136,6 +163,19 @@ class Source:
         """
         for component in self.components:
             component.parameterize(parameterization)
+
+    def to_data(self) -> ScarletSourceData:
+        """Convert to a `ScarletSourceData` for serialization
+
+        Returns
+        -------
+        source_data:
+            The `ScarletSourceData` representation of this source.
+        """
+        from .io import ScarletSourceData
+
+        component_data = [c.to_data() for c in self.components]
+        return ScarletSourceData(components=component_data, metadata=self.metadata)
 
     def __str__(self):
         return f"Source<{len(self.components)}>"
