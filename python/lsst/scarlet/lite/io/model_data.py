@@ -78,7 +78,9 @@ class ScarletModelData:
         return json.dumps(result)
 
     @classmethod
-    def from_dict(cls, data: dict, dtype: DTypeLike = np.float32) -> ScarletModelData:
+    def from_dict(
+        cls, data: dict, dtype: DTypeLike = np.float32, **kwargs: dict[str, Any]
+    ) -> ScarletModelData:
         """Reconstruct `ScarletModelData` from JSON compatible dict.
 
         Parameters
@@ -87,13 +89,15 @@ class ScarletModelData:
             Dictionary representation of the object
         dtype :
             Datatype of the resulting model.
+        kwargs :
+            Additional keyword arguments.
 
         Returns
         -------
         result :
             The reconstructed object
         """
-        data = MigrationRegistry.migrate(MODEL_TYPE, data)
+        data = MigrationRegistry.migrate(cls.model_type, data)
         blends: dict[int, ScarletBlendBaseData] | None = {}
         for bid, blend in data.get("blends", {}).items():
             if "blend_type" not in blend:
@@ -108,6 +112,7 @@ class ScarletModelData:
         return cls(
             blends=blends,
             metadata=decode_metadata(data["metadata"]),
+            **kwargs,
         )
 
     @classmethod
