@@ -81,6 +81,8 @@ class HierarchicalBlendData(ScarletBlendBaseData):
 
 
 HierarchicalBlendData.register()
+# Register the legacy blend_type in the blend registry
+ScarletBlendBaseData.blend_registry["hierarchical_blend"] = HierarchicalBlendData
 
 
 @migration(BLEND_TYPE, PRE_SCHEMA)
