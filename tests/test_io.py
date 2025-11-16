@@ -85,6 +85,7 @@ class TestIo(ScarletTestCase):
         self.assertEqual(len(blend.sources), len(loaded_blend.sources))
         self.assertEqual(len(blend.components), len(loaded_blend.components))
         self.assertImageAlmostEqual(blend.get_model(), loaded_blend.get_model())
+        self.assertBoxEqual(blend.bbox, blend_data.bbox)
 
         for sidx in range(len(blend.sources)):
             source1 = blend.sources[sidx]
