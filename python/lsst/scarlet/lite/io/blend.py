@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any
 
 import numpy as np
@@ -50,6 +51,11 @@ class ScarletBlendData(ScarletBlendBaseData):
     shape: tuple[int, int]
     sources: dict[Any, ScarletSourceBaseData]
     version: str = CURRENT_SCHEMA
+
+    @cached_property
+    def bbox(self) -> Box:
+        """The bounding box of the blend"""
+        return Box(self.shape, origin=self.origin)
 
     def as_dict(self) -> dict:
         """Return the object encoded into a dict for JSON serialization
@@ -131,7 +137,7 @@ class ScarletBlendData(ScarletBlendBaseData):
         _model_psf: np.ndarray = extract_from_metadata(model_psf, self.metadata, "model_psf")
         _psf: np.ndarray = extract_from_metadata(psf, self.metadata, "psf")
         _bands: tuple[str] = extract_from_metadata(bands, self.metadata, "bands")
-        model_box = Box(self.shape, origin=self.origin)
+        model_box = self.bbox
         observation = Observation.empty(
             bands=_bands,
             psfs=_psf,

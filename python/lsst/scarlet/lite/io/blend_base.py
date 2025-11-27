@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 
 from numpy.typing import DTypeLike
 
+from ..bbox import Box
 from .utils import PersistenceError
 
 __all__ = ["ScarletBlendBaseData"]
@@ -31,6 +32,11 @@ class ScarletBlendBaseData(ABC):
     blend_type: str
     metadata: dict[str, Any] | None = None
     version: str
+
+    @property
+    @abstractmethod
+    def bbox(self) -> Box:
+        """The bounding box of the blend"""
 
     @classmethod
     def register(cls) -> None:

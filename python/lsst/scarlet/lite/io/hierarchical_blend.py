@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import DTypeLike
 
+from ..bbox import Box
 from .blend_base import ScarletBlendBaseData
 from .migration import PRE_SCHEMA, MigrationRegistry, migration
 from .utils import PersistenceError, decode_metadata, encode_metadata
@@ -34,6 +35,21 @@ class HierarchicalBlendData(ScarletBlendBaseData):
     blend_type: str = BLEND_TYPE
     children: dict[int, ScarletBlendBaseData]
     version: str = CURRENT_SCHEMA
+
+    @property
+    def bbox(self) -> Box:
+        """The bounding box of the blend"""
+        # Compute the bounding box that contains all children
+        if not self.children:
+            raise ValueError("HierarchicalBlendData has no children to compute bbox from.")
+        bboxes = [child.bbox for child in self.children.values()]
+        min_y = min(bbox.origin[0] for bbox in bboxes)
+        min_x = min(bbox.origin[1] for bbox in bboxes)
+        max_y = max(bbox.origin[0] + bbox.shape[0] for bbox in bboxes)
+        max_x = max(bbox.origin[1] + bbox.shape[1] for bbox in bboxes)
+        origin = (min_y, min_x)
+        shape = (max_y - min_y, max_x - min_x)
+        return Box(shape, origin=origin)
 
     def as_dict(self) -> dict:
         """Return the object encoded into a dict for JSON serialization
