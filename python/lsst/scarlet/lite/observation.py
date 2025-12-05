@@ -23,6 +23,7 @@ from __future__ import annotations
 
 __all__ = ["Observation", "convolve"]
 
+from copy import deepcopy
 from typing import Any, cast
 
 import numpy as np
@@ -63,9 +64,9 @@ def get_filter_coords(filter_values: np.ndarray, center: tuple[int, int] | None 
                      calculate `coords` on your own."""
             raise ValueError(msg)
         center = tuple([filter_values.shape[0] // 2, filter_values.shape[1] // 2])  # type: ignore
-    x = np.arange(filter_values.shape[1])
-    y = np.arange(filter_values.shape[0])
-    x, y = np.meshgrid(x, y)
+    _x = np.arange(filter_values.shape[1])
+    _y = np.arange(filter_values.shape[0])
+    x, y = np.meshgrid(_x, _y)
     x -= center[1]
     y -= center[0]
     coords = np.dstack([y, x])
@@ -366,6 +367,29 @@ class Observation:
         new_variance = self.variance[indices]
         new_weights = self.weights[indices]
 
+        # If the indices is a single band, make sure to keep the band axis
+        if new_image.ndim == 2:
+            if indices in self.bands:
+                new_bands = (indices,)
+            else:
+                # The indices contain spatial and band indices
+                new_bands = (indices[0],)
+            new_image = Image(
+                new_image.data[None, :, :],
+                yx0=new_image.yx0,
+                bands=new_bands,
+            )
+            new_variance = Image(
+                new_variance.data[None, :, :],
+                yx0=new_variance.yx0,
+                bands=new_bands,
+            )
+            new_weights = Image(
+                new_weights.data[None, :, :],
+                yx0=new_weights.yx0,
+                bands=new_bands,
+            )
+
         # Extract the appropriate bands from the PSF
         bands = self.images.bands
         new_bands = new_image.bands
@@ -385,55 +409,66 @@ class Observation:
             model_psf=self.model_psf,
             noise_rms=noise_rms,
             bbox=new_image.bbox,
-            bands=self.bands,
+            bands=new_bands,
             padding=self.padding,
             convolution_mode=self.mode,
         )
 
-    def __copy__(self, deep: bool = False) -> Observation:
+    def __copy__(self) -> Observation:
         """Create a copy of the observation
-
-        Parameters
-        ----------
-        deep:
-            Whether to perform a deep copy or not.
 
         Returns
         -------
         result:
             The copy of the observation.
         """
-        if deep:
-            if self.model_psf is None:
-                model_psf = None
-            else:
-                model_psf = self.model_psf.copy()
-
-            if self.noise_rms is None:
-                noise_rms = None
-            else:
-                noise_rms = self.noise_rms.copy()
-
-            if self.bands is None:
-                bands = None
-            else:
-                bands = tuple([b for b in self.bands])
-        else:
-            model_psf = self.model_psf
-            noise_rms = self.noise_rms
-            bands = self.bands
-
         return Observation(
-            images=self.images.copy(),
-            variance=self.variance.copy(),
-            weights=self.weights.copy(),
-            psfs=self.psfs.copy(),
-            model_psf=model_psf,
-            noise_rms=noise_rms,
-            bands=bands,
+            images=self.images,
+            variance=self.variance,
+            weights=self.weights,
+            psfs=self.psfs,
+            model_psf=self.model_psf,
+            noise_rms=self.noise_rms,
+            bands=self.bands,
             padding=self.padding,
             convolution_mode=self.mode,
         )
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Observation:
+        """Create a deep copy of the observation
+
+        Parameters
+        ----------
+        memo: dict[int, Any]
+            The memoization dictionary used by `copy.deepcopy`.
+
+        Returns
+        -------
+        result:
+            The deep copy of the observation.
+        """
+        # Check if already copied
+        if id(self) in memo:
+            return memo[id(self)]
+
+        # Create placeholder and add to memo FIRST
+        result = Observation.__new__(Observation)
+        memo[id(self)] = result
+
+        # Now safely initialize the placeholder with deepcopied arguments
+        result.__init__(  # type: ignore[misc]
+            images=deepcopy(self.images, memo),
+            variance=deepcopy(self.variance, memo),
+            weights=deepcopy(self.weights, memo),
+            psfs=deepcopy(self.psfs, memo),
+            model_psf=deepcopy(self.model_psf, memo),
+            noise_rms=deepcopy(self.noise_rms, memo),
+            bands=deepcopy(self.bands, memo),
+            padding=deepcopy(self.padding, memo),
+            convolution_mode=self.mode,
+        )
+
+        return result
 
     def copy(self, deep: bool = False) -> Observation:
         """Create a copy of the observation
@@ -448,7 +483,9 @@ class Observation:
         result:
             The copy of the observation.
         """
-        return self.__copy__(deep)
+        if deep:
+            return self.__deepcopy__({})
+        return self.__copy__()
 
     @property
     def shape(self) -> tuple[int, int, int]:

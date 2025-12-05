@@ -37,7 +37,8 @@ __all__ = [
     "EllipticalParametricComponent",
 ]
 
-from typing import TYPE_CHECKING, Callable, Sequence, cast
+from copy import deepcopy
+from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
 
 import numpy as np
 from scipy.special import erf
@@ -47,6 +48,7 @@ from ..bbox import Box
 from ..component import Component
 from ..image import Image
 from ..parameters import Parameter, parameter
+from ..utils import convert_indices
 
 if TYPE_CHECKING:
     from ..io import ScarletComponentBaseData
@@ -841,6 +843,105 @@ class ParametricComponent(Component):
 
     def to_data(self) -> ScarletComponentBaseData:
         raise NotImplementedError("Saving elliptical parametric components is not yet implemented")
+
+    def __getitem__(self, indices: Any) -> ParametricComponent:
+        """Get a sub-component corresponding to the given indices.
+
+        Parameters
+        ----------
+        indices: Any
+            The indices to use to slice the component model.
+
+        Returns
+        -------
+        component: ParametricComponent
+            A new component that is a sub-component of this one.
+
+        Raises
+        ------
+        IndexError :
+            If the index includes a ``Box`` or spatial indices.
+        """
+        # Update the bands
+        if indices in self._bands:
+            # Single band case
+            bands = (indices,)
+        else:
+            # Multiple bands case
+            bands = tuple(indices)
+
+        # Convert the band indices into numerical indices
+        band_indices = convert_indices(self.bands, indices)
+
+        # Slice the spectrum
+        spectrum = self._spectrum.x[band_indices]
+
+        return ParametricComponent(
+            bands=bands,
+            bbox=self.bbox,
+            spectrum=spectrum,
+            morph_params=self.radial_params,
+            morph_func=self._func,
+            morph_grad=self._morph_grad,
+            morph_prox=self._morph_prox,
+            morph_step=self._morph_step,
+            prox_spectrum=self._prox_spectrum,
+            floor=self.floor,
+        )
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> ParametricComponent:
+        """Create a deep copy of this component
+
+        Parameters
+        ----------
+        memo:
+            The memoization dictionary used by `copy.deepcopy`.
+        Returns
+        -------
+        component : ParametricComponent
+            A new component that is a deep copy of this one.
+        """
+        if id(self) in memo:
+            return memo[id(self)]
+
+        component = ParametricComponent.__new__(ParametricComponent)
+        memo[id(self)] = component
+
+        component.__init__(  # type: ignore[misc]
+            bands=deepcopy(self.bands),
+            bbox=deepcopy(self.bbox),
+            spectrum=deepcopy(self.spectrum),
+            morph_params=deepcopy(self.radial_params),
+            morph_func=self._func,
+            morph_grad=self._morph_grad,
+            morph_prox=self._morph_prox,
+            morph_step=self._morph_step,
+            prox_spectrum=self._prox_spectrum,
+            floor=self.floor,
+        )
+
+        return component
+
+    def __copy__(self) -> ParametricComponent:
+        """Create a copy of this component
+
+        Returns
+        -------
+        component : ParametricComponent
+            A new component that is a shallow copy of this one.
+        """
+        return ParametricComponent(
+            bands=self.bands,
+            bbox=self.bbox,
+            spectrum=self.spectrum,
+            morph_params=self.radial_params,
+            morph_func=self._func,
+            morph_grad=self._morph_grad,
+            morph_prox=self._morph_prox,
+            morph_step=self._morph_step,
+            prox_spectrum=self._prox_spectrum,
+            floor=self.floor,
+        )
 
 
 class EllipticalParametricComponent(ParametricComponent):

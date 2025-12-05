@@ -19,6 +19,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from copy import deepcopy
+
 import numpy as np
 from lsst.scarlet.lite import Box
 from utils import ScarletTestCase
@@ -213,3 +215,15 @@ class TestBox(ScarletTestCase):
         self.assertBoxEqual(bbox[:3], Box((1, 2, 3), (2, 4, 6)))
         # check tuple index
         self.assertBoxEqual(bbox[(3, 1)], Box((4, 2), (8, 4)))
+
+    def test_shallow_copy(self):
+        bbox = Box((3, 4, 5), (10, 20, 30))
+        bbox_copy = bbox.copy()
+        self.assertBoxEqual(bbox, bbox_copy)
+        self.assertIsNot(bbox, bbox_copy)
+
+    def test_deepcopy(self):
+        bbox = Box((3, 4, 5), (10, 20, 30))
+        bbox_deepcopy = deepcopy(bbox)
+        self.assertBoxEqual(bbox, bbox_deepcopy)
+        self.assertIsNot(bbox, bbox_deepcopy)

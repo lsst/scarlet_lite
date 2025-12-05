@@ -18,11 +18,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 from __future__ import annotations
+
+from copy import deepcopy
 
 __all__ = [
     "Component",
+    "CubeComponent",
     "FactorizedComponent",
     "default_fista_parameterization",
     "default_adaprox_parameterization",
@@ -30,7 +32,7 @@ __all__ = [
 
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import numpy as np
 
@@ -38,9 +40,14 @@ from .bbox import Box
 from .image import Image
 from .operators import Monotonicity, prox_uncentered_symmetry
 from .parameters import AdaproxParameter, FistaParameter, Parameter, parameter, relative_step
+from .utils import convert_indices
 
 if TYPE_CHECKING:
-    from .io import ScarletComponentBaseData
+    from .io import ScarletComponentBaseData, ScarletCubeComponentData
+
+import logging
+
+Logger = logging.getLogger(__name__)
 
 
 class Component(ABC):
@@ -125,6 +132,64 @@ class Component(ABC):
         component_data: ScarletComponentBaseData
             The data object containing the component information
         """
+
+    @abstractmethod
+    def __getitem__(self, indices: Any) -> Component:
+        """Get a sub-component corresponding to the given indices.
+
+        Parameters
+        ----------
+        indices: Any
+            The indices to use to slice the component model.
+
+        Returns
+        -------
+        sub_component: Component
+            A new component that is a sub-component of this one.
+
+        Raises
+        ------
+        IndexError :
+            If the index includes a ``Box`` or spatial indices.
+        """
+
+    @abstractmethod
+    def __copy__(self) -> Component:
+        """Create a copy of this component.
+
+        Returns
+        -------
+        component : Component
+            A new component that is a copy of this one.
+        """
+
+    @abstractmethod
+    def __deepcopy__(self, memo: dict[int, Any]) -> Component:
+        """Create a deep copy of this component.
+
+        Returns
+        -------
+        component : Component
+            A new component that is a deep copy of this one.
+        """
+
+    def copy(self, deep: bool = False) -> Component:
+        """Create a copy of this component.
+
+        Parameters
+        ----------
+        deep : bool, optional
+            If `True`, a deep copy is made. If `False`, a shallow copy is made.
+            Default is `False`.
+
+        Returns
+        -------
+        component : Component
+            A new component that is a copy of this one.
+        """
+        if deep:
+            return self.__deepcopy__({})
+        return self.__copy__()
 
 
 class FactorizedComponent(Component):
@@ -394,6 +459,234 @@ class FactorizedComponent(Component):
 
     def __repr__(self):
         return self.__str__()
+
+    def __getitem__(self, indices: Any) -> FactorizedComponent:
+        """Get a sub-component corresponding to the given indices.
+
+        Parameters
+        ----------
+        indices: Any
+            The indices to use to slice the component model.
+
+        Returns
+        -------
+        component: FactorizedComponent
+            A new component that is a sub-component of this one.
+
+        Raises
+        ------
+        IndexError :
+            If the index includes a ``Box`` or spatial indices.
+        """
+        # Convert the band indices into numerical indices
+        band_indices = convert_indices(self.bands, indices)
+        if isinstance(band_indices, slice):
+            bands = self.bands[band_indices]
+        else:
+            bands = tuple(self.bands[i] for i in band_indices)
+
+        # Slice the spectrum
+        spectrum = self._spectrum.x[band_indices,]
+
+        return FactorizedComponent(
+            bands=bands,
+            spectrum=spectrum,
+            morph=self.morph,
+            bbox=self.bbox,
+            peak=self.peak,
+            bg_rms=self.bg_rms,
+            bg_thresh=self.bg_thresh,
+            floor=self.floor,
+            monotonicity=self.monotonicity,
+            padding=self.padding,
+            is_symmetric=self.is_symmetric,
+        )
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> FactorizedComponent:
+        """Create a deep copy of this component.
+
+        Parameters
+        ----------
+        memo: dict[int, Any]
+            The memoization dictionary used by `copy.deepcopy`.
+
+        Returns
+        -------
+        component : FactorizedComponent
+            A new component that is a deep copy of this one.
+        """
+        # Check if already copied
+        if id(self) in memo:
+            return memo[id(self)]
+
+        # Create placeholder and add to memo FIRST
+        component = FactorizedComponent.__new__(FactorizedComponent)
+        memo[id(self)] = component
+
+        # Now safely initialize the placeholder with deepcopied arguments
+        component.__init__(  # type: ignore[misc]
+            bands=deepcopy(self.bands, memo),
+            spectrum=deepcopy(self.spectrum, memo),
+            morph=deepcopy(self.morph, memo),
+            bbox=deepcopy(self.bbox, memo),
+            peak=deepcopy(self.peak, memo),
+            bg_rms=deepcopy(self.bg_rms, memo),
+            bg_thresh=self.bg_thresh,
+            floor=self.floor,
+            monotonicity=deepcopy(self.monotonicity, memo),
+            padding=self.padding,
+            is_symmetric=self.is_symmetric,
+        )
+        return component
+
+    def __copy__(self) -> FactorizedComponent:
+        """Create a copy of this component.
+
+        Returns
+        -------
+        component : FactorizedComponent
+            A new component that is a shallow copy of this one.
+        """
+        return FactorizedComponent(
+            bands=self.bands,
+            spectrum=self.spectrum,
+            morph=self.morph,
+            bbox=self.bbox,
+            peak=self.peak,
+            bg_rms=self.bg_rms,
+            bg_thresh=self.bg_thresh,
+            floor=self.floor,
+            monotonicity=self.monotonicity,
+            padding=self.padding,
+            is_symmetric=self.is_symmetric,
+        )
+
+
+class CubeComponent(Component):
+    """Dummy component for a component cube.
+
+    This is duck-typed to a `lsst.scarlet.lite.Component` in order to
+    generate a model from the component but it is currently not functional
+    in that it cannot be optimized, only persisted and loaded.
+
+    If scarlet lite ever implements a component as a data cube,
+    this class can be removed.
+    """
+
+    def __init__(self, model: Image, peak: tuple[int, int]):
+        """Initialization
+
+        Parameters
+        ----------
+        bands :
+        model :
+            The 3D (bands, y, x) model of the component.
+        peak :
+            The `(y, x)` peak of the component.
+        bbox :
+            The bounding box of the component.
+        """
+        super().__init__(model.bands, model.bbox)
+        self._model = model
+        self.peak = peak
+
+    def get_model(self) -> Image:
+        """Generate the model for the source
+
+        Returns
+        -------
+        model :
+            The model as a 3D `(band, y, x)` array.
+        """
+        return self._model
+
+    def resize(self, model_box: Box) -> bool:
+        """Resize the component if needed and return whether it was resized"""
+        Logger.warning("CubeComponent does not support resizing")
+        return False
+
+    def update(self, it: int, input_grad: np.ndarray) -> None:
+        """Implementation of unused abstract method"""
+        Logger.warning("CubeComponent does not support updates")
+
+    def parameterize(self, parameterization: Callable) -> None:
+        """Implementation of unused abstract method"""
+        Logger.warning("CubeComponent does not support parameterization")
+
+    def to_data(self) -> ScarletCubeComponentData:
+        """Convert the component to persistable ScarletComponentData
+
+        Returns
+        -------
+        component_data: ScarletComponentData
+            The data object containing the component information
+        """
+        from .io import ScarletCubeComponentData
+
+        return ScarletCubeComponentData(
+            origin=self.bbox.origin,  # type: ignore
+            peak=self.peak,  # type: ignore
+            model=self.get_model().data,
+        )
+
+    def __getitem__(self, indices: Any) -> CubeComponent:
+        """Get a sub-component corresponding to the given indices.
+
+        Parameters
+        ----------
+        indices :
+            The indices to select.
+        Returns
+        -------
+        sub_component :
+            A new component that is a sub-component of this one.
+        """
+        band_indices = convert_indices(self.bands, indices)
+        if isinstance(band_indices, slice):
+            bands = self.bands[band_indices]
+        else:
+            bands = tuple(self.bands[i] for i in band_indices)
+
+        data = self.get_model()._data[band_indices,]
+        model = Image(data=data, bands=bands, yx0=cast(tuple[int, int], self.bbox.origin))
+        return CubeComponent(model=model, peak=self.peak)
+
+    def __copy__(self) -> CubeComponent:
+        """Create a copy of this component.
+
+        Returns
+        -------
+        component : ComponentCube
+            A new component that is a shallow copy of this one.
+        """
+        return CubeComponent(model=self._model, peak=self.peak)
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> CubeComponent:
+        """Create a deep copy of this component.
+
+        Parameters
+        ----------
+        memo: dict[int, Any]
+            The memoization dictionary used by `copy.deepcopy`.
+
+        Returns
+        -------
+        component : ComponentCube
+            A new component that is a deep copy of this one.
+        """
+        if id(self) in memo:
+            return memo[id(self)]
+
+        # Create placeholder and add to memo FIRST
+        component = CubeComponent.__new__(CubeComponent)
+        memo[id(self)] = component
+
+        # Now safely initialize the placeholder with deepcopied arguments
+        component.__init__(  # type: ignore[misc]
+            model=self._model.copy(),
+            peak=self.peak,
+        )
+        return component
 
 
 def default_fista_parameterization(component: Component):

@@ -24,8 +24,8 @@ import os
 
 import numpy as np
 from lsst.scarlet.lite import Blend, Image, Observation, io
+from lsst.scarlet.lite.component import CubeComponent
 from lsst.scarlet.lite.initialization import FactorizedInitialization
-from lsst.scarlet.lite.io import ComponentCube
 from lsst.scarlet.lite.operators import Monotonicity
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_almost_equal
@@ -107,7 +107,7 @@ class TestIo(ScarletTestCase):
             blend.sources[i].metadata = {"id": f"peak-{i}"}
         component = blend.sources[-1].components[-1]
         # Replace one of the components with a Free-Form component.
-        blend.sources[-1].components[-1] = ComponentCube(
+        blend.sources[-1].components[-1] = CubeComponent(
             model=component.get_model(),
             peak=component.peak,
         )

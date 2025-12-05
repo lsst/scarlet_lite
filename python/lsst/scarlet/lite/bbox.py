@@ -23,7 +23,8 @@ from __future__ import annotations
 
 __all__ = ["Box", "overlapped_slices"]
 
-from typing import Sequence, cast
+from copy import deepcopy
+from typing import Any, Sequence, cast
 
 import numpy as np
 
@@ -460,6 +461,15 @@ class Box:
         """
         bounds = self.bounds + bbox.bounds
         result = Box.from_bounds(*bounds)
+        return result
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Box:
+        """Deep copy of the box"""
+        my_id = id(self)
+        if my_id in memo:
+            return memo[my_id]
+        result = Box(deepcopy(self.shape), origin=deepcopy(self.origin))
+        memo[my_id] = result
         return result
 
     def __copy__(self) -> Box:

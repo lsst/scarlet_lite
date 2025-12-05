@@ -24,7 +24,8 @@ from __future__ import annotations
 __all__ = ["Source"]
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable
+from copy import deepcopy
+from typing import TYPE_CHECKING, Any, Callable, Self
 
 from .bbox import Box
 from .component import Component
@@ -42,6 +43,7 @@ class SourceBase(ABC):
     """
 
     metadata: dict[str, Any] | None = None
+    components: list[Component]
 
     @abstractmethod
     def to_data(self) -> ScarletSourceBaseData:
@@ -52,6 +54,69 @@ class SourceBase(ABC):
         source_data:
             The `ScarletSourceData` representation of this source.
         """
+
+    @abstractmethod
+    def __getitem__(self, indices: Any) -> Self:
+        """Get a sub-source corresponding to the given indices.
+
+        Parameters
+        ----------
+        indices: Any
+            The indices to use to slice the source model.
+
+        Returns
+        -------
+        source: SourceBase
+            A new source that is a sub-source of this one.
+
+        Raises
+        ------
+        IndexError :
+            If the index includes a ``Box`` or spatial indices.
+        """
+
+    @abstractmethod
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
+        """Create a deep copy of this source.
+
+        Parameters
+        ----------
+        memo : dict[int, Any]
+            A memoization dictionary used by `copy.deepcopy`.
+
+        Returns
+        -------
+        source : SourceBase
+            A new source that is a deep copy of this one.
+        """
+
+    @abstractmethod
+    def __copy__(self) -> Self:
+        """Create a copy of this source.
+
+        Returns
+        -------
+        source : SourceBase
+            A new source that is a copy of this one.
+        """
+
+    def copy(self, deep: bool = False) -> Self:
+        """Create a copy of this source.
+
+        Parameters
+        ----------
+        deep : bool, optional
+            If `True`, a deep copy is made. If `False`, a shallow copy is made.
+            Default is `False`.
+
+        Returns
+        -------
+        source : Self
+            A new source that is a copy of this one.
+        """
+        if deep:
+            return self.__deepcopy__({})
+        return self.__copy__()
 
 
 class Source(SourceBase):
@@ -66,9 +131,14 @@ class Source(SourceBase):
         The components contained in the source.
     """
 
-    def __init__(self, components: list[Component], metadata: dict | None = None):
+    def __init__(
+        self,
+        components: list[Component],
+        metadata: dict | None = None,
+        flux_weighted_image: Image | None = None,
+    ):
         self.components = components
-        self.flux_weighted_image: Image | None = None
+        self.flux_weighted_image = flux_weighted_image
         self.metadata = metadata
 
     @property
@@ -182,3 +252,74 @@ class Source(SourceBase):
 
     def __repr__(self):
         return f"Source(components={repr(self.components)})>"
+
+    def __getitem__(self, indices: Any) -> Source:
+        """Get a sub-source corresponding to the given indices.
+
+        Parameters
+        ----------
+        indices: Any
+            The indices to use to slice the source model. Can be:
+            - A single band
+            - A slice with start/stop bands
+            - A sequence of bands
+
+        Returns
+        -------
+        source: Source
+            A new source that is a sub-source of this one.
+
+        Raises
+        ------
+        IndexError :
+            If the index includes a ``Box`` or spatial indices.
+        """
+        flux = None if self.flux_weighted_image is None else self.flux_weighted_image[indices]
+        return Source(
+            components=[c[indices] for c in self.components],
+            metadata=self.metadata,
+            flux_weighted_image=flux,
+        )
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Source:
+        """Create a deep copy of this source.
+
+        Parameters
+        ----------
+        memo : dict[int, Any]
+            A memoization dictionary used by `copy.deepcopy`.
+
+        Returns
+        -------
+        source : SourceBase
+            A new source that is a deep copy of this one.
+        """
+        # Check if already copied
+        if id(self) in memo:
+            return memo[id(self)]
+
+        # Create placeholder and add to memo FIRST
+        source = Source.__new__(Source)
+        memo[id(self)] = source
+
+        source.__init__(  # type: ignore[misc]
+            components=deepcopy(self.components, memo),
+            metadata=deepcopy(self.metadata, memo),
+            flux_weighted_image=deepcopy(self.flux_weighted_image, memo),
+        )
+        return source
+
+    def __copy__(self) -> Source:
+        """Create a copy of this source.
+
+        Returns
+        -------
+        source : SourceBase
+            A new source that is a copy of this one.
+        """
+        source = Source(
+            components=self.components,
+            metadata=self.metadata,
+            flux_weighted_image=self.flux_weighted_image,
+        )
+        return source

@@ -21,43 +21,17 @@
 
 from __future__ import annotations
 
-from typing import Callable, cast
+from typing import cast
 
 import numpy as np
 from lsst.scarlet.lite import Blend, Box, Image, Observation, Source
-from lsst.scarlet.lite.component import Component, FactorizedComponent, default_adaprox_parameterization
+from lsst.scarlet.lite.component import CubeComponent, FactorizedComponent, default_adaprox_parameterization
 from lsst.scarlet.lite.initialization import FactorizedInitialization
 from lsst.scarlet.lite.operators import Monotonicity
-from lsst.scarlet.lite.parameters import Parameter
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_almost_equal, assert_raises
 from scipy.signal import convolve as scipy_convolve
 from utils import ObservationData, ScarletTestCase
-
-
-class DummyCubeComponent(Component):
-    def __init__(self, model: Image):
-        super().__init__(model.bands, model.bbox)
-        self._model = Parameter(model.data, {}, 0)
-
-    @property
-    def data(self) -> np.ndarray:
-        return self._model.x
-
-    def resize(self, model_box: Box) -> bool:
-        pass
-
-    def update(self, it: int, input_grad: np.ndarray):
-        pass
-
-    def get_model(self) -> Image:
-        return Image(self.data, bands=self.bands, yx0=self.bbox.origin)
-
-    def parameterize(self, parameterization: Callable) -> None:
-        pass
-
-    def to_data(self) -> DummyCubeComponent:
-        pass
 
 
 class TestBlend(ScarletTestCase):
@@ -230,7 +204,7 @@ class TestBlend(ScarletTestCase):
         # Remove the disk component from the first source
         blend.sources[0].components = blend.sources[0].components[:1]
         # Create a new source for the disk with a non-factorized component
-        component = DummyCubeComponent(Image(model, bands=self.blend.observation.bands, yx0=yx0))
+        component = CubeComponent(Image(model, bands=self.blend.observation.bands, yx0=yx0), (0, 0))
         blend.sources.append(Source([component]))
 
         blend.fit_spectra()
@@ -254,7 +228,7 @@ class TestBlend(ScarletTestCase):
 
         # Add an empty source
         zero_model = Image.from_box(Box((5, 5), (30, 0)), bands=blend.observation.bands)
-        component = DummyCubeComponent(zero_model)
+        component = CubeComponent(zero_model, (0, 0))
         blend.sources.append(Source([component]))
 
         blend.fit_spectra(clip=True)
@@ -262,3 +236,107 @@ class TestBlend(ScarletTestCase):
         self.assertEqual(len(blend.components), 5)
         self.assertEqual(len(blend.sources), 5)
         self.assertImageAlmostEqual(blend.get_model(), self.data.images)
+
+    def test_shallow_copy(self):
+        blend = self.blend
+        blend.metadata = {"test": "value"}
+        blend_copy = blend.copy()
+
+        self.assertIsNot(blend_copy, blend)
+        self.assertEqual(len(blend_copy.sources), len(blend.sources))
+        for source_copy, source in zip(blend_copy.sources, blend.sources):
+            self.assertSourceEqual(source_copy, source)
+
+        self.assertObservationEqual(blend_copy.observation, blend.observation)
+
+        self.assertDictEqual(blend_copy.metadata, blend.metadata)
+
+    def test_deepcopy(self):
+        blend = self.blend
+        blend.metadata = {"test": "value"}
+        blend_copy = blend.copy(deep=True)
+
+        self.assertIsNot(blend_copy, blend)
+        self.assertEqual(len(blend_copy.sources), len(blend.sources))
+        for source_copy, source in zip(blend_copy.sources, blend.sources):
+            self.assertSourceEqual(source_copy, source)
+
+            with self.assertRaises(AssertionError):
+                source_copy.components[0]._spectrum.x += 1
+                self.assertSourceEqual(source_copy, source)
+
+        self.assertObservationEqual(blend_copy.observation, blend.observation)
+        self.assertDictEqual(blend_copy.metadata, blend.metadata)
+        blend_copy.metadata["test"] = "new_value"
+        with self.assertRaises(AssertionError):
+            self.assertDictEqual(blend_copy.metadata, blend.metadata)
+
+    def test_slice(self):
+        blend = self.blend
+        blend.metadata = {"test": "value"}
+        blend_sliced = blend["g":"r"]
+        self.assertEqual(len(blend.sources), len(blend_sliced.sources))
+
+        for source_sliced, source in zip(blend_sliced.sources, blend.sources):
+            self.assertSourceEqual(source_sliced, source["g":"r"])
+
+        self.assertObservationEqual(blend_sliced.observation, blend.observation["g":"r"])
+        self.assertDictEqual(blend_sliced.metadata, blend.metadata)
+
+    def test_reorder(self):
+        blend = self.blend
+        blend.metadata = {"test": "value"}
+        indices = ("i", "g", "r")
+        blend_reordered = blend[indices]
+        self.assertEqual(len(blend.sources), len(blend_reordered.sources))
+
+        for source_reordered, source in zip(blend_reordered.sources, blend.sources):
+            self.assertSourceEqual(source_reordered, source[indices])
+
+        self.assertObservationEqual(blend_reordered.observation, blend.observation[indices])
+        self.assertDictEqual(blend_reordered.metadata, blend.metadata)
+
+    def test_subset(self):
+        blend = self.blend
+        blend.metadata = {"test": "value"}
+        blend_subset = blend[("r",)]
+        self.assertEqual(len(blend.sources), len(blend_subset.sources))
+
+        for source_subset, source in zip(blend_subset.sources, blend.sources):
+            self.assertSourceEqual(source_subset, source["r"])
+
+        self.assertObservationEqual(blend_subset.observation, blend.observation["r"])
+        self.assertDictEqual(blend_subset.metadata, blend.metadata)
+
+    def test_indexing_errors(self):
+        blend = self.blend
+
+        with self.assertRaises(IndexError):
+            blend["x"]
+
+        with self.assertRaises(IndexError):
+            blend[("r", "x")]
+
+        with self.assertRaises(IndexError):
+            blend["r":"x"]
+
+        with self.assertRaises(IndexError):
+            blend["x":"i"]
+
+        with self.assertRaises(IndexError):
+            blend["g", "x", "i"]
+
+        with self.assertRaises(IndexError):
+            blend[Box((0, 0), (10, 10))]
+
+        with self.assertRaises(IndexError):
+            blend[:, 10:20, 10:20]
+
+        with self.assertRaises(IndexError):
+            blend[1:]
+
+        with self.assertRaises(IndexError):
+            blend[1]
+
+        with self.assertRaises(IndexError):
+            blend[0, 1]

@@ -18,19 +18,24 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+from __future__ import annotations
 
 __all__ = ["FactorizedFreeFormComponent"]
 
-from typing import Callable, cast
+from copy import deepcopy
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import numpy as np
-from lsst.scarlet.lite.detect_pybind11 import get_connected_multipeak, get_footprints  # type: ignore
 
 from ..bbox import Box
 from ..component import Component, FactorizedComponent
 from ..detect import footprints_to_image
+from ..detect_pybind11 import get_connected_multipeak, get_footprints  # type: ignore
 from ..image import Image
 from ..parameters import Parameter, parameter
+
+if TYPE_CHECKING:
+    from ..io.component import ScarletComponentBaseData
 
 
 class FactorizedFreeFormComponent(FactorizedComponent):
@@ -238,3 +243,90 @@ class FreeFormComponent(Component):
 
     def __repr__(self):
         return self.__str__()
+
+    def to_data(self) -> ScarletComponentBaseData:
+        raise NotImplementedError("Serialization not implemented for FreeFormComponent")
+
+    def __getitem__(self, indices: Any) -> FreeFormComponent:
+        """Get a sub-component corresponding to the given indices.
+
+        Parameters
+        ----------
+        indices: Any
+            The indices to use to slice the component model.
+
+        Returns
+        -------
+        component: FreeFormComponent
+            A new component that is a sub-component of this one.
+
+        Raises
+        ------
+        IndexError :
+            If the index includes a ``Box`` or spatial indices.
+        """
+        if indices in self.bands:
+            bands = (indices,)
+        else:
+            bands = tuple(indices)
+
+        return FreeFormComponent(
+            bands=bands,
+            model=self.model[indices],
+            model_bbox=self.bbox,
+            bg_thresh=self.bg_thresh,
+            bg_rms=self.bg_rms,
+            floor=self.floor,
+            peaks=self.peaks,
+            min_area=self.min_area,
+        )
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> FreeFormComponent:
+        """Create a deep copy of this component.
+
+        Parameters
+        ----------
+        memo: dict[int, Any]
+            A dictionary to keep track of already copied objects.
+
+        Returns
+        -------
+        component : FreeFormComponent
+            A new component that is a deep copy of this one.
+        """
+        if id(self) in memo:
+            return memo[id(self)]
+
+        component = FreeFormComponent.__new__(FreeFormComponent)
+        memo[id(self)] = component
+
+        component.__init__(  # type: ignore[misc]
+            bands=deepcopy(self.bands),
+            model=deepcopy(self.model),
+            model_bbox=deepcopy(self.bbox),
+            bg_thresh=self.bg_thresh,
+            bg_rms=deepcopy(self.bg_rms),
+            floor=self.floor,
+            peaks=deepcopy(self.peaks),
+            min_area=self.min_area,
+        )
+        return component
+
+    def __copy__(self) -> FreeFormComponent:
+        """Create a copy of this component.
+
+        Returns
+        -------
+        component : FreeFormComponent
+            A new component that is a copy of this one.
+        """
+        return FreeFormComponent(
+            bands=self.bands,
+            model=self.model,
+            model_bbox=self.bbox,
+            bg_thresh=self.bg_thresh,
+            bg_rms=self.bg_rms,
+            floor=self.floor,
+            peaks=self.peaks,
+            min_area=self.min_area,
+        )

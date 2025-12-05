@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from deprecated.sphinx import deprecated  # type: ignore
 from numpy.typing import DTypeLike
 
 from ..component import Component
@@ -104,6 +105,11 @@ class ScarletSourceData(ScarletSourceBaseData):
         return Source(components=components, metadata=self.metadata)
 
     @staticmethod
+    @deprecated(
+        reason="from_source is deprecated and will be removed in a future release.",
+        version="v30.0",
+        category=FutureWarning,
+    )
     def from_source(source: Source) -> ScarletSourceData:
         """Deprecated: Create a `ScarletSourceData` from a scarlet `Source`
 
@@ -117,7 +123,6 @@ class ScarletSourceData(ScarletSourceBaseData):
         result:
             The `ScarletSourceData` representation of the source.
         """
-        logger.warning("from_source is deprecated and will be removed in a future release.")
         return source.to_data()
 
 

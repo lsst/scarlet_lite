@@ -22,8 +22,8 @@
 import os
 
 import numpy as np
-from lsst.scarlet.lite import Blend, Image, Observation, Source, io
-from lsst.scarlet.lite.component import default_adaprox_parameterization
+from lsst.scarlet.lite import Blend, Image, Observation, Source
+from lsst.scarlet.lite.component import CubeComponent, default_adaprox_parameterization
 from lsst.scarlet.lite.initialization import FactorizedInitialization
 from lsst.scarlet.lite.measure import calculate_snr
 from lsst.scarlet.lite.operators import Monotonicity
@@ -84,7 +84,7 @@ class TestMeasurements(ScarletTestCase):
         blend.sources.append(
             Source(
                 [
-                    io.ComponentCube(
+                    CubeComponent(
                         model=Image(
                             np.ones(observation.shape, dtype=observation.dtype),
                             observation.bands,
