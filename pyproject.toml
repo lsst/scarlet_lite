@@ -43,7 +43,7 @@ test = [
     "pytest >= 3.2",
 ]
 yaml = ["pyyaml >= 5.1"]
-plotting = ["matplotlib", "astropy < 7"]
+plotting = ["matplotlib", "astropy >= 6.1"]
 
 [tool.setuptools.packages.find]
 where = ["python"]
