@@ -22,13 +22,14 @@
 from __future__ import annotations
 
 import operator
+from copy import deepcopy
 from typing import Any, Callable, Sequence, cast
 
 import numpy as np
 from numpy.typing import DTypeLike
 
 from .bbox import Box
-from .utils import ScalarLike, ScalarTypes
+from .utils import ScalarLike, ScalarTypes, convert_indices
 
 __all__ = ["Image", "MismatchedBoxError", "MismatchedBandsError"]
 
@@ -54,7 +55,7 @@ def get_dtypes(*data: np.ndarray | Image | ScalarLike) -> list[DTypeLike]:
     result:
         A list of datatypes.
     """
-    dtypes: list[DTypeLike] = [None] * len(data)
+    dtypes: list[DTypeLike] = [float] * len(data)
     for d, element in enumerate(data):
         if hasattr(element, "dtype"):
             dtypes[d] = cast(np.ndarray, element).dtype
@@ -496,24 +497,7 @@ class Image:
         band_indices:
             Tuple of indices for each band in this image.
         """
-        if isinstance(bands, slice):
-            # Convert a slice of band names into a slice of array indices
-            # to select the appropriate slice.
-            if bands.start is None:
-                start = None
-            else:
-                start = self.bands.index(bands.start)
-            if bands.stop is None:
-                stop = None
-            else:
-                stop = self.bands.index(bands.stop) + 1
-            return slice(start, stop, bands.step)
-
-        if isinstance(bands, str):
-            return (self.bands.index(bands),)
-
-        band_indices = tuple(self.bands.index(band) for band in bands if band in self.bands)
-        return band_indices
+        return convert_indices(self.bands, bands)
 
     def matched_spectral_indices(
         self,
@@ -545,7 +529,8 @@ class Image:
             err = "Attempted to insert a multi-band image into a monochromatic image"
             raise ValueError(err)
 
-        self_indices = cast(tuple[int, ...], self.spectral_indices(other.bands))
+        common_bands = tuple(set(self.bands).intersection(set(other.bands)))
+        self_indices = cast(tuple[int, ...], self.spectral_indices(common_bands))
         matched_bands = tuple(self.bands[bidx] for bidx in self_indices)
         other_indices = cast(tuple[int, ...], other.spectral_indices(matched_bands))
         return other_indices, self_indices
@@ -681,6 +666,45 @@ class Image:
             bands=bands,
             yx0=self.yx0,
         )
+
+    def __copy__(self) -> Image:
+        """Make a copy of this image.
+
+        Returns
+        -------
+        image: Image
+            The copy of this image.
+        """
+        return self.copy_with()
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Image:
+        """Make a deep copy of this image.
+
+        Parameters
+        ----------
+        memo:
+            A dictionary of already copied objects to avoid infinite recursion.
+        Returns
+        -------
+        image: Image
+            The deep copy of this image.
+        """
+        # Check if already copied
+        if id(self) in memo:
+            return memo[id(self)]
+
+        # Create placeholder and add to memo FIRST
+        result = Image.__new__(Image)
+        memo[id(self)] = result
+
+        # Now safely initialize the placeholder with deepcopied arguments
+        result.__init__(  # type: ignore[misc]
+            data=deepcopy(self.data, memo),
+            bands=deepcopy(self.bands, memo),
+            yx0=deepcopy(self.yx0, memo),
+        )
+
+        return result
 
     def copy(self, order=None) -> Image:
         """Make a copy of this image.

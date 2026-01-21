@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import ClassVar
 
+import numpy as np
 from numpy.typing import DTypeLike
 
 from ..component import Component
@@ -62,7 +63,7 @@ class ScarletComponentBaseData(ABC):
         """
 
     @staticmethod
-    def from_dict(data: dict, dtype: DTypeLike | None = None) -> ScarletComponentBaseData:
+    def from_dict(data: dict, dtype: DTypeLike = np.float32) -> ScarletComponentBaseData:
         """Reconstruct `ScarletComponentBaseData` from JSON compatible
         dict.
 

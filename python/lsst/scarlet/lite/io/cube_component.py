@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
+from deprecated.sphinx import deprecated  # type: ignore
 from numpy.typing import DTypeLike
 
 from ..bbox import Box
-from ..component import Component
+from ..component import CubeComponent
 from ..image import Image
 from ..observation import Observation
 from .component import ScarletComponentBaseData
@@ -19,68 +20,20 @@ CURRENT_SCHEMA = "1.0.0"
 COMPONENT_TYPE = "cube"
 MigrationRegistry.set_current(COMPONENT_TYPE, CURRENT_SCHEMA)
 
+logger = logging.getLogger(__name__)
 
-class ComponentCube(Component):
-    """Dummy component for a component cube.
 
-    This is duck-typed to a `lsst.scarlet.lite.Component` in order to
-    generate a model from the component but it is currently not functional
-    in that it cannot be optimized, only persisted and loaded.
-
-    If scarlet lite ever implements a component as a data cube,
-    this class can be removed.
-    """
+@deprecated(
+    reason="ComponentCube is deprecated and will be removed after scarlet_lite v30.0. "
+    "Please use CubeComponent instead.",
+    version="scarlet_lite v30.0",
+    category=FutureWarning,
+)
+class ComponentCube(CubeComponent):
+    """Deprecated, use CubeComponent instead."""
 
     def __init__(self, model: Image, peak: tuple[int, int]):
-        """Initialization
-
-        Parameters
-        ----------
-        bands :
-        model :
-            The 3D (bands, y, x) model of the component.
-        peak :
-            The `(y, x)` peak of the component.
-        bbox :
-            The bounding box of the component.
-        """
-        super().__init__(model.bands, model.bbox)
-        self._model = model
-        self.peak = peak
-
-    def get_model(self) -> Image:
-        """Generate the model for the source
-
-        Returns
-        -------
-        model :
-            The model as a 3D `(band, y, x)` array.
-        """
-        return self._model
-
-    def resize(self, model_box: Box) -> bool:
-        """Test whether or not the component needs to be resized"""
-        return False
-
-    def update(self, it: int, input_grad: np.ndarray) -> None:
-        """Implementation of unused abstract method"""
-
-    def parameterize(self, parameterization: Callable) -> None:
-        """Implementation of unused abstract method"""
-
-    def to_data(self) -> ScarletCubeComponentData:
-        """Convert the component to persistable ScarletComponentData
-
-        Returns
-        -------
-        component_data: ScarletComponentData
-            The data object containing the component information
-        """
-        return ScarletCubeComponentData(
-            origin=self.bbox.origin,  # type: ignore
-            peak=self.peak,  # type: ignore
-            model=self.get_model().data,
-        )
+        super().__init__(model=model, peak=peak)
 
 
 @dataclass(kw_only=True)
@@ -110,7 +63,7 @@ class ScarletCubeComponentData(ScarletComponentBaseData):
     def shape(self):
         return self.model.shape[-2:]
 
-    def to_component(self, observation: Observation) -> ComponentCube:
+    def to_component(self, observation: Observation) -> CubeComponent:
         """Convert the storage data model into a scarlet Component
 
         Parameters
@@ -130,7 +83,7 @@ class ScarletCubeComponentData(ScarletComponentBaseData):
         else:
             peak = (int(np.round(self.peak[0])), int(np.round(self.peak[0])))
         assert peak is not None
-        component = ComponentCube(
+        component = CubeComponent(
             model=Image(model, yx0=bbox.origin, bands=observation.bands),  # type: ignore
             peak=peak,
         )

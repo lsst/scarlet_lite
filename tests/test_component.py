@@ -21,17 +21,20 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from abc import ABC
+from typing import Any, Callable
 
 import numpy as np
 from lsst.scarlet.lite import Box, Image, Parameter
 from lsst.scarlet.lite.component import (
     Component,
+    CubeComponent,
     FactorizedComponent,
     default_adaprox_parameterization,
     default_fista_parameterization,
 )
 from lsst.scarlet.lite.operators import Monotonicity
+from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_almost_equal, assert_array_equal
 from utils import ScarletTestCase
 
@@ -52,8 +55,92 @@ class DummyComponent(Component):
     def to_data(self) -> DummyComponent:
         pass
 
+    def __getitem__(self, indices: Any) -> DummyComponent:
+        pass
 
-class TestFactorizedComponent(ScarletTestCase):
+    def __copy__(self) -> DummyComponent:
+        pass
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> DummyComponent:
+        pass
+
+
+class _ComponentTestBase(ABC):
+    def test_slice(self):
+        component = self.component
+        component_sliced = component["g":"r"]
+        self.assertTupleEqual(component_sliced.bands, ("g", "r"))
+        np.testing.assert_array_equal(component_sliced.get_model(), component.get_model().data[0:2])
+
+    def test_reorder(self):
+        component = self.component
+        indices = ("i", "g", "r")
+        component_reordered = component["i", "g", "r"]
+        self.assertTupleEqual(component_reordered.bands, indices)
+        np.testing.assert_array_equal(
+            component_reordered.get_model(),
+            component.get_model().data[(2, 0, 1),],
+        )
+
+        component_reordered = component["igr"]
+        self.assertTupleEqual(component_reordered.bands, indices)
+        np.testing.assert_array_equal(
+            component_reordered.get_model(),
+            component.get_model().data[(2, 0, 1),],
+        )
+
+    def test_subset(self):
+        component = self.component
+        indices = ("r",)
+        component_subset = component["r"]
+        self.assertTupleEqual(component_subset.bands, indices)
+        np.testing.assert_array_equal(
+            component_subset.get_model(),
+            component.get_model().data[1:2,],
+        )
+
+        component = self.component.copy(deep=True)
+        component._bands = ("ab", "cd", "ef")
+        indices = "ab"
+        component_reordered = component["ab"]
+        self.assertTupleEqual(component_reordered.bands, (indices,))
+        np.testing.assert_array_equal(
+            component_reordered.get_model(),
+            component.get_model().data[0:1,],
+        )
+
+    def test_indexing_errors(self):
+        component = self.component
+        print("bands", component.bands)
+        with self.assertRaises(IndexError):
+            component["z"]
+
+        with self.assertRaises(IndexError):
+            component["r":"z"]
+
+        with self.assertRaises(IndexError):
+            component["z":"i"]
+
+        with self.assertRaises(IndexError):
+            component["g", "z", "i"]
+
+        with self.assertRaises(IndexError):
+            component[Box((0, 0), (10, 10))]
+
+        with self.assertRaises(IndexError):
+            component[:, 10:20, 10:20]
+
+        with self.assertRaises(IndexError):
+            component[1:]
+
+        with self.assertRaises(IndexError):
+            component[1]
+
+        with self.assertRaises(IndexError):
+            component[0, 1]
+
+
+class TestFactorizedComponent(_ComponentTestBase, ScarletTestCase):
     def setUp(self) -> None:
         spectrum = np.arange(3).astype(np.float32)
         morph = np.arange(20).reshape(4, 5).astype(np.float32)
@@ -246,3 +333,82 @@ class TestFactorizedComponent(ScarletTestCase):
 
         with self.assertRaises(NotImplementedError):
             default_adaprox_parameterization(DummyComponent(*params))
+
+    def test_shallow_copy(self):
+        component = self.component
+        component.monotonicity = Monotonicity((11, 11), fit_radius=0)
+
+        component_copy = component.copy()
+
+        self.assertIsNot(component, component_copy)
+        np.testing.assert_array_equal(component._spectrum.x, component_copy._spectrum.x)
+        np.testing.assert_array_equal(component._morph.x, component_copy._morph.x)
+        self.assertIs(component.bbox, component_copy.bbox)
+        self.assertIs(component.peak, component_copy.peak)
+        self.assertIs(component.bg_thresh, component_copy.bg_thresh)
+        self.assertIs(component.monotonicity, component_copy.monotonicity)
+
+    def test_deep_copy(self):
+        component = self.component
+        component.monotonicity = Monotonicity((11, 11), fit_radius=0)
+        component_deepcopy = component.copy(deep=True)
+
+        self.assertIsNot(component, component_deepcopy)
+
+        np.testing.assert_array_equal(component._spectrum.x, component_deepcopy._spectrum.x)
+        component_deepcopy._spectrum.x += 1
+        with self.assertRaises(AssertionError):
+            np.testing.assert_array_equal(component._spectrum.x, component_deepcopy._spectrum.x)
+
+        np.testing.assert_array_equal(component._morph.x, component_deepcopy._morph.x)
+        component_deepcopy._morph.x += 1
+        with self.assertRaises(AssertionError):
+            np.testing.assert_array_equal(component._morph.x, component_deepcopy._morph.x)
+
+        self.assertIsNot(component.bbox, component_deepcopy.bbox)
+        self.assertBoxEqual(component.bbox, component_deepcopy.bbox)
+
+        self.assertTupleEqual(component.peak, component_deepcopy.peak)
+        self.assertEqual(component.bg_thresh, component_deepcopy.bg_thresh)
+        self.assertIsNot(component.monotonicity, component_deepcopy.monotonicity)
+
+
+class TestCubeComponent(_ComponentTestBase, ScarletTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.bands = tuple("gri")
+        peak = (27, 32)
+        bbox = Box((15, 15), (20, 25))
+        morph = integrated_circular_gaussian(sigma=0.8).astype(np.float32)
+        spectrum = np.arange(3, dtype=np.float32)
+        model = morph[None, :, :] * spectrum[:, None, None]
+        model_image = Image(model, yx0=bbox.origin, bands=self.bands)
+        self.component = CubeComponent(model=model_image, peak=peak)
+
+    def test_constructor(self):
+        component = self.component
+        self.assertIsInstance(component._model, Image)
+        np.testing.assert_array_equal(component._model.data, self.component._model.data)
+        self.assertTupleEqual(component.bands, self.bands)
+        self.assertBoxEqual(component.bbox, Box((15, 15), (20, 25)))
+        self.assertTupleEqual(component.peak, (27, 32))
+
+    def test_shallow_copy(self):
+        component = self.component
+        component_copy = component.copy()
+
+        self.assertIsNot(component_copy, component)
+        self.assertTupleEqual(component_copy.peak, component.peak)
+        self.assertImageEqual(component_copy._model, component._model)
+
+    def test_deep_copy(self):
+        component = self.component
+        component_copy = component.copy(deep=True)
+
+        self.assertIsNot(component, component_copy)
+
+        self.assertTupleEqual(component_copy.peak, component.peak)
+        self.assertImageEqual(component_copy._model, component._model)
+        with self.assertRaises(AssertionError):
+            component_copy._model._data -= 1
+            self.assertImageEqual(component_copy._model, component._model)

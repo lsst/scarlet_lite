@@ -20,6 +20,7 @@ toctree linking to topics related to using the module's APIs.
 
    getting_started
    detection
+   changes
 
 .. _lsst.scarlet.lite-contributing:
 

@@ -19,7 +19,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 import sys
+from typing import Any, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -156,6 +159,76 @@ def is_attribute_safe_to_transfer(name, value):
     ):
         return False
     return True
+
+
+def convert_indices(sequence: Sequence, indices: Any, inclusive: bool = True) -> tuple[int, ...] | slice:
+    """Get either a tuple of indices or a slice object from the given sequence.
+
+    Parameters
+    ----------
+    sequence : Sequence
+        The sequence to get the indices from. This sequence should have
+        unique hashable elements.
+
+    indices : Any
+        The indices or slice to use. Can be:
+        - A single element from sequence
+        - A slice with start/stop elements from sequence
+        - A sequence of elements from sequence
+
+    inclusive : bool, optional
+        If True, the stop element of a slice is inclusive.
+
+    Returns
+    -------
+    tuple[int, ...] | slice
+        A tuple of indices or a slice object.
+
+    Raises
+    ------
+    TypeError :
+        If `sequence` does not support `index` and `in` operations.
+    IndexError :
+        If a single element is not found in `sequence`.
+    """
+    # Validate that sequence has the required methods
+    if not hasattr(sequence, "index") or not hasattr(sequence, "__contains__"):
+        raise TypeError(f"'sequence' must support 'index' and 'in' operations, got {type(sequence)}")
+
+    # Handle slice objects
+    if isinstance(indices, slice):
+        # Convert a slice of objects into a slice of array indices
+        try:
+            start = None if indices.start is None else sequence.index(indices.start)
+        except ValueError as e:
+            raise IndexError(f"Element {indices.start} not found in sequence {sequence}.") from e
+        try:
+            stop = None if indices.stop is None else sequence.index(indices.stop) + (1 if inclusive else 0)
+        except ValueError as e:
+            raise IndexError(f"Element {indices.stop} not found in sequence {sequence}.") from e
+        return slice(start, stop, indices.step)
+
+    # Try to handle as a single element first
+    if indices in sequence:
+        return (sequence.index(indices),)
+
+    # Validate that indices is iterable
+    if not hasattr(indices, "__iter__"):
+        raise IndexError(f"Element {indices} not found in sequence {sequence}.")
+
+    # Handle sequence of indices
+    index_map = {value: idx for idx, value in enumerate(sequence)}
+    new_indices = []
+    for i in indices:
+        try:
+            if i not in index_map:
+                raise IndexError(f"Element {i} not found in sequence {sequence}.")
+        except TypeError as e:
+            # If the
+            raise IndexError(f"Element {i} not found in sequence {sequence}.") from e
+        new_indices.append(index_map[i])
+
+    return tuple(new_indices)
 
 
 def continue_class(cls):

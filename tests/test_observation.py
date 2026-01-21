@@ -285,3 +285,22 @@ class TestObservation(ScarletTestCase):
             observation.noise_rms[1:4],
         )
         self.assertBoxEqual(sliced_observation.bbox, new_box)
+
+    def test_shallow_copy(self):
+        observation_copy = self.observation.copy()
+        self.assertObservationEqual(observation_copy, self.observation)
+
+    def test_deep_copy(self):
+        observation_copy = self.observation.copy(deep=True)
+        self.assertObservationEqual(observation_copy, self.observation)
+
+        # Modify the copy and check that the original is unchanged
+        observation_copy.images._data += 1
+        with self.assertRaises(AssertionError):
+            self.assertImageEqual(observation_copy.images, self.observation.images)
+        observation_copy.variance._data += 1
+        with self.assertRaises(AssertionError):
+            self.assertImageEqual(observation_copy.variance, self.observation.variance)
+        observation_copy.weights._data += 1
+        with self.assertRaises(AssertionError):
+            self.assertImageEqual(observation_copy.weights, self.observation.weights)

@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
+import numpy as np
 from numpy.typing import DTypeLike
 
 from ..bbox import Box
@@ -54,7 +55,7 @@ class ScarletBlendBaseData(ABC):
         """
 
     @staticmethod
-    def from_dict(data: dict, dtype: DTypeLike | None = None) -> ScarletBlendBaseData:
+    def from_dict(data: dict, dtype: DTypeLike = np.float32) -> ScarletBlendBaseData:
         """Reconstruct `ScarletBlendBaseData` from JSON compatible dict.
 
         Parameters

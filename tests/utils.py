@@ -21,13 +21,15 @@
 
 import sys
 import traceback
-from typing import Sequence
+from typing import Sequence, cast
 from unittest import TestCase
 
 import numpy as np
 from lsst.scarlet.lite.bbox import Box
+from lsst.scarlet.lite.component import FactorizedComponent
 from lsst.scarlet.lite.fft import match_kernel
 from lsst.scarlet.lite.image import Image
+from lsst.scarlet.lite.source import Source
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_almost_equal, assert_array_equal
 from numpy.typing import DTypeLike
@@ -200,3 +202,38 @@ class ScarletTestCase(TestCase):
     def assertImageEqual(self, image: Image, truth: Image):  # noqa: N802
         self.assertImageAlmostEqual(image, truth)
         assert_array_equal(image.data, truth.data)
+
+    def assertFactorizedComponentEqual(  # noqa: N802
+        self,
+        component: FactorizedComponent,
+        truth: FactorizedComponent,
+    ):
+        self.assertTupleEqual(component.bands, truth.bands)
+        self.assertTupleEqual(component.peak, truth.peak)
+        np.testing.assert_array_equal(component._spectrum.x, truth._spectrum.x)
+        np.testing.assert_array_equal(component._morph.x, truth._morph.x)
+        self.assertBoxEqual(component.bbox, truth.bbox)
+        self.assertEqual(component.bg_rms, truth.bg_rms)
+        self.assertEqual(component.bg_thresh, truth.bg_thresh)
+        self.assertEqual(component.floor, truth.floor)
+        self.assertEqual(component.padding, truth.padding)
+        self.assertEqual(component.is_symmetric, truth.is_symmetric)
+
+    def assertSourceEqual(self, source: Source, truth: Source):  # noqa: N802
+        self.assertEqual(source.n_components, truth.n_components)
+        self.assertBoxEqual(source.bbox, truth.bbox)
+        self.assertTupleEqual(source.bands, truth.bands)
+        for comp, comp_truth in zip(source.components, truth.components):
+            self.assertFactorizedComponentEqual(
+                cast(FactorizedComponent, comp),
+                cast(FactorizedComponent, comp_truth),
+            )
+
+    def assertObservationEqual(self, obs: ObservationData, truth: ObservationData):  # noqa: N802
+        self.assertImageEqual(obs.images, truth.images)
+        self.assertImageEqual(obs.variance, truth.variance)
+        self.assertImageEqual(obs.weights, truth.weights)
+        assert_array_equal(obs.psfs, truth.psfs)
+        assert_array_equal(obs.model_psf, truth.model_psf)
+        assert_array_equal(obs.noise_rms, truth.noise_rms)
+        self.assertBoxEqual(obs.bbox, truth.bbox)

@@ -32,7 +32,8 @@ __all__ = [
     "DEFAULT_ADAPROX_FACTOR",
 ]
 
-from typing import Callable, Sequence, cast
+from copy import deepcopy
+from typing import Any, Callable, Sequence, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -120,10 +121,49 @@ class Parameter:
         """The numpy dtype of the array that is being fit."""
         return self.x.dtype
 
-    def copy(self) -> Parameter:
-        """Copy this parameter, including all of the helper arrays."""
+    def __copy__(self) -> Parameter:
+        """Create a shallow copy of this parameter.
+
+        Returns
+        -------
+        parameter:
+            A shallow copy of this parameter.
+        """
         helpers = {k: v.copy() for k, v in self.helpers.items()}
         return Parameter(self.x.copy(), helpers, 0)
+
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Parameter:
+        """Create a deep copy of this parameter.
+
+        Parameters
+        ----------
+        memo:
+            A memoization dictionary used by `copy.deepcopy`.
+        Returns
+        -------
+        parameter:
+            A deep copy of this parameter.
+        """
+        helpers = {k: deepcopy(v, memo) for k, v in self.helpers.items()}
+        return Parameter(deepcopy(self.x, memo), helpers, 0)
+
+    def copy(self, deep: bool = False) -> Parameter:
+        """Copy this parameter, including all of the helper arrays.
+
+        Parameters
+        ----------
+        deep:
+            If `True`, a deep copy is made.
+            If `False`, a shallow copy is made.
+
+        Returns
+        -------
+        parameter:
+            A copy of this parameter.
+        """
+        if deep:
+            return self.__deepcopy__({})
+        return self.__copy__()
 
     def update(self, it: int, input_grad: np.ndarray, *args):
         """Update the parameter in one iteration.
@@ -197,7 +237,7 @@ class FistaParameter(Parameter):
         z0: np.ndarray | None = None,
     ):
         if z0 is None:
-            z0 = x
+            z0 = x.copy()
 
         super().__init__(
             x,
@@ -230,6 +270,44 @@ class FistaParameter(Parameter):
         self.helpers["z"] = _x + omega * (x - _x)
         _x[:] = x
         self.t = t
+
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> FistaParameter:
+        """Create a deep copy of this parameter.
+
+        Parameters
+        ----------
+        memo:
+            A memoization dictionary used by `copy.deepcopy`.
+        Returns
+        -------
+        parameter:
+            A deep copy of this parameter.
+        """
+        return FistaParameter(
+            deepcopy(self.x, memo),
+            self.step,
+            self.grad,
+            self.prox,
+            self.t,
+            deepcopy(self.helpers["z"], memo),
+        )
+
+    def __copy__(self) -> FistaParameter:
+        """Create a shallow copy of this parameter.
+
+        Returns
+        -------
+        parameter:
+            A shallow copy of this parameter.
+        """
+        return FistaParameter(
+            self.x.copy(),
+            self.step,
+            self.grad,
+            self.prox,
+            self.t,
+            self.helpers["z"].copy(),
+        )
 
 
 # The following code block contains different update methods for
@@ -375,7 +453,7 @@ class AdaproxParameter(Parameter):
         step: Callable | float,
         grad: Callable | None = None,
         prox: Callable | None = None,
-        b1: float = 0.9,
+        b1: float | SingleItemArray = 0.9,
         b2: float = 0.999,
         eps: float = 1e-8,
         p: float = 0.25,
@@ -418,6 +496,7 @@ class AdaproxParameter(Parameter):
         self.eps = eps
         self.p = p
 
+        self.scheme = scheme
         self.phi_psi = phi_psi[scheme]
         self.e_rel = prox_e_rel
 
@@ -453,6 +532,58 @@ class AdaproxParameter(Parameter):
 
         self.x = cast(Callable, self.prox)(_x)
 
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> AdaproxParameter:
+        """Create a deep copy of this parameter.
+
+        Parameters
+        ----------
+        memo:
+            A memoization dictionary used by `copy.deepcopy`.
+        Returns
+        -------
+        parameter:
+            A deep copy of this parameter.
+        """
+        return AdaproxParameter(
+            deepcopy(self.x, memo),
+            self.step,
+            self.grad,
+            self.prox,
+            self.b1,
+            self.b2,
+            self.eps,
+            self.p,
+            deepcopy(self.helpers["m"], memo),
+            deepcopy(self.helpers["v"], memo),
+            deepcopy(self.helpers["vhat"], memo),
+            scheme=self.scheme,
+            prox_e_rel=self.e_rel,
+        )
+
+    def __copy__(self) -> AdaproxParameter:
+        """Create a shallow copy of this parameter.
+
+        Returns
+        -------
+        parameter:
+            A shallow copy of this parameter.
+        """
+        return AdaproxParameter(
+            self.x,
+            self.step,
+            self.grad,
+            self.prox,
+            self.b1,
+            self.b2,
+            self.eps,
+            self.p,
+            self.helpers["m"],
+            self.helpers["v"],
+            self.helpers["vhat"],
+            scheme=self.scheme,
+            prox_e_rel=self.e_rel,
+        )
+
 
 class FixedParameter(Parameter):
     """A parameter that is not updated"""
@@ -462,6 +593,31 @@ class FixedParameter(Parameter):
 
     def update(self, it: int, input_grad: np.ndarray, *args):
         pass
+
+    def __copy__(self) -> FixedParameter:
+        """Create a shallow copy of this parameter.
+
+        Returns
+        -------
+        parameter:
+            A shallow copy of this parameter.
+        """
+        return FixedParameter(self.x)
+
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> FixedParameter:
+        """Create a deep copy of this parameter.
+
+        Parameters
+        ----------
+        memo:
+            A memoization dictionary used by `copy.deepcopy`.
+
+        Returns
+        -------
+        parameter:
+            A deep copy of this parameter.
+        """
+        return FixedParameter(deepcopy(self.x, memo))
 
 
 def relative_step(

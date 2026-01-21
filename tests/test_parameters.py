@@ -140,3 +140,82 @@ class TestParameters(ScarletTestCase):
         param = FixedParameter(x)
         param.update(10, np.arange(10) * 2)
         assert_array_equal(param.x, x)
+
+    def test_shallow_copy(self):
+        x = np.arange(10, dtype=float)
+
+        # FistaParameter
+        param = FistaParameter(x, 0.1)
+        param_copy = param.copy()
+        self.assertIsInstance(param_copy, FistaParameter)
+
+        assert_array_equal(param.x, param_copy.x)
+        assert_array_equal(param.helpers["z"], param_copy.helpers["z"])
+
+        # AdaproxParameter
+        param = AdaproxParameter(x, 0.1)
+        param_copy = param.copy()
+        self.assertIsInstance(param_copy, AdaproxParameter)
+
+        assert_array_equal(param.x, param_copy.x)
+        assert_array_equal(param.helpers["m"], param_copy.helpers["m"])
+        assert_array_equal(param.helpers["v"], param_copy.helpers["v"])
+        assert_array_equal(param.helpers["vhat"], param_copy.helpers["vhat"])
+
+        # FixedParameter
+        param = FixedParameter(x)
+        param_copy = param.copy()
+        self.assertIsInstance(param_copy, FixedParameter)
+        assert_array_equal(param.x, param_copy.x)
+
+    def test_deep_copy(self):
+        x = np.arange(10, dtype=float)
+
+        # FistaParameter
+        param = FistaParameter(x, 0.1)
+        param_deepcopy = param.copy(deep=True)
+        self.assertIsInstance(param_deepcopy, FistaParameter)
+
+        assert_array_equal(param.x, param_deepcopy.x)
+        param_deepcopy.x += 1
+        with self.assertRaises(AssertionError):
+            assert_array_equal(param.x, param_deepcopy.x)
+
+        assert_array_equal(param.helpers["z"], param_deepcopy.helpers["z"])
+        param_deepcopy.helpers["z"] += 1
+        with self.assertRaises(AssertionError):
+            assert_array_equal(param.helpers["z"], param_deepcopy.helpers["z"])
+
+        # AdaproxParameter
+        param = AdaproxParameter(x, 0.1)
+        param_deepcopy = param.copy(deep=True)
+        self.assertIsInstance(param_deepcopy, AdaproxParameter)
+
+        assert_array_equal(param.x, param_deepcopy.x)
+        param_deepcopy.x += 1
+        with self.assertRaises(AssertionError):
+            assert_array_equal(param.x, param_deepcopy.x)
+
+        assert_array_equal(param.helpers["m"], param_deepcopy.helpers["m"])
+        param_deepcopy.helpers["m"] = -1
+        with self.assertRaises(AssertionError):
+            assert_array_equal(param.helpers["m"], param_deepcopy.helpers["m"])
+
+        assert_array_equal(param.helpers["v"], param_deepcopy.helpers["v"])
+        param_deepcopy.helpers["v"] = -1
+        with self.assertRaises(AssertionError):
+            assert_array_equal(param.helpers["v"], param_deepcopy.helpers["v"])
+
+        assert_array_equal(param.helpers["vhat"], param_deepcopy.helpers["vhat"])
+        param_deepcopy.helpers["vhat"] = -1
+        with self.assertRaises(AssertionError):
+            assert_array_equal(param.helpers["vhat"], param_deepcopy.helpers["vhat"])
+
+        # FixedParameter
+        param = FixedParameter(x)
+        param_deepcopy = param.copy(deep=True)
+        self.assertIsInstance(param_deepcopy, FixedParameter)
+        assert_array_equal(param.x, param_deepcopy.x)
+        param_deepcopy.x += 1
+        with self.assertRaises(AssertionError):
+            assert_array_equal(param.x, param_deepcopy.x)

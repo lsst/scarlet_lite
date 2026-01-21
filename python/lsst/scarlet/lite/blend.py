@@ -24,7 +24,8 @@ from __future__ import annotations
 __all__ = ["Blend"]
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
+from copy import deepcopy
+from typing import TYPE_CHECKING, Any, Callable, Self, Sequence, cast
 
 import numpy as np
 
@@ -32,7 +33,7 @@ from .bbox import Box
 from .component import Component, FactorizedComponent
 from .image import Image
 from .observation import Observation
-from .source import Source
+from .source import Source, SourceBase
 
 if TYPE_CHECKING:
     from .io import ScarletBlendData, ScarletSourceBaseData
@@ -57,7 +58,7 @@ class BlendBase(ABC):
         Additional metadata to store with the blend.
     """
 
-    sources: list[Source]
+    sources: Sequence[SourceBase]
     observation: Observation
     metadata: dict | None
 
@@ -79,6 +80,72 @@ class BlendBase(ABC):
         this is always built on the fly.
         """
         return [c for src in self.sources for c in src.components]
+
+    @abstractmethod
+    def __getitem__(self, indices: Any) -> Self:
+        """Get a sub-blend corresponding to the given indices.
+
+        Parameters
+        ----------
+        indices :
+            The indices to use to slice the blend.
+
+        Returns
+        -------
+        sub_blend :
+            A new `BlendBase` instance containing only data from the
+            specified bands in the specified order.
+
+        Raises
+        ------
+        IndexError :
+            If the indices contain bands not included in the original
+            blend or any spatial indices are given.
+        """
+
+    @abstractmethod
+    def __copy__(self) -> Self:
+        """Create a copy of this blend.
+
+        Returns
+        -------
+        blend : BlendBase
+            A new blend that is a copy of this one.
+        """
+
+    @abstractmethod
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
+        """Create a deep copy of this blend.
+
+        Parameters
+        ----------
+        memo : dict[int, Any]
+            A memoization dictionary used by `copy.deepcopy`.
+
+        Returns
+        -------
+        blend : BlendBase
+            A new blend that is a deep copy of this one.
+        """
+
+    def copy(self, deep: bool = False) -> Self:
+        """Create a copy of this blend.
+
+        Parameters
+        ----------
+        deep :
+            If `True`, a deep copy is made. If `False`, a shallow copy is made.
+            Default is `False`.
+
+        Returns
+        -------
+        blend : Self
+            A new blend that is a copy of this one.
+        """
+        if deep:
+            return self.__deepcopy__({})
+        else:
+            return self.__copy__()
 
     @abstractmethod
     def get_model(self, convolve: bool = False, use_flux: bool = False) -> Image:
@@ -127,6 +194,8 @@ class Blend(BlendBase):
     metadata:
         Additional metadata to store with the blend.
     """
+
+    sources: list[Source]
 
     def __init__(self, sources: Sequence[Source], observation: Observation, metadata: dict | None = None):
         self.sources = list(sources)
@@ -433,3 +502,69 @@ class Blend(BlendBase):
         )
 
         return blend_data
+
+    def __getitem__(self, indices: Any) -> Blend:
+        """Get a sub-blend corresponding to the given indices.
+
+        Parameters
+        ----------
+        indices :
+            The indices to use to slice the blend.
+
+        Returns
+        -------
+        blend :
+            A new `Blend` instance containing only data from the
+            specified bands in the specified order.
+
+        Raises
+        ------
+        IndexError :
+            If the indices contain bands not included in the original
+            blend or a bounding box is given.
+        """
+        return Blend(
+            sources=[src[indices] for src in self.sources],
+            observation=self.observation[indices],
+            metadata=self.metadata,
+        )
+
+    def __copy__(self) -> Blend:
+        """Create a copy of this blend.
+
+        Returns
+        -------
+        blend : Blend
+            A new blend that is a copy of this one.
+        """
+        return Blend(sources=self.sources, observation=self.observation, metadata=self.metadata)
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Blend:
+        """Create a deep copy of this blend.
+
+        Parameters
+        ----------
+        memo : dict[int, Any]
+            A memoization dictionary used by `copy.deepcopy`.
+
+        Returns
+        -------
+        blend : Blend
+            A new blend that is a deep copy of this one.
+        """
+        # Check if already copied
+        if id(self) in memo:
+            return memo[id(self)]
+
+        # Create placeholder and add to memo FIRST
+        blend = Blend.__new__(Blend)
+        memo[id(self)] = blend
+
+        # Now safely initialize the placeholder with deepcopied arguments
+        blend.__init__(  # type: ignore[misc]
+            sources=[deepcopy(src, memo) for src in self.sources],
+            observation=deepcopy(self.observation, memo),
+            metadata=deepcopy(self.metadata, memo),
+        )
+
+        return blend

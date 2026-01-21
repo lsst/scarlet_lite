@@ -1,4 +1,6 @@
-from typing import Callable, Sequence, cast
+from __future__ import annotations
+
+from typing import Any, Callable, Sequence, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -250,6 +252,32 @@ class Monotonicity:
         new_monotonicity(coords[0], coords[1], weights, result)
         image[:] = result[1:-1, 1:-1]
         return image
+
+    def __copy__(self) -> Monotonicity:
+        """Create a shallow copy of the operator
+
+        Returns
+        -------
+        result:
+            A copy of the operator.
+        """
+        new = Monotonicity(self.shape, self.dtype, self.auto_update, self.fit_radius)
+        return new
+
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Monotonicity:
+        """Create a deep copy of the operator
+
+        Parameters
+        ----------
+        memo:
+            The memoization dictionary for deep copies.
+
+        Returns
+        -------
+        result:
+            A copy of the operator.
+        """
+        return self.__copy__()
 
 
 def get_peak(image: np.ndarray, center: tuple[int, int], radius: int = 1) -> tuple[int, int]:

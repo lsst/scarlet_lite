@@ -6,6 +6,7 @@ from functools import cached_property
 from typing import Any
 
 import numpy as np
+from deprecated.sphinx import deprecated  # type: ignore
 from numpy.typing import DTypeLike
 
 from ..bbox import Box
@@ -170,6 +171,11 @@ class ScarletBlendData(ScarletBlendBaseData):
         return Blend(sources=sources, observation=observation, metadata=self.metadata)
 
     @staticmethod
+    @deprecated(
+        reason="ScarletBlendData.from_blend is deprecated. Use blend.to_data() instead.",
+        version="v30.0",
+        category=FutureWarning,
+    )
     def from_blend(blend: Blend) -> ScarletBlendData:
         """Deprecated: Convert a scarlet lite blend into a storage data model.
 
@@ -182,7 +188,6 @@ class ScarletBlendData(ScarletBlendBaseData):
         result :
             The storage data model representing the blend.
         """
-        logger.warning("ScarletBlendData.from_blend is deprecated. Use blend.to_data() instead.")
         return blend.to_data()
 
 
