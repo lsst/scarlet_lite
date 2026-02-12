@@ -184,6 +184,7 @@ def starlet_reconstruction(
     starlets: np.ndarray,
     generation: int = 2,
     convolve2d: Callable | None = None,
+    skip_scales: list[int] | None = None,
 ) -> np.ndarray:
     """Reconstruct an image from a dictionary of starlets
 
@@ -197,6 +198,9 @@ def starlet_reconstruction(
     convolve2d:
         The filter function to use to convolve the image
         with starlets in 2D.
+    skip_scales:
+        List of scales to skip in the reconstruction.
+        This can be used to remove noise at small scales.
 
     Returns
     -------
@@ -207,11 +211,15 @@ def starlet_reconstruction(
         return np.sum(starlets, axis=0)
     if convolve2d is None:
         convolve2d = bspline_convolve
+    if skip_scales is None:
+        skip_scales = []
     scales = len(starlets) - 1
 
     c = starlets[-1]
     for i in range(1, scales + 1):
         j = scales - i
+        if j in skip_scales:
+            continue
         cj = convolve2d(c, j)
         c = cj + starlets[j]
     return c
@@ -221,6 +229,7 @@ def multiband_starlet_reconstruction(
     starlets: np.ndarray,
     generation: int = 2,
     convolve2d: Callable | None = None,
+    skip_scales: list[int] | None = None,
 ) -> np.ndarray:
     """Reconstruct a multiband image.
 
@@ -230,7 +239,12 @@ def multiband_starlet_reconstruction(
     _, bands, width, height = starlets.shape
     result = np.zeros((bands, width, height), dtype=starlets.dtype)
     for band in range(bands):
-        result[band] = starlet_reconstruction(starlets[:, band], generation=generation, convolve2d=convolve2d)
+        result[band] = starlet_reconstruction(
+            starlets[:, band],
+            generation=generation,
+            convolve2d=convolve2d,
+            skip_scales=skip_scales,
+        )
     return result
 
 
@@ -248,6 +262,7 @@ def get_multiresolution_support(
     epsilon: float = 1e-1,
     max_iter: int = 20,
     image_type: str = "ground",
+    generation: int = 2,
 ) -> MultiResolutionSupport:
     """Calculate the multi-resolution support for a
     dictionary of starlet coefficients.
@@ -295,7 +310,7 @@ def get_multiresolution_support(
         # Calculate sigma_je, the standard deviation at
         # each scale due to gaussian noise
         noise_img = np.random.normal(size=image.shape)
-        noise_starlet = starlet_transform(noise_img, generation=1, scales=len(starlets) - 1)
+        noise_starlet = starlet_transform(noise_img, generation=generation, scales=len(starlets) - 1)
         sigma_je = np.zeros((len(noise_starlet),))
         for j, star in enumerate(noise_starlet):
             sigma_je[j] = np.std(star)
@@ -309,7 +324,7 @@ def get_multiresolution_support(
             if np.abs(sigma_i - last_sigma_i) / sigma_i < epsilon:
                 break
             last_sigma_i = sigma_i
-        sigma_j = sigma_je
+        sigma_j = sigma_je * sigma_i
     else:
         # Sigma to use for significance at each scale
         # Initially we use the input `sigma`
