@@ -1,0 +1,528 @@
+# scarlet_lite Code Audit
+
+**Date:** 2026-04-01
+**Scope:** Initialization, Optimization, Constraints, Detection
+**Method:** Deep read of all source files and tests in each area, examining coding errors, algorithmic errors, and improvement opportunities.
+
+---
+
+## Summary
+
+| Severity | Count |
+|----------|-------|
+| Critical | 1 |
+| High     | 4 |
+| Medium   | 8 |
+| Low      | 17 |
+
+The most impactful findings are a wrong logarithm base in the Sersic gradient (critical), a broken negative-origin guard in `Box.slices`, a missing sigma scaling in the circular Gaussian gradient, an `UnboundLocalError` in the wavelet initialization fallback path, and a double-padding bug in monotonic morphology initialization.
+
+---
+
+## Cross-Cutting Issues
+
+These issues span multiple areas of the codebase.
+
+### C-1. `grad_sersic` uses `np.log10` instead of `np.log` (Critical)
+
+**File:** `python/lsst/scarlet/lite/models/parametric.py:628`
+
+The Sersic profile is `exp(-bn * (r^(1/n) - 1))`. Differentiating `r^(1/n)` w.r.t. `n` yields `r^(1/n) * (-1/n^2) * ln(r)`, where `ln` is the **natural** logarithm. The code uses `np.log10`:
+
+```python
+d_n = np.sum(_grad * bn * morph * ellipse.r_grid ** (1 / n) * np.log10(ellipse.r_grid) / n**2)
+```
+
+This makes the Sersic index gradient ~2.3x too small (off by `ln(10)`), causing it to converge more slowly or to the wrong value.
+
+Additionally, the gradient does not account for the derivative of `bn` w.r.t. `n` (where `bn = gamma.ppf(0.5, 2*n)`). This is likely an intentional approximation given the difficulty of differentiating the inverse incomplete gamma function, but it does introduce bias.
+
+**Fix:** Replace `np.log10` with `np.log`.
+
+---
+
+### C-2. `grad_circular_gaussian` missing sigma scaling (High)
+
+**File:** `python/lsst/scarlet/lite/models/parametric.py:447-452`
+
+The forward model computes `r2 = ((x-x0)/(2*sigma))^2 + ((y-y0)/(2*sigma))^2`, so the gradient w.r.t. `y0` should be `morph * (y-y0) / (2*sigma^2)`. The code instead computes:
+
+```python
+d_y0 = -2 * np.sum((frame.y_grid - y0) * _grad)
+d_x0 = -2 * np.sum((frame.x_grid - x0) * _grad)
+```
+
+The `sigma` parameter is accepted but never used. The gradient magnitude is off by a factor of `4*sigma^2`. With adaptive step sizes (AdaProx/ADAM) the optimizer can partially compensate, but the gradient is mathematically incorrect and convergence will be degraded for non-unit sigma values.
+
+**Fix:**
+```python
+scale = 1.0 / (2.0 * sigma**2)
+d_y0 = scale * np.sum((frame.y_grid - y0) * _grad)
+d_x0 = scale * np.sum((frame.x_grid - x0) * _grad)
+```
+
+---
+
+### C-3. `Box.slices` negative origin check is always a no-op (High)
+
+**File:** `python/lsst/scarlet/lite/bbox.py:275`
+
+```python
+if np.any(self.origin) < 0:
+```
+
+`np.any(self.origin)` returns a `bool` (whether any element is truthy). Comparing `bool < 0` is always `False` since bools are 0 or 1. The guard never raises `ValueError`, even for genuinely negative origins like `(-5, 3)`. This means negative indices silently reach NumPy, which interprets them as counting from the end of the array.
+
+**Fix:**
+```python
+if np.any(np.array(self.origin) < 0):
+```
+
+---
+
+### C-4. Image `__gt__` and `__lt__` dispatch wrong operators for Image-vs-Image (Medium)
+
+**File:** `python/lsst/scarlet/lite/image.py:912-922`
+
+`__gt__` dispatches `operator.ge` (>=) and `__lt__` dispatches `operator.le` (<=) when comparing two `Image` objects. The scalar path is correct. The docstrings are also wrong (say "greater than or equal" for `__gt__`).
+
+```python
+def __gt__(self, other):
+    ...
+    return self._check_equality(other, operator.ge)  # should be operator.gt
+
+def __lt__(self, other):
+    ...
+    return self._check_equality(other, operator.le)  # should be operator.lt
+```
+
+**Fix:** Use `operator.gt` and `operator.lt` respectively; fix docstrings.
+
+---
+
+## Initialization
+
+### I-1. `UnboundLocalError` in `FactorizedWaveletInitialization.init_source` (High)
+
+**File:** `python/lsst/scarlet/lite/initialization.py:755-821`
+
+In multiple branches of `init_source`, when `get_single_component` returns `None`, the variable `components` is never assigned:
+
+- Lines 758-762: If `nbr_components >= 1` and `< 2`, and `get_single_component` returns `None`, `components` is unbound.
+- Lines 771-779: If both morphs are not `None` but the fallback `get_single_component` returns `None`, `components` is unbound.
+
+At line 821, `return Source(components)` raises `UnboundLocalError` in these cases.
+
+**Fix:** Initialize `components` at the top of the method with a fallback:
+```python
+if component is not None:
+    components = [component]
+else:
+    components = [self.get_psf_component(center)]
+```
+
+---
+
+### I-2. Double padding in `init_monotonic_morph` (Medium)
+
+**File:** `python/lsst/scarlet/lite/initialization.py:74, 149, 155, 166-168`
+
+When `threshold > 0` or `monotonicity is not None`, the bounding box is padded twice:
+
+1. First in `trim_morphology` at line 74: `bbox = Box.from_data(morph, threshold=0).grow(padding)`
+2. Then again in `init_monotonic_morph` at line 168: `bbox = bbox.grow(padding)`
+
+This results in `2 * padding` total growth instead of the intended `padding`.
+
+**Fix:** Remove the `grow(padding)` from `trim_morphology` (line 74) and let the caller handle all padding.
+
+---
+
+### I-3. PSF morphology extraction uses wrong origin for boundary sources (Medium)
+
+**File:** `python/lsst/scarlet/lite/initialization.py:411-416`
+
+In `get_psf_component`, when a PSF extends beyond the observation boundary:
+```python
+bbox = Box(psf.shape, origin=(-py + center[0], -px + center[1]))
+bbox = self.observation.bbox & bbox  # intersection shifts origin
+morph = Image(psf, yx0=cast(tuple[int, int], bbox.origin))[bbox].data
+```
+
+After intersection, `bbox.origin` differs from the original PSF origin. Creating the Image with `yx0=bbox.origin` (the intersection origin) means the PSF data is spatially misaligned, so `[bbox]` extracts the wrong region of the PSF. Only affects sources whose PSF footprint extends past the image boundary.
+
+**Fix:**
+```python
+psf_origin = (-py + center[0], -px + center[1])
+psf_bbox = Box(psf.shape, origin=psf_origin)
+bbox = self.observation.bbox & psf_bbox
+morph = Image(psf, yx0=psf_origin)[bbox].data
+```
+
+---
+
+### I-4. Spectrum estimation can produce `inf` from division by near-zero (Medium)
+
+**File:** `python/lsst/scarlet/lite/initialization.py:480-484`
+
+In `get_single_component`:
+```python
+spectrum = images.data[spectrum_center] / convolved.data[spectrum_center]
+```
+
+If the convolved detection image is zero or near-zero at the source center (possible for faint sources), this produces `inf`. The subsequent `spectrum[spectrum < 0] = 0` does not catch `inf` or `NaN`.
+
+**Fix:**
+```python
+spectrum = images.data[spectrum_center] / np.maximum(convolved.data[spectrum_center], 1e-20)
+spectrum[~np.isfinite(spectrum)] = 0
+spectrum[spectrum < 0] = 0
+```
+
+---
+
+### I-5. Detection image uses scalar per-band RMS, not per-pixel variance (Low)
+
+**File:** `python/lsst/scarlet/lite/initialization.py:299-302`
+
+The detection image weights by `1/noise_rms^2` per band, but `noise_rms` is a single scalar per band (the average), ignoring spatial variance variations. This is an inherent limitation and likely a deliberate design choice, but worth noting for fields with highly non-uniform noise.
+
+---
+
+### I-6. `multifit_spectra` redundant `np.vstack` on 2D array (Low)
+
+**File:** `python/lsst/scarlet/lite/initialization.py:218`
+
+`morph_images[b]` is already 2D. `np.vstack` on a 2D array is a no-op.
+
+**Fix:** `a = morph_images[b].T`
+
+---
+
+### I-7. `init_source` shares mutable morphology between bulge/disk (Low)
+
+**File:** `python/lsst/scarlet/lite/initialization.py:540-553`
+
+`disk_morph = component.morph` is a reference, not a copy. When modified in-place, it also modifies `component.morph`. Currently safe because `component` is not used afterward, but fragile.
+
+**Fix:** `disk_morph = component.morph.copy()`
+
+---
+
+### I-8. `trim_morphology` modifies input array in-place without documentation (Low)
+
+**File:** `python/lsst/scarlet/lite/initialization.py:73`
+
+`morph[~mask] = 0` modifies the caller's array. The docstring does not mention this side effect.
+
+---
+
+### I-9. Inconsistent bulge/disk spectrum zero-checks (Low)
+
+**File:** `python/lsst/scarlet/lite/initialization.py:795, 808`
+
+The bulge check uses `np.sum(bulge_spectrum != 0)` (any non-zero) while the disk check uses `np.sum(disk_spectrum) != 0` (total flux non-zero). These are semantically different. Both should use `np.any(spectrum != 0)`.
+
+---
+
+### I-10. `get_psf_component` does not handle zero `psf_spectrum` (Low)
+
+**File:** `python/lsst/scarlet/lite/initialization.py:408`
+
+```python
+spectrum = self.observation.images.data[spectrum_center] / self.psf_spectrum
+```
+
+If `psf_spectrum` has a zero element (unlikely but possible), this produces `inf`. Same fix pattern as I-4.
+
+---
+
+## Optimization
+
+### O-1. `AdaproxParameter` applies prox unconditionally — crashes if prox is None (Medium)
+
+**File:** `python/lsst/scarlet/lite/parameters.py:533`
+
+```python
+self.x = cast(Callable, self.prox)(_x)
+```
+
+If `prox` is `None` (the default), this raises `TypeError`. `FistaParameter.update()` correctly guards with `if self.prox is not None`. In the normal workflow, `prox` is always set by `parameterize()` before `update()` is called, but a direct construction without a prox would crash.
+
+**Fix:** Add a guard: `if self.prox is not None: self.x = self.prox(_x)`
+
+---
+
+### O-2. `_adamx_phi_psi` accesses `b1[it - 1]` at `it=0` (Medium)
+
+**File:** `python/lsst/scarlet/lite/parameters.py:382`
+
+```python
+factor = (1 - b1[it]) ** 2 / (1 - b1[it - 1]) ** 2
+```
+
+When `it=0`, `b1[-1]` is accessed. With `SingleItemArray` (constant schedule), this accidentally returns the correct value. With a varying schedule, it would access the last element.
+
+**Fix:**
+```python
+if it == 0:
+    factor = 1.0
+else:
+    factor = (1 - b1[it]) ** 2 / (1 - b1[it - 1]) ** 2
+```
+
+---
+
+### O-3. Unused `normalize` parameter in FFT functions (Low)
+
+**File:** `python/lsst/scarlet/lite/fft.py:439, 487`
+
+Both `match_kernel` and `convolve` declare a `normalize` parameter with documentation, but it is never referenced in the function body. Dead parameter.
+
+---
+
+### O-4. FFT cache grows unboundedly (Low)
+
+**File:** `python/lsst/scarlet/lite/fft.py` — `Fourier` class, lines 244-341
+
+Each `Fourier` object stores a `_fft` dict mapping `(fft_shape, axes, all_axes)` tuples to computed FFTs. If the same kernel is convolved with images of different shapes (e.g., when components are resized), the dict grows without bound. Unlikely to be a significant memory issue in practice since the number of distinct shapes is small.
+
+---
+
+### O-5. `conserve_flux` redundant zero-setting (Low)
+
+**File:** `python/lsst/scarlet/lite/blend.py:466-467`
+
+`ratio` is initialized to zeros, then `ratio[denominator == 0] = 0` is set explicitly — redundant since those values are already zero.
+
+---
+
+### O-6. No test coverage for parametric model gradients (Medium)
+
+**Files:** `tests/`
+
+There are no tests that verify the correctness of gradient computations in `parametric.py` (e.g., `grad_gaussian2`, `grad_circular_gaussian`, `grad_integrated_gaussian`, `grad_sersic`). Gradient correctness should be verified via finite-difference checks. The bugs in C-1 and C-2 would have been caught by such tests.
+
+---
+
+### O-7. No test coverage for ADAM/Adaprox optimizer variants (Medium)
+
+**Files:** `tests/`
+
+`parameters.py` implements six ADAM variants (`adam`, `nadam`, `amsgrad`, `padam`, `adamx`, `radam`) but none have unit tests. The `AdaproxParameter` class is only tested indirectly through integration tests. Bug O-2 would have been caught.
+
+---
+
+## Constraints
+
+### K-1. `Parameter.__copy__` and `__deepcopy__` lose `grad`, `prox`, and `step` (Medium)
+
+**File:** `python/lsst/scarlet/lite/parameters.py:124-148`
+
+The base `Parameter.__copy__` creates a new instance with `step=0` and does not propagate `grad` or `prox`. After copying, the parameter is non-functional for optimization. The derived classes (`FistaParameter`, `AdaproxParameter`) override correctly, but if a parameterized base `Parameter` is copied, it silently loses its configuration.
+
+**Fix:** Propagate `_step`, `grad`, and `prox` in the copy methods.
+
+---
+
+### K-2. `FactorizedComponent.prox_morph` skips positivity when bg_thresh is active (Low)
+
+**File:** `python/lsst/scarlet/lite/component.py:360-367`
+
+When background thresholding is active, positivity is not enforced. Negative pixels that pass the threshold check (because `spectrum * morph >= bg_thresh` in some band) survive. In practice, monotonicity (applied first at line 352) likely prevents this, but it's a gap.
+
+**Fix:** Add `morph[morph < 0] = 0` before the threshold check.
+
+---
+
+### K-3. `prox_sdss_symmetry` assumes odd array dimensions (Low)
+
+**File:** `python/lsst/scarlet/lite/operators.py:451-469`
+
+For even-dimensional arrays, the center of rotation is between pixels, and the flip-and-min operation imposes symmetry about a half-pixel-offset center. The `uncentered_operator` wrapper handles this with a `+1` correction, but calling `prox_sdss_symmetry` directly on even-dimensional arrays would give incorrect results.
+
+---
+
+### K-4. FISTA `z` update relies on fragile operation ordering (Low)
+
+**File:** `python/lsst/scarlet/lite/parameters.py:260-271`
+
+`_x = self.x` is a reference (not a copy). The `z` update uses `_x` before `_x[:] = x` modifies `self.x` in-place. Correct, but a maintainer reordering these two lines would introduce a bug.
+
+---
+
+### K-5. `uncentered_operator` even-size centering logic is hard to verify (Low)
+
+**File:** `python/lsst/scarlet/lite/operators.py:426-439`
+
+The `dy += 1` / `dx += 1` correction for even-sized arrays interacts subtly with the sign of `dy`/`dx`. Only one even-shaped test case exists `(5, 10)`. Edge cases with different center/shape combinations are not well-covered.
+
+---
+
+### K-6. `CubeComponent.__deepcopy__` does not use `deepcopy` with memo (Low)
+
+**File:** `python/lsst/scarlet/lite/component.py:684-689`
+
+Uses `self._model.copy()` instead of `deepcopy(self._model, memo)` and does not deepcopy `self.peak`. Breaks the memo pattern for shared-reference object graphs.
+
+---
+
+## Detection
+
+### D-1. Off-by-one in C++ bounding box area pre-filter (Medium)
+
+**File:** `python/lsst/scarlet/lite/detect_pybind11.cc:332`
+
+The bounding box area pre-filter uses strict `>`:
+```cpp
+if(subHeight * subWidth > min_area){
+```
+
+But the true footprint area check on line 334 uses `>=`:
+```cpp
+if(area >= min_area){
+```
+
+A footprint with exactly `min_area` pixels in a tight bounding box of the same area (e.g., a filled 2x2 square with `min_area=4`) will be rejected by the pre-filter before the actual pixel count is checked.
+
+**Fix:** Change `>` to `>=` on line 332.
+
+---
+
+### D-2. Iterative sigma refinement has no effect in space-based wavelet branch (Medium)
+
+**File:** `python/lsst/scarlet/lite/wavelet.py:304-312`
+
+In the `space` branch of `get_multiresolution_support`, the iterative loop always uses the original `sigma` in the threshold, not the iteratively refined `sigma_i`:
+
+```python
+for it in range(max_iter):
+    m = np.abs(starlets) > sigma_scaling * sigma * sigma_je[:, None, None]  # always uses input sigma
+    ...
+    sigma_i = np.std(noise * s)
+```
+
+Every iteration computes the same mask, making the loop pointless after the first iteration.
+
+**Fix:** Replace `sigma` with `last_sigma_i` in the threshold.
+
+---
+
+### D-3. Noise estimation mismatch in `get_detect_wavelets` (Low)
+
+**File:** `python/lsst/scarlet/lite/detect.py:234`
+
+```python
+sigma = np.median(np.sqrt(variance))
+```
+
+The detection image is `np.sum(images, axis=0)`. The noise in the sum should be `sqrt(sum(variance))` per pixel, not the median of per-pixel standard deviations across all bands and pixels.
+
+**Fix:** `sigma = np.median(np.sqrt(np.sum(variance, axis=0)))`
+
+---
+
+### D-4. Unexplained `/2` factor in detection sigma (Low)
+
+**File:** `python/lsst/scarlet/lite/detect.py:321`
+
+```python
+sigma = np.median(np.sqrt(variance), axis=(1, 2)) / 2
+```
+
+The per-band noise estimate is divided by 2 without explanation, effectively doubling the SNR weighting. If intentional, it should be documented. If not, it inflates detection SNR by 2x.
+
+---
+
+### D-5. Biased noise estimation in ground-based multiresolution support (Low)
+
+**File:** `python/lsst/scarlet/lite/wavelet.py:323`
+
+```python
+sigma_j = np.std(starlets * s.astype(int), axis=(1, 2))
+```
+
+This computes std over all pixels including zeroed-out (masked) ones, biasing the estimate downward. Should compute std only over unmasked pixels.
+
+---
+
+### D-6. Non-reproducible random noise in space-based multiresolution support (Low)
+
+**File:** `python/lsst/scarlet/lite/wavelet.py:297`
+
+```python
+noise_img = np.random.normal(size=image.shape)
+```
+
+Uses the global numpy random state. For scientific reproducibility, should use a seeded `np.random.default_rng()`.
+
+---
+
+### D-7. Variable shadowing in `multiband_starlet_transform` (Low)
+
+**File:** `python/lsst/scarlet/lite/wavelet.py:178`
+
+```python
+for b, image in enumerate(image):
+```
+
+The loop variable `image` shadows the function parameter. Not currently a bug since no code after the loop uses `image`, but fragile.
+
+---
+
+### D-8. Misleading variable names in `multiband_starlet_reconstruction` (Low)
+
+**File:** `python/lsst/scarlet/lite/wavelet.py:230`
+
+```python
+_, bands, width, height = starlets.shape
+```
+
+The names `width` and `height` are swapped relative to numpy convention (second-to-last is height, last is width). No functional impact since both are just used to allocate an output array.
+
+---
+
+### D-9. Docstring says "intersection" for the `union` method (Low)
+
+**File:** `python/lsst/scarlet/lite/detect.py:129`
+
+The `Footprint.union` method docstring says "The intersection of two footprints" — copy-paste error.
+
+---
+
+### D-10. Detection test coverage gaps (Low)
+
+**File:** `tests/test_detect.py`
+
+- `test_detect_footprints` does not test correctness of detected peak positions with `remove_high_freq=True`.
+- `test_get_wavelets` and `test_get_detect_wavelets` only check output shape/dtype, not coefficient values.
+- No tests for edge cases: empty images, all-NaN variance, footprints at image boundaries.
+- No test verifying `min_pixel_detect > 1`.
+- The space-based wavelet branch is only tested for execution (no assertions on output quality).
+
+---
+
+### D-11. Wavelet boundary handling uses implicit zero-padding (Low)
+
+**File:** `python/lsst/scarlet/lite/wavelet.py:60-76`
+
+The `bspline_convolve` function handles boundaries by not adding contributions from out-of-bounds pixels (equivalent to zero-padding). The standard starlet transform uses mirror/symmetric boundary extension (Starck & Murtagh 1998). Zero-padding introduces artificial edge effects at coarser wavelet scales where the filter footprint is large. For large images with sources well inside the boundary, this is negligible.
+
+---
+
+## Findings by File
+
+| File | Finding IDs |
+|------|-------------|
+| `models/parametric.py` | C-1, C-2 |
+| `bbox.py` | C-3 |
+| `image.py` | C-4 |
+| `initialization.py` | I-1 through I-10 |
+| `parameters.py` | O-1, O-2, K-1, K-4 |
+| `fft.py` | O-3, O-4 |
+| `blend.py` | O-5 |
+| `operators.py` | K-3, K-5 |
+| `component.py` | K-2, K-6 |
+| `detect.py` | D-1, D-3, D-4, D-9 |
+| `wavelet.py` | D-2, D-5, D-6, D-7, D-8, D-11 |
+| `detect_pybind11.cc` | D-1 |
