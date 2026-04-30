@@ -272,7 +272,7 @@ class Box:
     @property
     def slices(self) -> tuple[slice, ...]:
         """Bounds of the box as slices"""
-        if np.any(self.origin) < 0:
+        if any(o < 0 for o in self.origin):
             raise ValueError("Cannot get slices for a box with negative indices")
         return tuple([slice(o, o + s) for o, s in zip(self.origin, self.shape)])
 

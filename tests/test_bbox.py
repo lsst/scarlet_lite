@@ -216,6 +216,31 @@ class TestBox(ScarletTestCase):
         # check tuple index
         self.assertBoxEqual(bbox[(3, 1)], Box((4, 2), (8, 4)))
 
+    def test_slices_rejects_negative_origin(self):
+        """Box.slices must raise on any negative origin coordinate.
+
+        Audit finding C-3: a previous version of the guard was
+        ``if np.any(self.origin) < 0`` which is always False because
+        ``np.any(...)`` returns a bool that is never < 0. Negative
+        indices then silently reached NumPy and were interpreted as
+        counting from the end of the array.
+        """
+        # All negative
+        with self.assertRaises(ValueError):
+            Box((3, 4), origin=(-1, -2)).slices
+        # First coord negative, second zero
+        with self.assertRaises(ValueError):
+            Box((3, 4), origin=(-5, 0)).slices
+        # First coord positive, second negative -- the case the buggy
+        # guard most clearly missed (np.any((5, -3)) is True, True < 0
+        # is False, so no raise).
+        with self.assertRaises(ValueError):
+            Box((3, 4), origin=(5, -3)).slices
+
+        # Sanity: zero and positive origins must NOT raise.
+        Box((3, 4), origin=(0, 0)).slices
+        Box((3, 4), origin=(2, 7)).slices
+
     def test_shallow_copy(self):
         bbox = Box((3, 4, 5), (10, 20, 30))
         bbox_copy = bbox.copy()
