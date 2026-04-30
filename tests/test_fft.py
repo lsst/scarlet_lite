@@ -189,6 +189,24 @@ class TestFourier(ScarletTestCase):
         truth = scipy_convolve(x, y, mode="same", method="direct")
         assert_almost_equal(convolved, truth)
 
+    def test_normalize_deprecated(self):
+        """``normalize`` is dead — passing it must emit a deprecation
+        warning but otherwise leave the result identical to the
+        no-arg call (audit finding O-3).
+        """
+        psf = integrated_circular_gaussian(sigma=1.0)
+        baseline = fft.convolve(psf, psf, return_fourier=False)
+        with self.assertLogs("scarlet.lite.fft", level="WARNING") as cm:
+            warned = fft.convolve(psf, psf, return_fourier=False, normalize=True)
+        self.assertTrue(any("normalize is deprecated" in line for line in cm.output))
+        assert_array_equal(warned, baseline)
+
+        baseline = fft.match_kernel(psf, psf, return_fourier=False)
+        with self.assertLogs("scarlet.lite.fft", level="WARNING") as cm:
+            warned = fft.match_kernel(psf, psf, return_fourier=False, normalize=True)
+        self.assertTrue(any("normalize is deprecated" in line for line in cm.output))
+        assert_array_equal(warned, baseline)
+
     def test_multiband_psf_matching(self):
         """Test matching two PSFs with a spectral dimension"""
         # Narrow PSF

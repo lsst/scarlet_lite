@@ -23,12 +23,15 @@ from __future__ import annotations
 
 __all__ = ["Fourier"]
 
+import logging
 import operator
 from typing import Callable, Sequence
 
 import numpy as np
 from numpy.typing import DTypeLike
 from scipy import fftpack
+
+logger = logging.getLogger("scarlet.lite.fft")
 
 
 def centered(arr: np.ndarray, newshape: Sequence[int]) -> np.ndarray:
@@ -436,7 +439,7 @@ def match_kernel(
     padding: int = 3,
     axes: int | Sequence[int] = (-2, -1),
     return_fourier: bool = True,
-    normalize: bool = False,
+    normalize: None = None,
 ) -> Fourier | np.ndarray:
     """Calculate the difference kernel to match kernel1 to kernel2
 
@@ -454,13 +457,18 @@ def match_kernel(
     return_fourier:
         Whether to return `Fourier` or array
     normalize:
-        Whether or not to normalize the input kernels.
+        Deprecated and unused. Will be removed after v31.0.
 
     Returns
     -------
     result:
         The difference kernel to go from `kernel1` to `kernel2`.
     """
+    if normalize is not None:
+        logger.warning(
+            "normalize is deprecated and will be removed after v31.0. "
+            "It has never been used by match_kernel."
+        )
     if not isinstance(kernel1, Fourier):
         kernel1 = Fourier(kernel1)
     if not isinstance(kernel2, Fourier):
@@ -484,7 +492,7 @@ def convolve(
     padding: int = 3,
     axes: int | Sequence[int] = (-2, -1),
     return_fourier: bool = True,
-    normalize: bool = False,
+    normalize: None = None,
 ) -> np.ndarray | Fourier:
     """Convolve image with a kernel
 
@@ -502,13 +510,17 @@ def convolve(
     return_fourier:
         Whether to return `Fourier` or array
     normalize:
-        Whether or not to normalize the input kernels.
+        Deprecated and unused. Will be removed after v31.0.
 
     Returns
     -------
     result:
         The convolution of the image with the kernel.
     """
+    if normalize is not None:
+        logger.warning(
+            "normalize is deprecated and will be removed after v31.0. " "It has never been used by convolve."
+        )
     if not isinstance(image, Fourier):
         image = Fourier(image)
     if not isinstance(kernel, Fourier):
