@@ -910,16 +910,16 @@ class Image:
         return self._check_equality(other, operator.le)
 
     def __gt__(self, other: Image | ScalarLike) -> Image:
-        """Check if this image is greater than or equal to another."""
+        """Check if this image is greater than another."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=self.data > other)
-        return self._check_equality(other, operator.ge)
+        return self._check_equality(other, operator.gt)
 
     def __lt__(self, other: Image | ScalarLike) -> Image:
-        """Check if this image is less than or equal to another."""
+        """Check if this image is less than another."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=self.data < other)
-        return self._check_equality(other, operator.le)
+        return self._check_equality(other, operator.lt)
 
     def __neg__(self):
         """Take the negative of the image."""
