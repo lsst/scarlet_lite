@@ -271,6 +271,35 @@ class TestInitialization(ScarletTestCase):
         with self.assertRaises(ValueError):
             small_init.get_psf_component((-100, -100))
 
+    def test_get_single_component_zero_convolved(self):
+        """``get_single_component`` must produce a finite spectrum
+        even when the convolved detection image is zero at the source
+        center.
+
+        Audit finding I-4: ``spectrum = images / convolved`` produces
+        ``inf`` (or ``nan`` for 0/0) at zero-convolved pixels, and
+        the subsequent ``spectrum[spectrum < 0] = 0`` does not catch
+        either, so the component is initialized with non-finite
+        flux.
+        """
+        init = FactorizedInitialization(self.observation, self.centers)
+        center = (int(self.centers[0][0]), int(self.centers[0][1]))
+        local_center = (
+            center[0] - init.observation.bbox.origin[0],
+            center[1] - init.observation.bbox.origin[1],
+        )
+        # Force the convolved detection image to zero at the source
+        # center across all bands. The detection image still has flux
+        # at this pixel, so ``init_monotonic_morph`` returns a valid
+        # morph and the spectrum branch is exercised.
+        init.convolved.data[:, local_center[0], local_center[1]] = 0
+
+        thresh = np.mean(self.observation.noise_rms) * init.initial_bg_thresh
+        component = init.get_single_component(center, init.detect.copy(), thresh, init.padding)
+        assert component is not None
+        np.testing.assert_array_equal(np.isfinite(component.spectrum), True)
+        np.testing.assert_array_equal(component.spectrum >= 0, True)
+
     def test_factorized_chi2_init(self):
         # Test default parameters
         init = FactorizedInitialization(self.observation, self.centers)

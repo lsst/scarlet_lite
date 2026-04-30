@@ -481,7 +481,14 @@ class FactorizedInitialization:
         images = self.observation.images
 
         convolved = self.convolved
-        spectrum = images.data[spectrum_center] / convolved.data[spectrum_center]
+        img_center = images.data[spectrum_center]
+        conv_center = convolved.data[spectrum_center]
+        spectrum = np.divide(
+            img_center,
+            conv_center,
+            out=np.zeros_like(img_center),
+            where=conv_center > 0,
+        )
         spectrum[spectrum < 0] = 0
         morph_max = np.max(morph)
         spectrum *= morph_max
