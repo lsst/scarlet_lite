@@ -274,6 +274,29 @@ class TestInitialization(ScarletTestCase):
         with self.assertRaises(ValueError):
             small_init.get_psf_component((-100, -100))
 
+    def test_get_psf_component_zero_psf_spectrum(self):
+        """``get_psf_component`` must produce a finite spectrum even
+        when one of the per-band ``psf_spectrum`` values is zero.
+
+        Audit finding I-10: dividing by ``self.psf_spectrum`` produces
+        ``inf`` (or ``nan`` for 0/0) for any band with a degenerate
+        model PSF whose central value is zero. The trailing
+        ``spectrum[spectrum < 0] = 0`` mask does not catch either.
+        Same fix pattern as I-4.
+        """
+        init = FactorizedInitialization(self.observation, self.centers)
+        # Force one band's psf_spectrum to zero. Real model PSFs always
+        # have a positive central pixel, but a degenerate PSF could
+        # exhibit this — and the masked branch should still be finite.
+        init.psf_spectrum[0] = 0
+        center = (int(self.centers[0][0]), int(self.centers[0][1]))
+        component = init.get_psf_component(center)
+        np.testing.assert_array_equal(np.isfinite(component.spectrum), True)
+        np.testing.assert_array_equal(component.spectrum >= 0, True)
+        # The zero-psf_spectrum band must yield zero flux rather than
+        # inf or a saturating large value.
+        self.assertEqual(component.spectrum[0], 0)
+
     def test_get_single_component_zero_convolved(self):
         """``get_single_component`` must produce a finite spectrum
         even when the convolved detection image is zero at the source

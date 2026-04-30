@@ -404,7 +404,13 @@ class FactorizedInitialization:
         # There wasn't sufficient flux for an extended source,
         # so create a PSF source.
         spectrum_center = (slice(None), local_center[0], local_center[1])
-        spectrum = self.observation.images.data[spectrum_center] / self.psf_spectrum
+        img_center = self.observation.images.data[spectrum_center]
+        spectrum = np.divide(
+            img_center,
+            self.psf_spectrum,
+            out=np.zeros_like(img_center),
+            where=self.psf_spectrum > 0,
+        )
         spectrum[spectrum < 0] = 0
 
         psf = cast(np.ndarray, self.observation.model_psf)[0].copy()
