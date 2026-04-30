@@ -545,7 +545,7 @@ class FactorizedInitialization:
             # so split the single component model into two components,
             # using the same algorithm as scarlet main.
             bulge_morph = component.morph.copy()
-            disk_morph = component.morph
+            disk_morph = component.morph.copy()
             # Set the threshold for the bulge.
             # Since the morphology is monotonic, this selects the inner
             # of the single component morphology and assigns it to the bulge.
