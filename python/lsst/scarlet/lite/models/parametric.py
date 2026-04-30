@@ -238,7 +238,11 @@ class EllipseFrame(CartesianFrame):
         result:
             The gradient of the likelihood wrt the semi-major axis.
         """
-        grad = -2 / self._major * self._xa**2
+        # ``grad`` here is half of d(r**2)/d(major), matching the
+        # convention used by ``grad_x0`` / ``grad_y0`` / ``grad_theta``
+        # so the post-multiplications below produce d(r**2) and d(r)
+        # respectively.
+        grad = -1 / self._major * self._xa**2
         if use_r2:
             grad *= 2
         else:
@@ -263,7 +267,8 @@ class EllipseFrame(CartesianFrame):
         result:
             The gradient of the likelihood wrt the semi-minor axis.
         """
-        grad = -2 / self._minor * self._yb**2
+        # See ``grad_major`` for the half-r**2 convention.
+        grad = -1 / self._minor * self._yb**2
         if use_r2:
             grad *= 2
         else:

@@ -319,6 +319,51 @@ class TestParametric(ScarletTestCase):
                 err_msg=f"grad_circular_gaussian mismatch at sigma={sigma}",
             )
 
+    def test_grad_gaussian2(self):
+        """Finite-difference check of the elliptical 2D Gaussian
+        gradient.
+
+        ``grad_gaussian2`` returns d/d{y0, x0, sigma_y, sigma_x,
+        theta} of ``sum(spectrum * input_grad * morph)``. With
+        ``spectrum = [1]`` and ``input_grad = ones``, the loss is
+        just ``sum(morph)``.
+
+        Also exercises ``EllipseFrame.grad_major`` and
+        ``grad_minor``: the ``-2/major * _xa**2`` base in those
+        methods is already ``d(r**2)/d(major)``, while the
+        ``grad_x0/y0/theta`` base is ``(1/2) * d(r**2)/d(...)``.
+        Multiplying by 2 (``use_r2=True``) or by ``1/r``
+        (``use_r2=False``) was therefore producing 2x the correct
+        gradient for the size parameters.
+        """
+        bbox = Box((33, 33), origin=(0, 0))
+        spectrum = np.array([1.0])
+        # y0, x0, sigma_y, sigma_x, theta
+        y0, x0, sigma_y, sigma_x, theta = 16.3, 16.7, 5.0, 4.0, 0.3
+        empty_params = np.array([])
+
+        ellipse = EllipseFrame(y0, x0, sigma_y, sigma_x, theta, bbox)
+        morph = models.gaussian2d(empty_params, ellipse)
+        input_grad = np.ones((1,) + morph.shape)
+        params = np.array([y0, x0, sigma_y, sigma_x, theta])
+        d_analytical = models.grad_gaussian2(input_grad, params, morph, spectrum, ellipse)
+
+        # Smaller eps for theta because the morph is more sensitive
+        # near theta=0.3 (radians), and a too-large eps flattens the
+        # finite-difference signal.
+        eps_list = [1e-4, 1e-4, 1e-4, 1e-4, 1e-5]
+        d_fd = np.zeros(5)
+        for i, eps in enumerate(eps_list):
+            perturb = np.zeros(5)
+            perturb[i] = eps
+            yp, xp, syp, sxp, tp = params + perturb
+            ym, xm, sym, sxm, tm = params - perturb
+            f_plus = np.sum(models.gaussian2d(empty_params, EllipseFrame(yp, xp, syp, sxp, tp, bbox)))
+            f_minus = np.sum(models.gaussian2d(empty_params, EllipseFrame(ym, xm, sym, sxm, tm, bbox)))
+            d_fd[i] = (f_plus - f_minus) / (2 * eps)
+
+        np.testing.assert_allclose(d_analytical, d_fd, rtol=1e-3, atol=1e-7)
+
     def test_parametric_component(self):
         observation = self.observation
         bands = observation.bands
