@@ -212,6 +212,65 @@ class TestInitialization(ScarletTestCase):
         self.assertEqual(fit_spectra.dtype, spectra.dtype)
         assert_almost_equal(fit_spectra, spectra, decimal=5)
 
+    def test_psf_component_at_boundary(self):
+        """``get_psf_component`` must extract the surviving region of
+        the model PSF when the source center is close enough to the
+        observation boundary that the PSF box is clipped.
+
+        Audit finding I-3: the original code created the Image with
+        ``yx0=bbox.origin`` (the *intersection's* origin) instead of
+        the original PSF origin, so ``[bbox]`` returned the top-left
+        of the PSF rather than the portion of the PSF that survived
+        the clip. The PSF was therefore spatially misaligned with the
+        actual source center.
+        """
+        init = FactorizedInitialization(self.observation, self.centers)
+        model_psf = self.observation.model_psf[0]
+
+        # Case 1: positive psf_bbox.origin. Center at the top-left
+        # corner of the observation (origin (1000, 2000)): the 15x15
+        # model PSF (py=px=7) extends 7 rows above and 3 columns to
+        # the left of the observation bbox, so 7 rows and 3 columns
+        # are clipped. psf_bbox.origin = (993, 1997) — both positive.
+        center = (1000, 2004)
+        component = init.get_psf_component(center)
+        self.assertBoxEqual(component.bbox, Box((8, 12), origin=(1000, 2000)))
+        # The surviving region is psf[7:15, 3:15] — the bottom-right
+        # of the PSF, not the top-left.
+        assert_array_equal(component.morph, model_psf[7:15, 3:15])
+
+        # Case 2: negative psf_bbox.origin. Build a synthetic
+        # observation at origin (0, 0) and place a center near the
+        # corner so psf_bbox.origin = (-5, -2) — both negative. The
+        # negative-origin path must still produce the correct
+        # surviving region. ``Box.slices`` rejects negative origins,
+        # so this also guards against future refactors that would
+        # call ``.slices`` on ``psf_bbox`` directly.
+        bands = ("r",)
+        shape = (30, 30)
+        images = np.ones((1,) + shape, dtype=np.float32)
+        variance = np.ones((1,) + shape, dtype=np.float32)
+        psfs = np.array([integrated_circular_gaussian(sigma=1.0)], dtype=np.float32)
+        small_model_psf = integrated_circular_gaussian(sigma=0.8).astype(np.float32)
+        small_obs = Observation(
+            Image(images, bands=bands, yx0=(0, 0)),
+            Image(variance, bands=bands, yx0=(0, 0)),
+            Image(1 / variance, bands=bands, yx0=(0, 0)),
+            psfs,
+            small_model_psf[None],
+            bands=bands,
+        )
+        small_init = FactorizedInitialization(small_obs, [(2, 5)])
+        component = small_init.get_psf_component((2, 5))
+        self.assertBoxEqual(component.bbox, Box((10, 13), origin=(0, 0)))
+        assert_array_equal(component.morph, small_model_psf[5:15, 2:15])
+
+        # Case 3: PSF footprint does not overlap the observation at
+        # all -> raise an informative error rather than silently
+        # producing a degenerate component.
+        with self.assertRaises(ValueError):
+            small_init.get_psf_component((-100, -100))
+
     def test_factorized_chi2_init(self):
         # Test default parameters
         init = FactorizedInitialization(self.observation, self.centers)

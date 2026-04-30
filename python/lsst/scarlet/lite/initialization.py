@@ -396,6 +396,8 @@ class FactorizedInitialization:
         component:
             A `FactorizedComponent` with a PSF-like morphology.
         """
+        if not self.observation.bbox.contains(center):
+            raise ValueError(f"Source center {center} is outside the observation {self.observation.bbox}")
         local_center = (
             center[0] - self.observation.bbox.origin[0],
             center[1] - self.observation.bbox.origin[1],
@@ -409,9 +411,9 @@ class FactorizedInitialization:
         psf = cast(np.ndarray, self.observation.model_psf)[0].copy()
         py = psf.shape[0] // 2
         px = psf.shape[1] // 2
-        bbox = Box(psf.shape, origin=(-py + center[0], -px + center[1]))
-        bbox = self.observation.bbox & bbox
-        morph = Image(psf, yx0=cast(tuple[int, int], bbox.origin))[bbox].data
+        psf_bbox = Box(psf.shape, origin=(-py + center[0], -px + center[1]))
+        bbox = self.observation.bbox & psf_bbox
+        morph = Image(psf, yx0=cast(tuple[int, int], psf_bbox.origin))[bbox].data
         component = FactorizedComponent(
             self.observation.bands,
             spectrum,
