@@ -26,7 +26,7 @@ import numpy as np
 from deprecated.sphinx import deprecated  # type: ignore
 
 from .bbox import Box
-from .component import FactorizedComponent
+from .component import Component, FactorizedComponent
 from .detect import bounds_to_bbox, get_detect_wavelets
 from .image import Image
 from .measure import calculate_snr
@@ -752,6 +752,8 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
         nbr_components = self.get_snr(center)
         observation = self.observation
 
+        components: list[Component] | None = None
+
         if (nbr_components < 1 and self.use_psf) or self.detectlets[local_center[0], local_center[1]] <= 0:
             # Initialize the source as an PSF source
             components = [self.get_psf_component(center)]
@@ -818,4 +820,13 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                     )
                 else:
                     logger.debug("cut disk")
-        return Source(components)  # type: ignore
+
+        # If every init path above either failed (left components as
+        # None) or produced no components (empty list when bulge and
+        # disk spectra were both cut), fall back to a PSF source -- a
+        # point-source model is the most conservative non-empty model
+        # we can return.
+        if not components:
+            logger.debug("fall back to PSF source")
+            components = [self.get_psf_component(center)]
+        return Source(components)

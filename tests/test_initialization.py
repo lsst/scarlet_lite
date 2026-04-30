@@ -20,6 +20,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import os
+from unittest.mock import patch
 
 import numpy as np
 from deprecated.sphinx import deprecated
@@ -220,6 +221,43 @@ class TestInitialization(ScarletTestCase):
         self.assertEqual(len(init.sources), 8)
         for src in init.sources:
             self.assertEqual(src.get_model().dtype, np.float32)
+
+    @deprecated(
+        version="v29.0",
+        reason="FactorizedWaveletInitialization is deprecated and will be removed after v29.0",
+    )
+    def test_wavelet_init_source_falls_back_to_psf(self):
+        """init_source must always return a Source with at least one
+        component, even when individual init paths fail.
+
+        Audit finding I-1: when get_single_component returned None or
+        the two-component path produced all-zero spectra, ``components``
+        was either left unbound (UnboundLocalError) or set to an empty
+        list. Both cases must now fall back to a PSF component.
+        """
+        init = FactorizedWaveletInitialization(self.observation, self.centers)
+        int_centers = [(int(round(c[0])), int(round(c[1]))) for c in self.centers]
+
+        # Failure mode 1: get_single_component always returns None.
+        # Centers hitting the single-component branch or the
+        # two-component fallback must fall back to PSF rather than
+        # raising or producing an empty Source.
+        with patch.object(FactorizedWaveletInitialization, "get_single_component", return_value=None):
+            for center in int_centers:
+                source = init.init_source(center)
+                self.assertGreater(len(source.components), 0)
+
+        # Failure mode 2: two-component path returns all-zero spectra
+        # for both bulge and disk -> empty components list, also a fall
+        # back case.
+        n_bands = len(self.observation.bands)
+        with patch(
+            "lsst.scarlet.lite.initialization.multifit_spectra",
+            return_value=np.zeros((2, n_bands), dtype=np.float32),
+        ):
+            for center in int_centers:
+                source = init.init_source(center)
+                self.assertGreater(len(source.components), 0)
 
     @deprecated(
         version="v29.0",
