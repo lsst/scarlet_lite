@@ -800,7 +800,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                 )
 
                 components = []
-                if np.sum(bulge_spectrum != 0):
+                if np.any(bulge_spectrum != 0):
                     components.append(
                         FactorizedComponent(
                             observation.bands,
@@ -813,7 +813,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                     )
                 else:
                     logger.debug("cut bulge")
-                if np.sum(disk_spectrum) != 0:
+                if np.any(disk_spectrum != 0):
                     components.append(
                         FactorizedComponent(
                             observation.bands,
