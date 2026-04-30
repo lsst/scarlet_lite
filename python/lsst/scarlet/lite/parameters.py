@@ -379,7 +379,10 @@ def _adamx_phi_psi(it, g, m, v, vhat, b1, b2, eps, p):
     v[:] = (1 - b2) * (g**2) + b2 * v
 
     phi = m
-    factor = (1 - b1[it]) ** 2 / (1 - b1[it - 1]) ** 2
+    if it == 0:
+        factor = 1.0
+    else:
+        factor = (1 - b1[it]) ** 2 / (1 - b1[it - 1]) ** 2
     vhat[:] = np.maximum(factor * vhat, v)
     # sanitize zero-gradient elements
     if eps > 0:

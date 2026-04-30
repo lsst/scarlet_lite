@@ -143,6 +143,35 @@ class TestParameters(ScarletTestCase):
         param.update(10, x, x2)
         param.update(0, x, x2)
 
+    def test_adamx_first_iteration(self):
+        """``_adamx_phi_psi`` must treat ``factor`` as 1 on the first
+        iteration rather than indexing ``b1[it-1] = b1[-1]``.
+
+        Audit finding O-2: at ``it=0`` the formula
+        ``(1 - b1[it])**2 / (1 - b1[it-1])**2`` accidentally reads
+        the *last* element of a varying ``b1`` schedule. With the
+        default ``SingleItemArray`` (constant ``b1``) this returns
+        the right value by coincidence; with a real array of varying
+        decay rates the factor is wrong on the very first step.
+        """
+        adamx = phi_psi["adamx"]
+        # b1[-1] differs sharply from b1[0], so the buggy and fixed
+        # branches diverge.
+        b1 = np.array([0.9, 0.5])
+        g = np.array([1.0])
+        m = np.array([0.0])
+        v = np.array([0.0])
+        # Non-default ``vhat`` so the factor multiplies a finite
+        # value (the default ``-inf`` would absorb any positive
+        # factor).
+        vhat = np.array([1.0])
+        _, psi = adamx(0, g, m, v, vhat, b1, 0.999, 0, 0.5)
+        # v after update: (1-0.999)*1 = 0.001
+        # Fixed: vhat = max(1.0 * 1.0, 0.001) = 1.0; psi = sqrt(1.0) = 1.0
+        # Buggy: factor = (0.1)**2/(0.5)**2 = 0.04
+        #        vhat = max(0.04 * 1.0, 0.001) = 0.04; psi = sqrt(0.04) = 0.2
+        np.testing.assert_allclose(psi, 1.0)
+
     def test_fixed_parameter(self):
         x = np.arange(10, dtype=float)
         param = FixedParameter(x)
