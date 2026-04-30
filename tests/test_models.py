@@ -364,6 +364,65 @@ class TestParametric(ScarletTestCase):
 
         np.testing.assert_allclose(d_analytical, d_fd, rtol=1e-3, atol=1e-7)
 
+    def test_grad_integrated_gaussian(self):
+        """Finite-difference check of the integrated Gaussian
+        gradient. ``grad_integrated_gaussian`` returns
+        d/d{y0, x0, sigma}.
+        """
+        bbox = Box((33, 33), origin=(0, 0))
+        spectrum = np.array([1.0])
+        frame = CartesianFrame(bbox)
+        params = np.array([16.3, 16.7, 1.5])
+        morph = models.integrated_gaussian(params, frame)
+        input_grad = np.ones((1,) + morph.shape)
+
+        d_analytical = models.grad_integrated_gaussian(input_grad, params, morph, spectrum, frame)
+
+        eps = 1e-4
+        d_fd = np.zeros(3)
+        for i in range(3):
+            perturb = np.zeros(3)
+            perturb[i] = eps
+            f_plus = np.sum(models.integrated_gaussian(params + perturb, frame))
+            f_minus = np.sum(models.integrated_gaussian(params - perturb, frame))
+            d_fd[i] = (f_plus - f_minus) / (2 * eps)
+
+        np.testing.assert_allclose(d_analytical, d_fd, rtol=1e-3, atol=1e-7)
+
+    def test_grad_sersic_ellipse_params(self):
+        """Finite-difference check of grad_sersic for the ellipse
+        parameters. Index 5 (d/dn) is covered by
+        ``test_grad_sersic_n_index``; this covers indices 0-4:
+        d/d{y0, x0, sigma_y, sigma_x, theta}. ``bn(n)`` does not
+        depend on these parameters, so the FD evaluation can use
+        ``models.sersic`` directly.
+        """
+        bbox = Box((33, 33), origin=(0, 0))
+        spectrum = np.array([1.0])
+        n = 1.5
+        n_params = np.array([n])
+        y0, x0, sigma_y, sigma_x, theta = 16.0, 16.0, 5.0, 4.0, 0.3
+
+        ellipse = EllipseFrame(y0, x0, sigma_y, sigma_x, theta, bbox)
+        morph = models.sersic(n_params, ellipse)
+        input_grad = np.ones((1,) + morph.shape)
+        params = np.array([y0, x0, sigma_y, sigma_x, theta, n])
+        d_analytical = models.grad_sersic(input_grad, params, morph, spectrum, ellipse)[:5]
+
+        eps_list = [1e-4, 1e-4, 1e-4, 1e-4, 1e-5]
+        d_fd = np.zeros(5)
+        ellipse_params = np.array([y0, x0, sigma_y, sigma_x, theta])
+        for i, eps in enumerate(eps_list):
+            perturb = np.zeros(5)
+            perturb[i] = eps
+            yp, xp, syp, sxp, tp = ellipse_params + perturb
+            ym, xm, sym, sxm, tm = ellipse_params - perturb
+            f_plus = np.sum(models.sersic(n_params, EllipseFrame(yp, xp, syp, sxp, tp, bbox)))
+            f_minus = np.sum(models.sersic(n_params, EllipseFrame(ym, xm, sym, sxm, tm, bbox)))
+            d_fd[i] = (f_plus - f_minus) / (2 * eps)
+
+        np.testing.assert_allclose(d_analytical, d_fd, rtol=1e-3, atol=1e-7)
+
     def test_parametric_component(self):
         observation = self.observation
         bands = observation.bands
