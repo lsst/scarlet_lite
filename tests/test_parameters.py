@@ -135,6 +135,14 @@ class TestParameters(ScarletTestCase):
             )
             param.update(10, x, x2)
 
+        # Audit finding O-1: ``update`` must work when ``prox`` is
+        # None (the default), matching ``FistaParameter.update``.
+        # Previously ``self.prox(_x)`` was called unconditionally and
+        # raised ``TypeError`` on ``None``.
+        param = AdaproxParameter(x2.copy(), 0.1, grad)
+        param.update(10, x, x2)
+        param.update(0, x, x2)
+
     def test_fixed_parameter(self):
         x = np.arange(10, dtype=float)
         param = FixedParameter(x)

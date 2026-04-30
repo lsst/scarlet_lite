@@ -530,7 +530,8 @@ class AdaproxParameter(Parameter):
             # is often much larger than desired.
             _x += -step * phi / psi / 10
 
-        self.x = cast(Callable, self.prox)(_x)
+        if self.prox is not None:
+            self.x = self.prox(_x)
 
     def __deepcopy__(self, memo: dict[int, Any] | None = None) -> AdaproxParameter:
         """Create a deep copy of this parameter.
