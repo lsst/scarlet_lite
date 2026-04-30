@@ -187,6 +187,10 @@ spectrum[spectrum < 0] = 0
 
 The detection image weights by `1/noise_rms^2` per band, but `noise_rms` is a single scalar per band (the average), ignoring spatial variance variations. This is an inherent limitation and likely a deliberate design choice, but worth noting for fields with highly non-uniform noise.
 
+#### Developer comment
+
+This was an intentional design choice. Testing many years ago showed that we obtained better results when using a single scalar per band as opposed to per pixel weights when building the initialization coadd.
+
 ---
 
 ### I-6. `multifit_spectra` redundant `np.vstack` on 2D array (Low)
@@ -287,6 +291,10 @@ Both `match_kernel` and `convolve` declare a `normalize` parameter with document
 
 Each `Fourier` object stores a `_fft` dict mapping `(fft_shape, axes, all_axes)` tuples to computed FFTs. If the same kernel is convolved with images of different shapes (e.g., when components are resized), the dict grows without bound. Unlikely to be a significant memory issue in practice since the number of distinct shapes is small.
 
+#### Developer comment
+
+This caching is why the fft package is significantly faster than scipy convolve, since convolutions are done primarily on the full blend, which never changes size. I am almost certain that this is never called in production with any other size but we should certainly check because this would be a huge memory leak.
+
 ---
 
 ### O-5. `conserve_flux` redundant zero-setting (Low)
@@ -348,6 +356,9 @@ For even-dimensional arrays, the center of rotation is between pixels, and the f
 **File:** `python/lsst/scarlet/lite/parameters.py:260-271`
 
 `_x = self.x` is a reference (not a copy). The `z` update uses `_x` before `_x[:] = x` modifies `self.x` in-place. Correct, but a maintainer reordering these two lines would introduce a bug.
+
+#### Developer comment
+Let's discuss this issue. The coded version is the FISTA algorithm and I don't understand the issue that you're raising without seeing what your update proposal is.
 
 ---
 
@@ -420,6 +431,9 @@ The detection image is `np.sum(images, axis=0)`. The noise in the sum should be 
 
 **Fix:** `sigma = np.median(np.sqrt(np.sum(variance, axis=0)))`
 
+#### Developer comment
+Like the creation of the initialization image, we intentionally use a per-band scalar. This might be worth revisiting later to prevent eg. very large variance pixels that should be masked from sneaking into the detection image, but that is another issue entirely.
+
 ---
 
 ### D-4. Unexplained `/2` factor in detection sigma (Low)
@@ -431,6 +445,9 @@ sigma = np.median(np.sqrt(variance), axis=(1, 2)) / 2
 ```
 
 The per-band noise estimate is divided by 2 without explanation, effectively doubling the SNR weighting. If intentional, it should be documented. If not, it inflates detection SNR by 2x.
+
+#### Developer comment
+Is it possible that this comes into play to make the detection image similar to a chi**2 coadd? There's most likely a reason for this and I hesitate to change it without first understanding why it was done in the first place. Do you have any ideas?
 
 ---
 
@@ -507,6 +524,9 @@ The `Footprint.union` method docstring says "The intersection of two footprints"
 **File:** `python/lsst/scarlet/lite/wavelet.py:60-76`
 
 The `bspline_convolve` function handles boundaries by not adding contributions from out-of-bounds pixels (equivalent to zero-padding). The standard starlet transform uses mirror/symmetric boundary extension (Starck & Murtagh 1998). Zero-padding introduces artificial edge effects at coarser wavelet scales where the filter footprint is large. For large images with sources well inside the boundary, this is negligible.
+
+#### Developer comment
+I agree that zero padding will add artifical edge effects but mirror and symmetric boundary extensions do this as well. We just ignore detections in the edge regions to avoid this issue. The problem with mirroring or symmetry is that any sources on the edges will then be either reflected or affect the opposite side respectively, which can result in even more difficult to diagnose boundary issues and false detections.
 
 ---
 
