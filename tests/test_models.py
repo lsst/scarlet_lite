@@ -41,6 +41,7 @@ from lsst.scarlet.lite.operators import Monotonicity
 from lsst.scarlet.lite.parameters import AdaproxParameter, parameter, relative_step
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_array_equal
+from scipy.stats import gamma as gamma_dist
 from utils import ScarletTestCase
 
 
@@ -234,6 +235,50 @@ class TestParametric(ScarletTestCase):
 
         # Make sure that none of the methods changed the input gradient
         assert_array_equal(input_grad, original_grad)
+
+    def test_grad_sersic_n_index(self):
+        """Finite-difference check of the Sersic gradient w.r.t. n.
+
+        Protects against regressions in the analytical gradient (e.g. the
+        np.log10 vs np.log mistake fixed for audit finding C-1). The
+        analytical gradient holds bn(n) fixed -- differentiating the
+        inverse incomplete gamma function is intentionally omitted -- so
+        the finite-difference comparison does the same.
+        """
+        bbox = Box((33, 33), origin=(0, 0))
+        y0, x0 = 16.0, 16.0
+        sigma_y, sigma_x = 5.0, 4.0
+        theta = 0.3
+        spectrum = np.array([1.0])
+
+        def sersic_fixed_bn(n_value, bn_value, ellipse):
+            r = ellipse.r_grid
+            return np.exp(-bn_value * (r ** (1 / n_value) - 1))
+
+        for n in (0.5, 1.5, 2.0, 3.0, 4.0):
+            ellipse = EllipseFrame(y0, x0, sigma_y, sigma_x, theta, bbox)
+            bn = gamma_dist.ppf(0.5, 2 * n)
+            morph = sersic_fixed_bn(n, bn, ellipse)
+            input_grad = np.ones((1,) + morph.shape)
+            params = np.array([y0, x0, sigma_y, sigma_x, theta, n])
+
+            d_n_analytical = models.grad_sersic(input_grad, params, morph, spectrum, ellipse)[5]
+
+            # Centered finite difference: df/dn ~ (f(n+e) - f(n-e)) / (2e)
+            # where f(n) = sum(sersic_fixed_bn(n)). bn is held fixed in both
+            # evaluations to match the analytical formulation, which omits
+            # the dbn/dn contribution.
+            eps = 1e-5 * max(1.0, abs(n))
+            loss_plus = np.sum(sersic_fixed_bn(n + eps, bn, ellipse))
+            loss_minus = np.sum(sersic_fixed_bn(n - eps, bn, ellipse))
+            d_n_fd = (loss_plus - loss_minus) / (2 * eps)
+
+            np.testing.assert_allclose(
+                d_n_analytical,
+                d_n_fd,
+                rtol=1e-4,
+                err_msg=f"grad_sersic d/dn mismatch at n={n}",
+            )
 
     def test_parametric_component(self):
         observation = self.observation

@@ -625,7 +625,7 @@ def grad_sersic(
         d_exp = -bn / n * morph * r ** (1 / n - 1)
 
     _grad = np.einsum("i,i...", spectrum, input_grad)
-    d_n = np.sum(_grad * bn * morph * ellipse.r_grid ** (1 / n) * np.log10(ellipse.r_grid) / n**2)
+    d_n = np.sum(_grad * bn * morph * ellipse.r_grid ** (1 / n) * np.log(ellipse.r_grid) / n**2)
     _grad = _grad * d_exp
     d_y0 = ellipse.grad_y0(_grad, False)
     d_x0 = ellipse.grad_x0(_grad, False)
