@@ -447,8 +447,11 @@ def grad_circular_gaussian(
     _grad = -morph * np.einsum("i,i...", spectrum, input_grad)
 
     y0, x0 = params[:2]
-    d_y0 = -2 * np.sum((frame.y_grid - y0) * _grad)
-    d_x0 = -2 * np.sum((frame.x_grid - x0) * _grad)
+    # d morph / d y0 = morph * (y - y0) / (2 * sigma**2), and similarly for x0,
+    # because r2 = ((x-x0)/(2*sigma))**2 + ((y-y0)/(2*sigma))**2.
+    inv_two_sigma_sq = 1.0 / (2.0 * sigma**2)
+    d_y0 = -inv_two_sigma_sq * np.sum((frame.y_grid - y0) * _grad)
+    d_x0 = -inv_two_sigma_sq * np.sum((frame.x_grid - x0) * _grad)
     return np.array([d_y0, d_x0], dtype=params.dtype)
 
 

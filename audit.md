@@ -30,7 +30,7 @@ Status legend:
 | ID   | Issue                                                  | Severity | Status   | Notes |
 |------|--------------------------------------------------------|----------|----------|-------|
 | C-1  | `grad_sersic` uses `np.log10` instead of `np.log`      | Critical | Fixed    | |
-| C-2  | `grad_circular_gaussian` missing sigma scaling         | High     | Open     | |
+| C-2  | `grad_circular_gaussian` missing sigma scaling         | High     | Fixed    | |
 | C-3  | `Box.slices` negative-origin guard is a no-op          | High     | Open     | |
 | C-4  | Image `__gt__`/`__lt__` use wrong operators            | Medium   | Open     | |
 | I-1  | `UnboundLocalError` in wavelet `init_source`           | High     | Open     | |
@@ -68,8 +68,8 @@ Status legend:
 | D-10 | Detection test coverage gaps                           | Low      | Open     | |
 | D-11 | Wavelet boundary handling (zero-padding)               | Low      | Discarded | Intentional. Mirror/symmetric extensions have their own boundary issues — sources on edges get reflected or wrap, producing harder-to-diagnose false detections. Edge regions are ignored downstream instead |
 
-**Currently open:** 0 critical, 4 high, 7 medium, 16 low (27 total).
-**Fixed:** 1 (C-1).
+**Currently open:** 0 critical, 3 high, 7 medium, 16 low (26 total).
+**Fixed:** 2 (C-1, C-2).
 **Discarded:** 4 (I-5, K-4, D-3, D-11).
 **Discuss:** 2 (O-4, D-4).
 

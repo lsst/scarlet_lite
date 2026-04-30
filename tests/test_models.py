@@ -280,6 +280,45 @@ class TestParametric(ScarletTestCase):
                 err_msg=f"grad_sersic d/dn mismatch at n={n}",
             )
 
+    def test_grad_circular_gaussian(self):
+        """Finite-difference check of the circular Gaussian gradient.
+
+        Protects against regressions in grad_circular_gaussian (audit
+        finding C-2). The forward model is morph = exp(-r2) where
+        r2 = ((x-x0)/(2*sigma))**2 + ((y-y0)/(2*sigma))**2, so the gradient
+        must scale with 1/(2*sigma**2). A previous version of the code used
+        a fixed factor of 2, ignoring sigma entirely.
+        """
+        bbox = Box((33, 33), origin=(0, 0))
+        y0, x0 = 16.3, 16.7
+        spectrum = np.array([1.0])
+        frame = CartesianFrame(bbox)
+
+        for sigma in (0.6, 0.8, 1.5, 3.0):
+            morph = models.circular_gaussian((y0, x0), frame, sigma=sigma)
+            input_grad = np.ones((1,) + morph.shape)
+            params = np.array([y0, x0])
+
+            d_analytical = models.grad_circular_gaussian(
+                input_grad, params, morph, spectrum, frame, sigma=sigma
+            )
+
+            # Centered finite difference on f(y0, x0) = sum(morph(y0, x0)).
+            eps = 1e-4
+            f_yp = np.sum(models.circular_gaussian((y0 + eps, x0), frame, sigma=sigma))
+            f_ym = np.sum(models.circular_gaussian((y0 - eps, x0), frame, sigma=sigma))
+            f_xp = np.sum(models.circular_gaussian((y0, x0 + eps), frame, sigma=sigma))
+            f_xm = np.sum(models.circular_gaussian((y0, x0 - eps), frame, sigma=sigma))
+            d_fd = np.array([(f_yp - f_ym) / (2 * eps), (f_xp - f_xm) / (2 * eps)])
+
+            np.testing.assert_allclose(
+                d_analytical,
+                d_fd,
+                rtol=1e-4,
+                atol=1e-8,
+                err_msg=f"grad_circular_gaussian mismatch at sigma={sigma}",
+            )
+
     def test_parametric_component(self):
         observation = self.observation
         bands = observation.bands
