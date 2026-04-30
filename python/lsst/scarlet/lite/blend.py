@@ -465,7 +465,6 @@ class Blend(BlendBase):
             cuts = denominator != 0
             ratio = np.zeros(numerator.shape, dtype=numerator.dtype)
             ratio[cuts] = numerator[cuts] / denominator[cuts]
-            ratio[denominator == 0] = 0
             # sometimes numerical errors can cause a hot pixel to have a
             # slightly higher ratio than 1
             ratio[ratio > 1] = 1
