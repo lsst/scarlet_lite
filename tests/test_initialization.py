@@ -70,13 +70,16 @@ class TestInitialization(ScarletTestCase):
         self.assertEqual(trimmed.dtype, np.float32)
 
         # With a threshold: pixels at or below the threshold are zeroed,
-        # and the bbox is the tight box around what remains.
+        # and the bbox is the tight box around what remains. The input
+        # array must not be mutated (audit finding I-8).
         morph = np.full((50, 50), 0.1).astype(np.float32)
         morph[10:15, 12:27] = 1
+        original = morph.copy()
         truth = np.zeros(morph.shape)
         truth[10:15, 12:27] = 1
         trimmed, trimmed_box = trim_morphology(morph, 0.5)
         assert_array_equal(trimmed, truth)
+        assert_array_equal(morph, original)
         self.assertTupleEqual(trimmed_box.origin, (10, 12))
         self.assertTupleEqual(trimmed_box.shape, (5, 15))
         self.assertEqual(trimmed.dtype, np.float32)

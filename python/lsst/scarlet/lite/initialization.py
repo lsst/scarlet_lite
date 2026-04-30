@@ -67,10 +67,9 @@ def trim_morphology(
         threshold = bg_thresh
 
     # trim morph to pixels above threshold
-    mask = morph > threshold
-    morph[~mask] = 0
-    bbox = Box.from_data(morph, threshold=0)
-    return morph, bbox
+    trimmed = np.where(morph > threshold, morph, 0)
+    bbox = Box.from_data(trimmed, threshold=0)
+    return trimmed, bbox
 
 
 def init_monotonic_morph(
