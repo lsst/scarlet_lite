@@ -213,7 +213,7 @@ def multifit_spectra(
     spectra = np.zeros((len(morphs), n_bands), dtype=dtype)
 
     for b in range(n_bands):
-        a = np.vstack(morph_images[b]).T
+        a = morph_images[b].T
         spectra[:, b] = np.linalg.lstsq(a, image[observation.bands[b]].data.flatten(), rcond=None)[0]
     spectra[spectra < 0] = 0
     return spectra
