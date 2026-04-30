@@ -19,6 +19,61 @@ The most impactful findings are a wrong logarithm base in the Sersic gradient (c
 
 ---
 
+## Status Tracking
+
+Status legend:
+- **Open** — accepted as a finding, not yet addressed
+- **Fixed** — code change committed
+- **Discarded** — reviewed and intentional / not a bug; will not change
+- **Discuss** — needs further investigation or developer input before action
+
+| ID   | Issue                                                  | Severity | Status   | Notes |
+|------|--------------------------------------------------------|----------|----------|-------|
+| C-1  | `grad_sersic` uses `np.log10` instead of `np.log`      | Critical | Open     | |
+| C-2  | `grad_circular_gaussian` missing sigma scaling         | High     | Open     | |
+| C-3  | `Box.slices` negative-origin guard is a no-op          | High     | Open     | |
+| C-4  | Image `__gt__`/`__lt__` use wrong operators            | Medium   | Open     | |
+| I-1  | `UnboundLocalError` in wavelet `init_source`           | High     | Open     | |
+| I-2  | Double padding in `init_monotonic_morph`               | Medium   | Open     | |
+| I-3  | PSF extraction wrong origin at boundary                | Medium   | Open     | |
+| I-4  | Spectrum estimation can produce `inf`                  | Medium   | Open     | |
+| I-5  | Per-band scalar RMS in detection coadd                 | Low      | Discarded | Intentional design choice — testing showed scalar per-band weights produced better init coadds than per-pixel weights |
+| I-6  | Redundant `np.vstack` in `multifit_spectra`            | Low      | Open     | |
+| I-7  | Shared mutable morph between bulge/disk                | Low      | Open     | |
+| I-8  | `trim_morphology` mutates input array                  | Low      | Open     | |
+| I-9  | Inconsistent bulge/disk spectrum zero-checks           | Low      | Open     | |
+| I-10 | `get_psf_component` zero `psf_spectrum` handling       | Low      | Open     | |
+| O-1  | `AdaproxParameter` crashes when `prox is None`         | Medium   | Open     | |
+| O-2  | `_adamx_phi_psi` indexes `b1[-1]` at `it=0`            | Medium   | Open     | |
+| O-3  | Unused `normalize` parameter in FFT functions          | Low      | Open     | |
+| O-4  | FFT cache grows unboundedly                            | Low      | Discuss  | Caching is the source of FFT performance gains. Need to verify production always convolves at a single shape (the full blend) before deciding whether to add LRU eviction or leave as-is |
+| O-5  | `conserve_flux` redundant zero-setting                 | Low      | Open     | |
+| O-6  | No tests for parametric model gradients                | Medium   | Open     | |
+| O-7  | No tests for ADAM/Adaprox variants                     | Medium   | Open     | |
+| K-1  | `Parameter.__copy__` loses `grad`/`prox`/`step`        | Medium   | Open     | |
+| K-2  | Positivity skipped when `bg_thresh` is active          | Low      | Open     | |
+| K-3  | `prox_sdss_symmetry` assumes odd dimensions            | Low      | Open     | |
+| K-4  | FISTA `z` update fragile to reordering                 | Low      | Discarded | Re-reviewed: the code is the standard FISTA algorithm and is correct. My only "fix" would be to add a defensive `.copy()` of `self.x`, which is strictly worse (extra allocation per iteration). Not a real bug |
+| K-5  | `uncentered_operator` even-size logic under-tested     | Low      | Open     | |
+| K-6  | `CubeComponent.__deepcopy__` ignores memo              | Low      | Open     | |
+| D-1  | C++ area pre-filter uses `>` instead of `>=`           | Medium   | Open     | |
+| D-2  | Space-branch iterative sigma is a no-op                | Medium   | Open     | |
+| D-3  | Noise estimation mismatch in `get_detect_wavelets`     | Low      | Discarded | Intentional per-band scalar (mirrors I-5 design choice); revisiting per-pixel variance handling is a separate, larger project |
+| D-4  | Unexplained `/2` factor in detection sigma             | Low      | Discuss  | **Investigated 2026-04-30**: confirmed empirical calibration so that detection noise std ≈ 1 for the LSST 6-band case (so `peak_thresh=5` means actual 5σ). Correct for the production path but band-count- and `remove_high_freq`-dependent. See expanded D-4 entry below |
+| D-5  | Biased std over masked pixels                          | Low      | Open     | |
+| D-6  | Non-reproducible random noise                          | Low      | Open     | |
+| D-7  | Variable shadowing in `multiband_starlet_transform`    | Low      | Open     | |
+| D-8  | Misleading `width`/`height` names                      | Low      | Open     | |
+| D-9  | `union` docstring says "intersection"                  | Low      | Open     | |
+| D-10 | Detection test coverage gaps                           | Low      | Open     | |
+| D-11 | Wavelet boundary handling (zero-padding)               | Low      | Discarded | Intentional. Mirror/symmetric extensions have their own boundary issues — sources on edges get reflected or wrap, producing harder-to-diagnose false detections. Edge regions are ignored downstream instead |
+
+**Currently open:** 1 critical, 4 high, 7 medium, 16 low (28 total).
+**Discarded:** 4 (I-5, K-4, D-3, D-11).
+**Discuss:** 2 (O-4, D-4).
+
+---
+
 ## Cross-Cutting Issues
 
 These issues span multiple areas of the codebase.
@@ -448,6 +503,55 @@ The per-band noise estimate is divided by 2 without explanation, effectively dou
 
 #### Developer comment
 Is it possible that this comes into play to make the detection image similar to a chi**2 coadd? There's most likely a reason for this and I hesitate to change it without first understanding why it was done in the first place. Do you have any ideas?
+
+#### Investigation (2026-04-30)
+
+`git blame` traces the line to commit `33ee0b4` (2024-09-20, "Implement improved wavelet detection") — same commit that added the `remove_high_freq=True` default and the `_images = multiband_starlet_reconstruction(wavelets, ...)` path above it.
+
+That path zeros the highest-frequency starlet scale (`wavelets[0] = 0`) and reconstructs. For generation-2 starlets, this reconstruction is mathematically equivalent to convolving the original image twice with the B-spline filter `h₀² · image`. The detection image is therefore not the raw pixel data but a heavily smoothed version of it, with **substantially reduced noise**.
+
+**Empirical calibration** (white-noise input, sigma=1, 512×512, 32-pixel edge crop):
+
+| N bands | detection std with `/2` | detection std without `/2` |
+|---------|-------------------------|----------------------------|
+| 1       | 0.387                   | 0.194                      |
+| 3       | 0.683                   | 0.341                      |
+| 6       | **0.958 ≈ 1.0** ✓       | 0.479                      |
+
+The `/2` factor calibrates the detection image to have **unit noise std for the LSST 6-band case**, so that thresholds like `peak_thresh=5` correspond to actual 5σ detections.
+
+The math: noise reduction from `h₀² · h₀²` (the gen-2 reconstruction filter, separable 2D) is `sum((h*h)²)² ≈ 0.0388`, giving a per-band noise factor of √0.0388 ≈ 0.197. For the SNR-summed detection image with N independent equi-noise bands:
+
+```
+std(detection) = N * noise_factor / sigma_used
+              = N * 0.197 / (sigma_input/2)
+              = 2 * N * 0.197 / sigma_input
+```
+
+Setting this to 1 (with sigma_input=1) gives `N = 1 / (2 * 0.197) ≈ 2.54` per √N… working it out properly: the SNR sum of N bands has variance `N * (noise_factor / sigma_used)² = N * (2 * 0.197)² = 0.155 * N`. Setting std = 1 → N ≈ 1/0.155 ≈ 6.45. Matches LSST's 6-band coadd.
+
+**Implications:**
+
+1. The `/2` is **correct and important** for the LSST 6-band production case — it makes `peak_thresh`/`footprint_thresh` mean what they say (sigma units).
+2. It is **incorrect for other band counts**. For 1 band, "5σ" is actually ~13σ (overly conservative, misses faint sources). For 3 bands, ~7σ.
+3. It is **incorrect when `remove_high_freq=False`** (no wavelet smoothing → the 0.197 factor doesn't apply).
+
+**Recommendation:** Keep the `/2` as the LSST default but make it principled. Replace with an explicit noise-of-detection-image computation, e.g.:
+
+```python
+# Estimate noise factor from the wavelet processing (or 1 if no processing)
+if remove_high_freq:
+    noise_factor = 0.197  # B-spline^4 filtering (gen-2 starlet[0] removed)
+else:
+    noise_factor = 1.0
+sigma_per_band = np.median(np.sqrt(variance), axis=(1, 2))
+# Calibrate so that std(detection) = 1
+calibration = np.sqrt(np.sum((noise_factor / sigma_per_band) ** 2))
+sigma = sigma_per_band / calibration  # absorbs N_bands and noise_factor
+detection = np.sum(_images / sigma[:, None, None], axis=0) / np.sqrt(np.sum(1 / sigma_per_band ** 2))
+```
+
+…or, less invasively, just document the `/2` with a comment explaining the calibration and band-count assumption.
 
 ---
 
