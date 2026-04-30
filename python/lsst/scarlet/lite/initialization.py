@@ -40,7 +40,6 @@ logger = logging.getLogger("scarlet.lite.initialization")
 def trim_morphology(
     morph: np.ndarray,
     threshold: float = 0,
-    padding: int = 5,
     bg_thresh: float | None = None,
 ) -> tuple[np.ndarray, Box]:
     """Trim the morphology up to pixels above a threshold
@@ -49,19 +48,18 @@ def trim_morphology(
     ----------
     morph:
         The morphology to be trimmed.
-    thresh:
+    threshold:
         The morphology is trimmed to pixels above the threshold.
     bg_thresh:
-        Deprecated in favor of `thresh`.
-    padding:
-        The amount to pad each side to allow the source to grow.
+        Deprecated in favor of ``threshold``.
 
     Returns
     -------
     morph:
-        The trimmed morphology
+        The trimmed morphology.
     box:
-        The box that contains the morphology.
+        A tight bounding box around the non-zero pixels of the trimmed
+        morphology. The caller is responsible for any padding.
     """
     # Temporarily support bg_thresh
     if bg_thresh is not None:
@@ -71,7 +69,7 @@ def trim_morphology(
     # trim morph to pixels above threshold
     mask = morph > threshold
     morph[~mask] = 0
-    bbox = Box.from_data(morph, threshold=0).grow(padding)
+    bbox = Box.from_data(morph, threshold=0)
     return morph, bbox
 
 
@@ -146,13 +144,13 @@ def init_monotonic_morph(
             return Box((0, 0)), None
 
         if threshold > 0:
-            morph, bbox = trim_morphology(morph, threshold=threshold, padding=padding)
+            morph, bbox = trim_morphology(morph, threshold=threshold)
 
     else:
         morph = monotonicity(detect, center)
 
         # truncate morph at thresh * bg_rms
-        morph, bbox = trim_morphology(morph, threshold=threshold, padding=padding)
+        morph, bbox = trim_morphology(morph, threshold=threshold)
 
     # Shift the bounding box to account for the non-zero origin
     bbox += full_box.origin

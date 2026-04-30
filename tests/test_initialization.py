@@ -59,24 +59,26 @@ class TestInitialization(ScarletTestCase):
         )
 
     def test_trim_morphology(self):
-        # Test default parameters
+        # Default parameters: returns a tight bbox around the non-zero
+        # support of the input.
         morph = np.zeros((50, 50)).astype(np.float32)
         morph[10:15, 12:27] = 1
         trimmed, trimmed_box = trim_morphology(morph)
         assert_array_equal(trimmed, morph)
-        self.assertTupleEqual(trimmed_box.origin, (5, 7))
-        self.assertTupleEqual(trimmed_box.shape, (15, 25))
+        self.assertTupleEqual(trimmed_box.origin, (10, 12))
+        self.assertTupleEqual(trimmed_box.shape, (5, 15))
         self.assertEqual(trimmed.dtype, np.float32)
 
-        # Test with parameters specified
+        # With a threshold: pixels at or below the threshold are zeroed,
+        # and the bbox is the tight box around what remains.
         morph = np.full((50, 50), 0.1).astype(np.float32)
         morph[10:15, 12:27] = 1
         truth = np.zeros(morph.shape)
         truth[10:15, 12:27] = 1
-        trimmed, trimmed_box = trim_morphology(morph, 0.5, 1)
+        trimmed, trimmed_box = trim_morphology(morph, 0.5)
         assert_array_equal(trimmed, truth)
-        self.assertTupleEqual(trimmed_box.origin, (9, 11))
-        self.assertTupleEqual(trimmed_box.shape, (7, 17))
+        self.assertTupleEqual(trimmed_box.origin, (10, 12))
+        self.assertTupleEqual(trimmed_box.shape, (5, 15))
         self.assertEqual(trimmed.dtype, np.float32)
 
     def test_init_monotonic_mask(self):
@@ -91,17 +93,21 @@ class TestInitialization(ScarletTestCase):
         assert_array_equal(morph, masked_morph / np.max(masked_morph))
         self.assertEqual(morph.dtype, np.float32)
 
-        # Specifying parameters
+        # Non-zero threshold AND non-zero padding. This combination
+        # exercises the path-1 trim_morphology call AND the post-trim
+        # padding step; if those ever double up again (audit I-2), the
+        # bbox below would grow to (34, 28) at origin (1017, 2000)
+        # rather than (30, 25) at (1019, 2001).
         bbox, morph = init_monotonic_morph(
             self.detect.copy(),
             center,
             full_box,
-            0,  # padding
-            False,  # normalizae
+            2,  # padding
+            False,  # normalize
             None,  # monotonicity
             0.2,  # threshold
         )
-        self.assertBoxEqual(bbox, Box((26, 21), (1021, 2003)))
+        self.assertBoxEqual(bbox, Box((30, 25), (1019, 2001)))
         # Remove pixels below the threshold
         truth = masked_morph.copy()
         truth[truth < 0.2] = 0
@@ -128,19 +134,22 @@ class TestInitialization(ScarletTestCase):
         assert_array_equal(morph, truth)
         self.assertEqual(morph.dtype, np.float32)
 
-        # Specify parameters
+        # Non-zero threshold AND non-zero padding. trim_morphology is
+        # always called on path 2; pairing that with padding > 0 makes
+        # the regression for audit I-2 (double padding) observable
+        # rather than masked by clipping or padding=0.
         bbox, morph = init_monotonic_morph(
             self.detect.copy(),
             center,
             full_box,
-            0,  # padding
+            2,  # padding
             False,  # normalize
             monotonicity,  # monotonicity
             0.2,  # threshold
         )
         truth = monotonicity(self.detect.copy(), local_center)
         truth[truth < 0.2] = 0
-        self.assertBoxEqual(bbox, Box((45, 44), origin=(1010, 2003)))
+        self.assertBoxEqual(bbox, Box((49, 47), origin=(1008, 2001)))
         assert_array_equal(morph, truth)
         self.assertEqual(morph.dtype, np.float32)
 
