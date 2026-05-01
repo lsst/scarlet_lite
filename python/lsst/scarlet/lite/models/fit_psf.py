@@ -115,7 +115,13 @@ class FittedPsfObservation(Observation):
     def cached_kernel(self):
         return self.fitted_kernel[:, ::-1, ::-1]
 
-    def convolve(self, image: Image, mode: str | None = None, grad: bool = False) -> Image:
+    def convolve(
+        self,
+        image: Image,
+        mode: str | None = None,
+        grad: bool = False,
+        cache: bool = False,
+    ) -> Image:
         """Convolve the model into the observed seeing in each band.
 
         Parameters
@@ -130,6 +136,12 @@ class FittedPsfObservation(Observation):
         grad:
             Whether this is a backward gradient convolution
             (`grad==True`) or a pure convolution with the PSF.
+        cache:
+            See `Observation.convolve`. The fitted-PSF kernel is wrapped
+            in a fresh `Fourier` on every call (since the kernel data
+            changes during fitting), so this flag mainly serves to
+            propagate caller intent through to `super().convolve` when
+            delegating for non-FFT modes.
         """
         if grad:
             kernel = self.cached_kernel
@@ -137,13 +149,14 @@ class FittedPsfObservation(Observation):
             kernel = self.fitted_kernel
 
         if mode != "fft" and mode is not None:
-            return super().convolve(image, mode, grad)
+            return super().convolve(image, mode, grad, cache=cache)
 
         result = fft_convolve(
             Fourier(image.data),
             Fourier(kernel),
             axes=(1, 2),
             return_fourier=False,
+            cache=cache,
         )
         return Image(cast(np.ndarray, result), bands=image.bands, yx0=image.yx0)
 
@@ -217,7 +230,7 @@ class FittedPsfBlend(Blend):
         while it < max_iter:
             # Calculate the gradient wrt the on-convolved model
             grad_log_likelihood, model = self._grad_log_likelihood()
-            _grad_log_likelihood = self.observation.convolve(grad_log_likelihood, grad=True)
+            _grad_log_likelihood = self.observation.convolve(grad_log_likelihood, grad=True, cache=True)
             # Check if resizing needs to be performed in this iteration
             if resize is not None and self.it > 0 and self.it % resize == 0:
                 do_resize = True

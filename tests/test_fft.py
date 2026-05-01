@@ -207,6 +207,44 @@ class TestFourier(ScarletTestCase):
         self.assertTrue(any("normalize is deprecated" in line for line in cm.output))
         assert_array_equal(warned, baseline)
 
+    def test_convolve_cache_opt_out(self):
+        """``cache=False`` must not populate the kernel's per-shape FFT
+        dict. Regression for audit O-4: long-lived kernels (e.g. those
+        held by an `Observation`) accumulate one entry per distinct
+        image shape ever convolved, which is the leak we're guarding
+        against.
+        """
+        kernel = Fourier(integrated_circular_gaussian(sigma=1.0))
+        fft.convolve(integrated_circular_gaussian(sigma=1.3), kernel, cache=False)
+        self.assertEqual(len(kernel._fft), 0)
+
+    def test_convolve_cache_default_on(self):
+        """Default ``cache=True`` populates the kernel's FFT dict."""
+        psf = integrated_circular_gaussian(sigma=1.0)
+        kernel = Fourier(psf)
+        image = integrated_circular_gaussian(sigma=1.3)
+        fft.convolve(image, kernel)
+        self.assertEqual(len(kernel._fft), 1)
+        # Repeat at the same shape: cache reused, no new entry.
+        fft.convolve(image, kernel)
+        self.assertEqual(len(kernel._fft), 1)
+
+    def test_fourier_fft_no_cache(self):
+        """``Fourier.fft(cache=False)`` returns the right value but does
+        not store it. A subsequent ``cache=True`` call still computes
+        and caches normally.
+        """
+        x = integrated_circular_gaussian(sigma=1.0)
+        fourier = Fourier(x)
+        _x = np.pad(x, 3, mode="constant")
+        expected = np.fft.rfftn(np.fft.ifftshift(_x))
+        result = fourier.fft((21, 21), (0, 1), cache=False)
+        assert_almost_equal(result, expected)
+        self.assertEqual(len(fourier._fft), 0)
+        # A subsequent default call caches as usual.
+        fourier.fft((21, 21), (0, 1))
+        self.assertEqual(len(fourier._fft), 1)
+
     def test_multiband_psf_matching(self):
         """Test matching two PSFs with a spectral dimension"""
         # Narrow PSF
