@@ -68,6 +68,16 @@ class TestParameters(ScarletTestCase):
         param2 = parameter(param)
         self.assertIs(param2, param)
 
+        # Audit finding K-1: ``__copy__`` and ``__deepcopy__`` must
+        # propagate ``step``, ``grad``, and ``prox``. Previously the
+        # base class re-built the copy with ``step=0`` and no grad
+        # or prox, leaving the copy non-functional for optimization.
+        param = Parameter(x, {"y": y}, 0.25, grad=grad, prox=prox_ceiling)
+        for copied in (param.copy(deep=False), param.copy(deep=True)):
+            self.assertEqual(copied.step, 0.25)
+            self.assertIs(copied.grad, grad)
+            self.assertIs(copied.prox, prox_ceiling)
+
     def test_growing(self):
         x = np.arange(15, dtype=float).reshape(3, 5)
         y = np.zeros((3, 5), dtype=float)

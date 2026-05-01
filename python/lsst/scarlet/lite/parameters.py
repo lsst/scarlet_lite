@@ -130,7 +130,11 @@ class Parameter:
             A shallow copy of this parameter.
         """
         helpers = {k: v.copy() for k, v in self.helpers.items()}
-        return Parameter(self.x.copy(), helpers, 0)
+        copied = Parameter(self.x.copy(), helpers, 0)
+        copied._step = self._step
+        copied.grad = self.grad
+        copied.prox = self.prox
+        return copied
 
     def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Parameter:
         """Create a deep copy of this parameter.
@@ -145,7 +149,11 @@ class Parameter:
             A deep copy of this parameter.
         """
         helpers = {k: deepcopy(v, memo) for k, v in self.helpers.items()}
-        return Parameter(deepcopy(self.x, memo), helpers, 0)
+        copied = Parameter(deepcopy(self.x, memo), helpers, 0)
+        copied._step = deepcopy(self._step, memo)
+        copied.grad = deepcopy(self.grad, memo)
+        copied.prox = deepcopy(self.prox, memo)
+        return copied
 
     def copy(self, deep: bool = False) -> Parameter:
         """Copy this parameter, including all of the helper arrays.
