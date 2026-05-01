@@ -286,6 +286,39 @@ class TestFactorizedComponent(_ComponentTestBase, ScarletTestCase):
 
         self.assertFalse(component.resize(morph_bbox))
 
+    def test_prox_morph_enforces_positivity_with_bg_thresh(self):
+        """Audit finding K-2: ``prox_morph`` previously enforced
+        positivity only on the ``else`` branch (no ``bg_thresh``).
+        With ``bg_thresh`` active, a negative morph pixel survived
+        when ``spectrum * morph >= bg_thresh`` in at least one band
+        — possible whenever the spectrum has a negative band, since
+        ``neg * neg`` is positive. Positivity must always be
+        enforced.
+        """
+        bands = ("g", "r", "i")
+        # Mixed-sign spectrum: the negative band makes the model
+        # positive at a negative-morph pixel for that band, so the
+        # threshold check no longer catches it.
+        spectrum = np.array([-1.0, 1.0, 1.0])
+        morph = np.full((3, 3), 0.5, dtype=float)
+        morph[0, 0] = -0.3
+
+        component = FactorizedComponent(
+            bands,
+            spectrum,
+            morph,
+            Box((3, 3), (0, 0)),
+            peak=None,
+            bg_rms=np.array([0.1, 0.1, 0.1]),
+            bg_thresh=0.5,
+        )
+
+        proxed = component.prox_morph(component.morph.copy())
+        # The negative pixel must be zeroed by the positivity guard,
+        # not slip through because spectrum*morph >= bg_thresh in
+        # the negative-spectrum band.
+        self.assertEqual(proxed[0, 0], 0)
+
     def test_resize(self):
         spectrum = np.array([1, 2, 3], dtype=float)
         morph = np.zeros((10, 10), dtype=float)

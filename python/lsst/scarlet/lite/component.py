@@ -357,14 +357,14 @@ class FactorizedComponent(Component):
             # Apply the symmetry operator
             morph = prox_uncentered_symmetry(morph, peak, fill=0.0)
 
+        # enforce positivity
+        morph[morph < 0] = 0
+
         if self.bg_thresh is not None and self.bg_rms is not None:
             bg_thresh = self.bg_rms * self.bg_thresh
             # Enforce background thresholding
             model = self.spectrum[:, None, None] * morph[None, :, :]
             morph[np.all(model < bg_thresh[:, None, None], axis=0)] = 0
-        else:
-            # enforce positivity
-            morph[morph < 0] = 0
 
         # prevent divergent morphology
         morph[peak] = np.max([morph[peak], self.floor])
