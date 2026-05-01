@@ -229,8 +229,8 @@ def multiband_starlet_reconstruction(
     See `starlet_reconstruction` for a description of the
     remainder of the parameters.
     """
-    _, bands, width, height = starlets.shape
-    result = np.zeros((bands, width, height), dtype=starlets.dtype)
+    _, bands, height, width = starlets.shape
+    result = np.zeros((bands, height, width), dtype=starlets.dtype)
     for band in range(bands):
         result[band] = starlet_reconstruction(starlets[:, band], generation=generation, convolve2d=convolve2d)
     return result
