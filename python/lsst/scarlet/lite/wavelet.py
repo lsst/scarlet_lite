@@ -303,7 +303,7 @@ def get_multiresolution_support(
 
         last_sigma_i = sigma
         for it in range(max_iter):
-            m = np.abs(starlets) > sigma_scaling * sigma * sigma_je[:, None, None]
+            m = np.abs(starlets) > sigma_scaling * last_sigma_i * sigma_je[:, None, None]
             s = np.sum(m, axis=0) == 0
             sigma_i = np.std(noise * s)
             if np.abs(sigma_i - last_sigma_i) / sigma_i < epsilon:

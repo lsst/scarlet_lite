@@ -90,3 +90,32 @@ class TestWavelet(ScarletTestCase):
         get_multiresolution_support(image, starlets, 0.1)
         get_multiresolution_support(image, starlets, 0.1, image_type="space")
         apply_wavelet_denoising(image)
+
+    def test_space_branch_iterates_sigma(self):
+        """Audit finding D-2: the ``image_type='space'`` branch of
+        ``get_multiresolution_support`` implements the Starck &
+        Murtagh 1998 multi-resolution support algorithm, which
+        iteratively refines the global noise ``sigma_e`` from pixels
+        that are insignificant at every scale. The iteration is
+        meaningful only if each step's threshold uses the *previous*
+        iteration's ``sigma``, otherwise the support never changes
+        after iteration 0 and the loop is a no-op.
+
+        With a deliberately wrong input ``sigma`` (3x the true noise
+        level), the algorithm must still converge to a support
+        close to what the correct-sigma run produces.
+        """
+        rng = np.random.default_rng(0)
+        image = rng.normal(scale=1.0, size=(64, 64))
+        starlets = starlet_transform(image, generation=1, scales=3)
+
+        result_correct = get_multiresolution_support(image, starlets, 1.0, image_type="space")
+        result_overestimate = get_multiresolution_support(image, starlets, 3.0, image_type="space")
+        # With the bug, the overestimate run never re-thresholds the
+        # mask and produces an essentially empty support (count = 0);
+        # with the fix the iteration adapts and the support count is
+        # within a small factor of the correct-sigma run.
+        correct_count = result_correct.support.sum()
+        overestimate_count = result_overestimate.support.sum()
+        self.assertGreater(overestimate_count, 0)
+        self.assertLess(abs(overestimate_count - correct_count), correct_count)
