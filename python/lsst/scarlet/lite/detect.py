@@ -126,7 +126,7 @@ class Footprint:  # type: ignore # noqa
         return footprint1 & footprint2
 
     def union(self, other: Footprint) -> Image | None:
-        """The intersection of two footprints
+        """The union of two footprints
 
         Parameters
         ----------
