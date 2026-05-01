@@ -683,8 +683,8 @@ class CubeComponent(Component):
 
         # Now safely initialize the placeholder with deepcopied arguments
         component.__init__(  # type: ignore[misc]
-            model=self._model.copy(),
-            peak=self.peak,
+            model=deepcopy(self._model, memo),
+            peak=deepcopy(self.peak, memo),
         )
         return component
 

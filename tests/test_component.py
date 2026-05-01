@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 from abc import ABC
+from copy import deepcopy
 from typing import Any, Callable
 
 import numpy as np
@@ -445,3 +446,26 @@ class TestCubeComponent(_ComponentTestBase, ScarletTestCase):
         with self.assertRaises(AssertionError):
             component_copy._model._data -= 1
             self.assertImageEqual(component_copy._model, component._model)
+
+    def test_deep_copy_preserves_memo(self):
+        """Audit finding K-6: ``__deepcopy__`` must call ``deepcopy``
+        with the memo dict on its sub-objects so shared references
+        in the input graph remain shared in the copy. Previously
+        ``self._model.copy()`` allocated a fresh image regardless of
+        whether ``self._model`` already appeared in the memo.
+        """
+        c1 = CubeComponent(model=self.component._model, peak=self.component.peak)
+        c2 = CubeComponent(model=self.component._model, peak=self.component.peak)
+        # Two CubeComponents sharing the same Image instance.
+        self.assertIs(c1._model, c2._model)
+
+        c1_copy, c2_copy = deepcopy([c1, c2])
+
+        # The model should be different in the deepcopy,
+        # since CubeComponent's deepcopy creates a new Image instance.
+        self.assertIsNot(c1_copy._model, c1._model)
+
+        # The shared Image must still be shared in the deepcopy,
+        # otherwise larger object graphs that rely on identity
+        # (e.g. observation sharing) silently fork.
+        self.assertIs(c1_copy._model, c2_copy._model)
