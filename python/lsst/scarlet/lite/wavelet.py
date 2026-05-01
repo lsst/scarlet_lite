@@ -318,9 +318,18 @@ def get_multiresolution_support(
         for it in range(max_iter):
             m = np.abs(starlets) > sigma_scaling * sigma_j[:, None, None]
             # Take the standard deviation of the current
-            # insignificant coeffs at each scale
-            s = ~m
-            sigma_j = np.std(starlets * s.astype(int), axis=(1, 2))
+            # insignificant coeffs at each scale, excluding
+            # significant pixels entirely. Including them as zeros
+            # (the pre-fix behavior) biased ``sigma_j`` downward
+            # whenever a non-trivial fraction of pixels were
+            # significant. Scales where every pixel is significant
+            # get ``sigma_j[j] = 0``, treated downstream as "skip
+            # this scale" by the ``sigma_j > 0`` cut.
+            sigma_j = np.zeros(len(starlets), dtype=image.dtype)
+            for j in range(len(starlets)):
+                unmasked = starlets[j][~m[j]]
+                if unmasked.size > 0:
+                    sigma_j[j] = np.std(unmasked)
             # At lower scales all of the pixels may be significant,
             # so sigma is effectively zero. To avoid infinities we
             # only check the scales with non-zero sigma

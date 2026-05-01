@@ -91,6 +91,41 @@ class TestWavelet(ScarletTestCase):
         get_multiresolution_support(image, starlets, 0.1, image_type="space")
         apply_wavelet_denoising(image)
 
+    def test_ground_branch_unbiased_sigma(self):
+        """Audit finding D-5: the per-scale noise estimate in the
+        ``image_type='ground'`` branch must compute std over the
+        insignificant pixels only, not over the full array with
+        significant pixels zeroed (which pulls the variance down).
+
+        Run the algorithm on a synthetic starlet image where a
+        large fraction of pixels are above the significance
+        threshold. ``sigma_j`` is the noise-only std at each scale,
+        so even though most pixels are masked, the returned value
+        must match ``np.std`` of the underlying noise pixels — not
+        ``np.std`` of those pixels mixed with zeros.
+        """
+        rng = np.random.default_rng(0)
+        # Build a single-scale "starlet" array where everything is
+        # noise: half the pixels are unit-sigma noise, the other
+        # half are very-large-amplitude pixels that the iterative
+        # threshold will mask out. The unmasked-only std should
+        # converge to ~1.0; the bug's zero-padded std would be
+        # roughly sqrt(0.5) ~ 0.71.
+        noise = rng.normal(scale=1.0, size=(64, 64)).astype(np.float32)
+        starlets_per_scale = noise.copy()
+        starlets_per_scale[:32] += 100.0  # half the array is "signal"
+        # Stack one finest-scale band plus a coarse residual.
+        starlets = np.stack([starlets_per_scale, np.zeros_like(noise)])
+        # The image just needs a matching shape for the API.
+        image = starlets.sum(axis=0)
+
+        result = get_multiresolution_support(image, starlets, 1.0, image_type="ground")
+        # The finest scale's converged sigma must match the std of
+        # the unmasked noise pixels (~1.0 to within iteration
+        # tolerance), not the bug's zero-padded ~0.71.
+        self.assertGreater(result.sigma[0], 0.9)
+        self.assertLess(result.sigma[0], 1.1)
+
     def test_space_branch_iterates_sigma(self):
         """Audit finding D-2: the ``image_type='space'`` branch of
         ``get_multiresolution_support`` implements the Starck &

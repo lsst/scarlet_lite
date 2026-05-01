@@ -7,6 +7,7 @@ Unreleased
 Bug Fixes
 ---------
 - ``get_footprints`` (and the higher-level ``detect_footprints``) now keeps a footprint whose tight bounding box exactly equals ``min_area``. The C++ pre-filter previously used strict ``>``, so a footprint occupying every pixel of, e.g., a 2x2 box with ``min_area=4`` was rejected before the documented ``>=`` check on the actual pixel count was reached. Users who tuned ``min_area`` against the previous behavior may now see additional, slightly smaller footprints that just meet the threshold; raise ``min_area`` by one to recover the old cut.
+- The ``ground`` branch of ``get_multiresolution_support`` now estimates the per-scale noise ``sigma_j`` from the insignificant pixels alone. Previously the significant pixels were zeroed and included in ``np.std``, biasing ``sigma_j`` downward by up to several percent at coarse wavelet scales. The fix raises the per-scale significance threshold slightly, so users may see a small reduction in the number of detected significant coefficients.
 
 =================
 v30.0.0 Changes
