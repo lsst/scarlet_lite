@@ -143,6 +143,37 @@ class TestParameters(ScarletTestCase):
         param.update(10, x, x2)
         param.update(0, x, x2)
 
+    def test_adaprox_variants_converge(self):
+        """Each ADAM variant must drive a simple quadratic loss to
+        its optimum.
+
+        The loss is ``0.5 * sum((x - target)**2)`` with gradient
+        ``x - target``. Every scheme should reach ``target`` within
+        a small tolerance after a fixed iteration budget. This
+        catches semantic regressions in any of the per-iteration
+        update formulas (the kinds of bug in O-2).
+        """
+        target = np.array([3.0, -2.0, 5.0])
+
+        def quad_grad(input_grad, x):
+            return x - target
+
+        for scheme in tuple(phi_psi.keys()):
+            param = AdaproxParameter(
+                np.zeros_like(target),
+                step=0.1,
+                grad=quad_grad,
+                scheme=scheme,
+            )
+            for it in range(2000):
+                param.update(it, np.zeros_like(target))
+            np.testing.assert_allclose(
+                param.x,
+                target,
+                atol=1e-3,
+                err_msg=f"AdaproxParameter scheme={scheme!r} failed to converge",
+            )
+
     def test_adamx_first_iteration(self):
         """``_adamx_phi_psi`` must treat ``factor`` as 1 on the first
         iteration rather than indexing ``b1[it-1] = b1[-1]``.
