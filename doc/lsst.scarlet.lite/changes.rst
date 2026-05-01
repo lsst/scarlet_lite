@@ -1,6 +1,14 @@
 .. _lsst.scarlet.lite-changes:
 
 =================
+Unreleased
+=================
+
+Bug Fixes
+---------
+- ``get_footprints`` (and the higher-level ``detect_footprints``) now keeps a footprint whose tight bounding box exactly equals ``min_area``. The C++ pre-filter previously used strict ``>``, so a footprint occupying every pixel of, e.g., a 2x2 box with ``min_area=4`` was rejected before the documented ``>=`` check on the actual pixel count was reached. Users who tuned ``min_area`` against the previous behavior may now see additional, slightly smaller footprints that just meet the threshold; raise ``min_area`` by one to recover the old cut.
+
+=================
 v30.0.0 Changes
 =================
 

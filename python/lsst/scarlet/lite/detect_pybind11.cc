@@ -329,7 +329,7 @@ std::vector<Footprint> get_footprints(
             get_connected_pixels(i, j, image, unchecked, footprint, bounds, footprint_thresh);
             int subHeight = bounds[1]-bounds[0]+1;
             int subWidth = bounds[3]-bounds[2]+1;
-            if(subHeight * subWidth > min_area){
+            if(subHeight * subWidth >= min_area){
                 MatrixB subFootprint = footprint.block(bounds[0], bounds[2], subHeight, subWidth);
                 int area = subFootprint.count();
                 if(area >= min_area){

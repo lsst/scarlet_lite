@@ -160,6 +160,30 @@ class TestDetect(ScarletTestCase):
         footprints = get_footprints(self.image.data, 1, 4, 1e-15, 1e-15, True)
         self._check_footprints(footprints)
 
+    def test_get_footprints_min_area_boundary(self):
+        """A footprint that exactly meets ``min_area`` in a tight
+        bounding box of the same area must be kept.
+
+        Audit finding D-1: the C++ pre-filter on the bounding-box
+        area used strict ``>`` while the actual pixel count check
+        uses ``>=``. A 2x2 filled square with ``min_area=4`` was
+        therefore rejected by the pre-filter (4 > 4 is false) before
+        the true area check (4 >= 4) ever ran.
+        """
+        img = np.zeros((10, 10), dtype=np.float32)
+        img[3:5, 5:7] = 1.0  # 2x2 filled square: area=4, bbox=2x2=4
+
+        # ``find_peaks=False`` to keep the test focused on the
+        # min_area logic; with ``find_peaks=True`` an ambiguous
+        # plateau can fail the peak check for unrelated reasons.
+        footprints = get_footprints(img, 1, 4, 1e-15, 1e-15, False)
+        self.assertEqual(len(footprints), 1)
+
+        # Sanity: with ``min_area=5`` the same footprint must be
+        # rejected, confirming the boundary is tight.
+        footprints = get_footprints(img, 1, 5, 1e-15, 1e-15, False)
+        self.assertEqual(len(footprints), 0)
+
     def _check_peaks(self, peaks):
         matched_peaks = []
         for center in self.centers:
