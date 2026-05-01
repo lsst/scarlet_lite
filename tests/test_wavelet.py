@@ -126,6 +126,54 @@ class TestWavelet(ScarletTestCase):
         self.assertGreater(result.sigma[0], 0.9)
         self.assertLess(result.sigma[0], 1.1)
 
+    def test_space_branch_reproducible(self):
+        """Audit finding D-6: the ``space`` branch draws a Gaussian
+        noise realization to calibrate ``sigma_je``. Pre-fix it used
+        the global ``np.random`` state, so two identical calls
+        produced different supports unless the caller had seeded the
+        global RNG. The default behavior must now be reproducible.
+        """
+        rng = np.random.default_rng(42)
+        image = rng.normal(scale=1.0, size=(64, 64))
+        starlets = starlet_transform(image, generation=1, scales=3)
+
+        r1 = get_multiresolution_support(image, starlets, 1.0, image_type="space")
+        r2 = get_multiresolution_support(image, starlets, 1.0, image_type="space")
+        np.testing.assert_array_equal(r1.support, r2.support)
+        np.testing.assert_array_equal(r1.sigma, r2.sigma)
+
+        # Caller-supplied generator overrides the default seed.
+        # Two calls each given a *fresh* seed-123 generator must
+        # produce identical results.
+        r3 = get_multiresolution_support(
+            image,
+            starlets,
+            1.0,
+            image_type="space",
+            rng=np.random.default_rng(123),
+        )
+        r4 = get_multiresolution_support(
+            image,
+            starlets,
+            1.0,
+            image_type="space",
+            rng=np.random.default_rng(123),
+        )
+        np.testing.assert_array_equal(r3.support, r4.support)
+
+        # And conversely: re-using the *same* generator instance
+        # across two calls advances its state between them, so the
+        # second call sees a different noise draw and may produce a
+        # different support. (This is the standard ``np.random.
+        # Generator`` contract — included to make the difference
+        # between "fresh seed each call" and "shared mutable
+        # generator" explicit.)
+        shared = np.random.default_rng(123)
+        r5 = get_multiresolution_support(image, starlets, 1.0, image_type="space", rng=shared)
+        r6 = get_multiresolution_support(image, starlets, 1.0, image_type="space", rng=shared)
+        with self.assertRaises(AssertionError):
+            np.testing.assert_array_equal(r5.support, r6.support)
+
     def test_space_branch_iterates_sigma(self):
         """Audit finding D-2: the ``image_type='space'`` branch of
         ``get_multiresolution_support`` implements the Starck &

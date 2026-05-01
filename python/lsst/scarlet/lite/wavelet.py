@@ -248,6 +248,7 @@ def get_multiresolution_support(
     epsilon: float = 1e-1,
     max_iter: int = 20,
     image_type: str = "ground",
+    rng: np.random.Generator | None = None,
 ) -> MultiResolutionSupport:
     """Calculate the multi-resolution support for a
     dictionary of starlet coefficients.
@@ -282,6 +283,11 @@ def get_multiresolution_support(
         The type of image that is being used.
         This should be "ground" for ground based images with wide PSFs or
         "space" for images from space-based telescopes with a narrow PSF.
+    rng:
+        Random number generator used to draw the Gaussian noise
+        realization that calibrates ``sigma_je`` in the ``space``
+        branch. Defaults to ``np.random.default_rng(0)`` so repeated
+        calls with the same input return the same support.
 
     Returns
     -------
@@ -294,7 +300,9 @@ def get_multiresolution_support(
     if image_type == "space":
         # Calculate sigma_je, the standard deviation at
         # each scale due to gaussian noise
-        noise_img = np.random.normal(size=image.shape)
+        if rng is None:
+            rng = np.random.default_rng(0)
+        noise_img = rng.normal(size=image.shape)
         noise_starlet = starlet_transform(noise_img, generation=1, scales=len(starlets) - 1)
         sigma_je = np.zeros((len(noise_starlet),))
         for j, star in enumerate(noise_starlet):
