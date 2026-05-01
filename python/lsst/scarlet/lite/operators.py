@@ -452,7 +452,13 @@ def prox_sdss_symmetry(x: np.ndarray):
     """SDSS/HSC symmetry operator
 
     This function uses the *minimum* of the two
-    symmetric pixels in the update.
+    symmetric pixels in the update. Symmetry is enforced about the
+    geometric center of ``x``: for odd-shaped axes that is the
+    center pixel, for even-shaped axes it is the half-pixel offset
+    between the two central pixels. Callers that need integer-pixel
+    symmetry on an even-shaped array should go through
+    ``prox_uncentered_symmetry``, which slices to an odd-shaped
+    subregion before calling this helper.
 
     Parameters
     ----------
