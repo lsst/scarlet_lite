@@ -235,6 +235,76 @@ class TestDetect(ScarletTestCase):
         peaks = [peak for footprint in footprints for peak in footprint.peaks]
         self._check_peaks(peaks)
 
+    def test_detect_footprints_min_pixel_detect(self):
+        """``min_pixel_detect`` requires the detection pixel to be
+        above zero in at least N bands. Verify both that single-band
+        input is filtered out entirely when ``min_pixel_detect=2``,
+        and that multi-band input filters selectively.
+        """
+        variance = np.ones(self.image.shape, dtype=self.image.dtype)
+
+        # Single-band: with min_pixel_detect=2 every pixel fails the
+        # "at least 2 bands above 0" check, so nothing survives.
+        footprints = detect_footprints(
+            self.image.data[None, :, :],
+            variance[None, :, :],
+            scales=1,
+            generation=2,
+            origin=(0, 0),
+            min_separation=1,
+            min_area=4,
+            peak_thresh=1e-15,
+            footprint_thresh=1e-15,
+            find_peaks=True,
+            remove_high_freq=False,
+            min_pixel_detect=2,
+        )
+        self.assertEqual(len(footprints), 0)
+
+        # Two-band: band 0 only contains sources 0+1, band 1 only
+        # contains sources 2+3. With min_pixel_detect=2 no pixel is
+        # above zero in *both* bands, so nothing survives.
+        band0 = self.sources[0] + self.sources[1]
+        band1 = self.sources[2] + self.sources[3]
+        full = Image.from_box(Box((51, 51)))
+        b0 = (full + band0).data
+        b1 = (full + band1).data
+        images = np.stack([b0, b1])
+        variance2 = np.ones(images.shape, dtype=images.dtype)
+        footprints = detect_footprints(
+            images,
+            variance2,
+            scales=1,
+            generation=2,
+            origin=(0, 0),
+            min_separation=1,
+            min_area=4,
+            peak_thresh=1e-15,
+            footprint_thresh=1e-15,
+            find_peaks=True,
+            remove_high_freq=False,
+            min_pixel_detect=2,
+        )
+        self.assertEqual(len(footprints), 0)
+
+        # Sanity: with min_pixel_detect=1 the same multi-band input
+        # produces the union of both bands' footprints.
+        footprints = detect_footprints(
+            images,
+            variance2,
+            scales=1,
+            generation=2,
+            origin=(0, 0),
+            min_separation=1,
+            min_area=4,
+            peak_thresh=1e-15,
+            footprint_thresh=1e-15,
+            find_peaks=True,
+            remove_high_freq=False,
+            min_pixel_detect=1,
+        )
+        self.assertGreater(len(footprints), 0)
+
     def test_bounds_to_bbox(self):
         bounds = (3, 27, 11, 52)
         truth = Box((25, 42), (3, 11))
