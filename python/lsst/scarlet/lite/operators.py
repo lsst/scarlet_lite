@@ -420,7 +420,12 @@ def uncentered_operator(
         py, px = center
     cy, cx = np.array(x.shape) // 2
 
-    if py == cy and px == cx:
+    # Fast path: skip the slicing only when the full array is
+    # already a valid input for ``func`` (odd-odd shape with the
+    # peak at the geometric center). Even-shaped arrays must take
+    # the slicing path below so the +1 correction yields an
+    # odd-shaped subarray centered on the peak.
+    if py == cy and px == cx and x.shape[0] % 2 == 1 and x.shape[1] % 2 == 1:
         return func(x, **kwargs)
 
     dy = int(round(2 * (py - cy)))
