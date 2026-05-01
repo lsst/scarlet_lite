@@ -175,8 +175,10 @@ def multiband_starlet_transform(
     scales = get_starlet_scales(image.shape, scales)
 
     wavelets = np.empty((scales + 1,) + image.shape, dtype=image.dtype)
-    for b, image in enumerate(image):
-        wavelets[:, b] = starlet_transform(image, scales=scales, generation=generation, convolve2d=convolve2d)
+    for b, band_image in enumerate(image):
+        wavelets[:, b] = starlet_transform(
+            band_image, scales=scales, generation=generation, convolve2d=convolve2d
+        )
     return wavelets
 
 
