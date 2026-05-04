@@ -81,3 +81,7 @@ add-ignore = ["D107", "D105", "D102", "D100", "D200", "D205", "D400"]
 
 [tool.pytest.ini_options]
 open_files_ignore = ["*.ttf"]
+# doc/conf.py imports documenteer.conf.guide, which expects documenteer.toml
+# in the cwd; pytest runs from the repo root so the lookup fails. The file
+# has no doctests anyway, so skip it.
+addopts = "--ignore=doc/conf.py"

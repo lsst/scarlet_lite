@@ -1,0 +1,6 @@
+[project]
+title = "scarlet_lite"
+github_url = "https://github.com/lsst/scarlet_lite"
+
+[project.python]
+package = "lsst-scarlet-lite"

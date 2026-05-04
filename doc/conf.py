@@ -1,12 +1,14 @@
 """Sphinx configuration file for an LSST stack package.
+
 This configuration only affects single-package Sphinx documentation builds.
-For more information, see:
-https://developer.lsst.io/stack/building-single-package-docs.html
 """
 
-from documenteer.conf.pipelinespkg import *
+# ruff: noqa: F403, F405
 
-project = "scarlet_lite"
-html_theme_options["logotext"] = project
-html_title = project
-html_short_title = project
+from documenteer.conf.guide import *
+
+# Many __init__ methods in scarlet_lite are typed but lack a Parameters
+# section. sphinx_autodoc_typehints injects a synthetic Parameters section
+# that collides with the class docstring, producing a SEVERE parse error.
+# Disable the extension until __init__ docstrings are normalized.
+extensions = [e for e in extensions if e != "sphinx_autodoc_typehints"]
