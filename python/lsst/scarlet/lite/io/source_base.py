@@ -32,7 +32,7 @@ class ScarletSourceBaseData(ABC):
         The schema version of the exact data class.
     """
 
-    source_type: str
+    source_type: str = ""
     source_registry: ClassVar[dict[str, type[ScarletSourceBaseData]]] = {}
     metadata: dict[str, Any] | None = None
     version: str

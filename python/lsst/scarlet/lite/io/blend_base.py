@@ -30,7 +30,7 @@ class ScarletBlendBaseData(ABC):
     """
 
     blend_registry: ClassVar[dict[str, type[ScarletBlendBaseData]]] = {}
-    blend_type: str
+    blend_type: str = ""
     metadata: dict[str, Any] | None = None
     version: str
 

@@ -29,7 +29,7 @@ class ScarletComponentBaseData(ABC):
     """
 
     component_registry: ClassVar[dict[str, type[ScarletComponentBaseData]]] = {}
-    component_type: str
+    component_type: str = ""
     version: str
 
     @classmethod
