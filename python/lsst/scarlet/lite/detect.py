@@ -282,9 +282,15 @@ def detect_footprints(
     min_area:
         The minimum area of a footprint in pixels.
     peak_thresh:
-        The threshold for peak detection.
+        The threshold for peak detection, in (approximate) sigma units.
+        The detection image is calibrated empirically to have unit
+        noise std for the LSST 6-band case with ``remove_high_freq=True``;
+        for other band counts or wavelet settings the effective sigma
+        differs (see the note on ``sigma`` in the function body and
+        ticket DM-54860 for the full fix).
     footprint_thresh:
-        The threshold for footprint detection.
+        The threshold for footprint detection. Same calibration caveat
+        as ``peak_thresh``.
     find_peaks:
         If `True`, then detect peaks in the detection image,
         otherwise only the footprints are returned.
@@ -317,7 +323,24 @@ def detect_footprints(
         )
     else:
         _images = images
-    # Build a SNR weighted detection image
+    # Build a SNR weighted detection image.
+    #
+    # The ``/ 2`` is an empirical calibration, not a noise estimate.
+    # Zeroing the highest-frequency starlet scale and reconstructing
+    # smooths the per-band image by ``h*h`` along each axis (gen-2
+    # B-spline filter), reducing the per-pixel noise std by a factor
+    # ``F = sum((h*h)**2) ~= 0.196``. The principled per-band sigma is
+    # therefore ``median(sqrt(variance)) * F * sqrt(N_bands)``; for the
+    # LSST 6-band case that's ``~ median(sqrt(variance)) * 0.481``,
+    # which the ``/ 2`` (i.e. ``* 0.5``) approximates within ~4%, so
+    # ``peak_thresh=5`` corresponds to a real ~5 sigma peak. For other
+    # band counts or with ``remove_high_freq=False`` this approximation
+    # is wrong by a band-count-dependent factor.
+    #
+    # TODO: DM-54860 for the full fix (proper chi^2 coadd + an
+    # analytic noise calibration), which is deferred because the
+    # detection code is not used in the LSST science pipelines
+    # production runs.
     sigma = np.median(np.sqrt(variance), axis=(1, 2)) / 2
     detection = np.sum(_images / sigma[:, None, None], axis=0)
     if min_pixel_detect > 1:
