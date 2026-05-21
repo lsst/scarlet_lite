@@ -241,7 +241,7 @@ class Blend(BlendBase):
             for component in self.components:
                 component.get_model().insert_into(model)
             if convolve:
-                return self.observation.convolve(model)
+                return self.observation.convolve(model, cache=True)
         return model
 
     def _grad_log_likelihood(self) -> tuple[Image, np.ndarray]:
@@ -261,7 +261,7 @@ class Blend(BlendBase):
         self.loss.append(self.observation.log_likelihood(model))
         # Calculate the gradient wrt the model d(logL)/d(model)
         result = self.observation.weights * (model - self.observation.images)
-        result = self.observation.convolve(result, grad=True)
+        result = self.observation.convolve(result, grad=True, cache=True)
         return result, model.data
 
     @property
@@ -307,7 +307,7 @@ class Blend(BlendBase):
                 factorized_indices.append(idx)
             else:
                 model.insert(component.get_model())
-        model = self.observation.convolve(model, mode="real")
+        model = self.observation.convolve(model, mode="real", cache=True)
 
         boxes = [c.bbox for c in components]
         fit_spectra = multifit_spectra(
@@ -441,7 +441,7 @@ class Blend(BlendBase):
         if weight_image is None:
             weight_image = self.get_model()
             # Always convolve in real space to avoid FFT artifacts
-            weight_image = observation.convolve(weight_image, mode="real")
+            weight_image = observation.convolve(weight_image, mode="real", cache=True)
 
             # Due to ringing in the PSF, the convolved model can have
             # negative values. We take the absolute value to avoid
@@ -465,7 +465,6 @@ class Blend(BlendBase):
             cuts = denominator != 0
             ratio = np.zeros(numerator.shape, dtype=numerator.dtype)
             ratio[cuts] = numerator[cuts] / denominator[cuts]
-            ratio[denominator == 0] = 0
             # sometimes numerical errors can cause a hot pixel to have a
             # slightly higher ratio than 1
             ratio[ratio > 1] = 1

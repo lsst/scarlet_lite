@@ -244,3 +244,38 @@ class TestOperators(ScarletTestCase):
         _morph = morph[2:, 5:]
         symmetric_morph = prox_uncentered_symmetry(_morph.copy())
         assert_array_equal(symmetric_morph, _morph)
+
+        # Audit finding K-5: ``uncentered_operator``'s early-return
+        # at "peak == shape//2" called ``func`` on the full array,
+        # which silently produced a half-pixel-offset symmetry for
+        # any even-shaped axis. Each combination below should now
+        # take the slicing path (with the +1 correction) so the
+        # underlying ``prox_sdss_symmetry`` always sees an odd-shaped
+        # subarray.
+        # (5, 10) with peak == shape//2 = (2, 5): odd-even.
+        m = np.arange(50, dtype=float).reshape(5, 10)
+        result = prox_uncentered_symmetry(m.copy(), (2, 5))
+        # Subarray taken is m[:, 1:10] which is (5, 9), symmetrized
+        # about its center pixel (2, 4) = absolute (2, 5).
+        sub_truth = np.minimum(m[:, 1:10], np.fliplr(np.flipud(m[:, 1:10])))
+        expected = m.copy()
+        expected[:, 1:10] = sub_truth
+        assert_array_equal(result, expected)
+
+        # (4, 4) with peak == shape//2 = (2, 2): even-even.
+        m4 = np.arange(16, dtype=float).reshape(4, 4)
+        result = prox_uncentered_symmetry(m4.copy(), (2, 2))
+        # Subarray taken is m4[1:4, 1:4] which is (3, 3),
+        # symmetrized about its center pixel (1, 1) = absolute (2, 2).
+        sub = m4[1:4, 1:4]
+        sub_truth = np.minimum(sub, np.fliplr(np.flipud(sub)))
+        expected = m4.copy()
+        expected[1:4, 1:4] = sub_truth
+        assert_array_equal(result, expected)
+
+        # (5, 5) with peak == shape//2 = (2, 2): odd-odd. The fast
+        # path still fires here, so the result is the full-array
+        # symmetrization.
+        m5 = np.arange(25, dtype=float).reshape(5, 5)
+        result = prox_uncentered_symmetry(m5.copy(), (2, 2))
+        assert_array_equal(result, np.minimum(m5, np.fliplr(np.flipud(m5))))

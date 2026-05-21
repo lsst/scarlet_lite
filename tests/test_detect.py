@@ -160,6 +160,30 @@ class TestDetect(ScarletTestCase):
         footprints = get_footprints(self.image.data, 1, 4, 1e-15, 1e-15, True)
         self._check_footprints(footprints)
 
+    def test_get_footprints_min_area_boundary(self):
+        """A footprint that exactly meets ``min_area`` in a tight
+        bounding box of the same area must be kept.
+
+        Audit finding D-1: the C++ pre-filter on the bounding-box
+        area used strict ``>`` while the actual pixel count check
+        uses ``>=``. A 2x2 filled square with ``min_area=4`` was
+        therefore rejected by the pre-filter (4 > 4 is false) before
+        the true area check (4 >= 4) ever ran.
+        """
+        img = np.zeros((10, 10), dtype=np.float32)
+        img[3:5, 5:7] = 1.0  # 2x2 filled square: area=4, bbox=2x2=4
+
+        # ``find_peaks=False`` to keep the test focused on the
+        # min_area logic; with ``find_peaks=True`` an ambiguous
+        # plateau can fail the peak check for unrelated reasons.
+        footprints = get_footprints(img, 1, 4, 1e-15, 1e-15, False)
+        self.assertEqual(len(footprints), 1)
+
+        # Sanity: with ``min_area=5`` the same footprint must be
+        # rejected, confirming the boundary is tight.
+        footprints = get_footprints(img, 1, 5, 1e-15, 1e-15, False)
+        self.assertEqual(len(footprints), 0)
+
     def _check_peaks(self, peaks):
         matched_peaks = []
         for center in self.centers:
@@ -210,6 +234,76 @@ class TestDetect(ScarletTestCase):
         self.assertEqual(len(footprints), 2)
         peaks = [peak for footprint in footprints for peak in footprint.peaks]
         self._check_peaks(peaks)
+
+    def test_detect_footprints_min_pixel_detect(self):
+        """``min_pixel_detect`` requires the detection pixel to be
+        above zero in at least N bands. Verify both that single-band
+        input is filtered out entirely when ``min_pixel_detect=2``,
+        and that multi-band input filters selectively.
+        """
+        variance = np.ones(self.image.shape, dtype=self.image.dtype)
+
+        # Single-band: with min_pixel_detect=2 every pixel fails the
+        # "at least 2 bands above 0" check, so nothing survives.
+        footprints = detect_footprints(
+            self.image.data[None, :, :],
+            variance[None, :, :],
+            scales=1,
+            generation=2,
+            origin=(0, 0),
+            min_separation=1,
+            min_area=4,
+            peak_thresh=1e-15,
+            footprint_thresh=1e-15,
+            find_peaks=True,
+            remove_high_freq=False,
+            min_pixel_detect=2,
+        )
+        self.assertEqual(len(footprints), 0)
+
+        # Two-band: band 0 only contains sources 0+1, band 1 only
+        # contains sources 2+3. With min_pixel_detect=2 no pixel is
+        # above zero in *both* bands, so nothing survives.
+        band0 = self.sources[0] + self.sources[1]
+        band1 = self.sources[2] + self.sources[3]
+        full = Image.from_box(Box((51, 51)))
+        b0 = (full + band0).data
+        b1 = (full + band1).data
+        images = np.stack([b0, b1])
+        variance2 = np.ones(images.shape, dtype=images.dtype)
+        footprints = detect_footprints(
+            images,
+            variance2,
+            scales=1,
+            generation=2,
+            origin=(0, 0),
+            min_separation=1,
+            min_area=4,
+            peak_thresh=1e-15,
+            footprint_thresh=1e-15,
+            find_peaks=True,
+            remove_high_freq=False,
+            min_pixel_detect=2,
+        )
+        self.assertEqual(len(footprints), 0)
+
+        # Sanity: with min_pixel_detect=1 the same multi-band input
+        # produces the union of both bands' footprints.
+        footprints = detect_footprints(
+            images,
+            variance2,
+            scales=1,
+            generation=2,
+            origin=(0, 0),
+            min_separation=1,
+            min_area=4,
+            peak_thresh=1e-15,
+            footprint_thresh=1e-15,
+            find_peaks=True,
+            remove_high_freq=False,
+            min_pixel_detect=1,
+        )
+        self.assertGreater(len(footprints), 0)
 
     def test_bounds_to_bbox(self):
         bounds = (3, 27, 11, 52)

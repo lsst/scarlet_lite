@@ -30,7 +30,15 @@ logger = logging.getLogger(__name__)
     category=FutureWarning,
 )
 class ComponentCube(CubeComponent):
-    """Deprecated, use CubeComponent instead."""
+    """Deprecated, use CubeComponent instead.
+
+    Parameters
+    ----------
+    model:
+        The 3D (bands, y, x) model of the component.
+    peak:
+        The `(y, x)` peak of the component.
+    """
 
     def __init__(self, model: Image, peak: tuple[int, int]):
         super().__init__(model=model, peak=peak)

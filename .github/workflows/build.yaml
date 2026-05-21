@@ -41,9 +41,6 @@ jobs:
       - name: Build and install
         run: uv pip install --system -v -e .[plotting]
 
-      - name: Install documenteer for doctest
-        run: uv pip install --system 'documenteer[pipelines]<0.8.2' 'sphinx-automodapi<0.20' 'sphinx-prompt<1.10' 'setuptools'
-
       - name: Run tests
         run: >
           pytest -r a -v -n 3 --cov=tests --cov=lsst.scarlet.lite

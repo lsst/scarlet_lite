@@ -357,14 +357,14 @@ class FactorizedComponent(Component):
             # Apply the symmetry operator
             morph = prox_uncentered_symmetry(morph, peak, fill=0.0)
 
+        # enforce positivity
+        morph[morph < 0] = 0
+
         if self.bg_thresh is not None and self.bg_rms is not None:
             bg_thresh = self.bg_rms * self.bg_thresh
             # Enforce background thresholding
             model = self.spectrum[:, None, None] * morph[None, :, :]
             morph[np.all(model < bg_thresh[:, None, None], axis=0)] = 0
-        else:
-            # enforce positivity
-            morph[morph < 0] = 0
 
         # prevent divergent morphology
         morph[peak] = np.max([morph[peak], self.floor])
@@ -571,21 +571,16 @@ class CubeComponent(Component):
 
     If scarlet lite ever implements a component as a data cube,
     this class can be removed.
+
+    Parameters
+    ----------
+    model:
+        The 3D (bands, y, x) model of the component.
+    peak:
+        The `(y, x)` peak of the component.
     """
 
     def __init__(self, model: Image, peak: tuple[int, int]):
-        """Initialization
-
-        Parameters
-        ----------
-        bands :
-        model :
-            The 3D (bands, y, x) model of the component.
-        peak :
-            The `(y, x)` peak of the component.
-        bbox :
-            The bounding box of the component.
-        """
         super().__init__(model.bands, model.bbox)
         self._model = model
         self.peak = peak
@@ -683,8 +678,8 @@ class CubeComponent(Component):
 
         # Now safely initialize the placeholder with deepcopied arguments
         component.__init__(  # type: ignore[misc]
-            model=self._model.copy(),
-            peak=self.peak,
+            model=deepcopy(self._model, memo),
+            peak=deepcopy(self.peak, memo),
         )
         return component
 

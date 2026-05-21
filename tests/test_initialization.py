@@ -20,6 +20,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import os
+from unittest.mock import patch
 
 import numpy as np
 from deprecated.sphinx import deprecated
@@ -58,24 +59,29 @@ class TestInitialization(ScarletTestCase):
         )
 
     def test_trim_morphology(self):
-        # Test default parameters
+        # Default parameters: returns a tight bbox around the non-zero
+        # support of the input.
         morph = np.zeros((50, 50)).astype(np.float32)
         morph[10:15, 12:27] = 1
         trimmed, trimmed_box = trim_morphology(morph)
         assert_array_equal(trimmed, morph)
-        self.assertTupleEqual(trimmed_box.origin, (5, 7))
-        self.assertTupleEqual(trimmed_box.shape, (15, 25))
+        self.assertTupleEqual(trimmed_box.origin, (10, 12))
+        self.assertTupleEqual(trimmed_box.shape, (5, 15))
         self.assertEqual(trimmed.dtype, np.float32)
 
-        # Test with parameters specified
+        # With a threshold: pixels at or below the threshold are zeroed,
+        # and the bbox is the tight box around what remains. The input
+        # array must not be mutated (audit finding I-8).
         morph = np.full((50, 50), 0.1).astype(np.float32)
         morph[10:15, 12:27] = 1
+        original = morph.copy()
         truth = np.zeros(morph.shape)
         truth[10:15, 12:27] = 1
-        trimmed, trimmed_box = trim_morphology(morph, 0.5, 1)
+        trimmed, trimmed_box = trim_morphology(morph, 0.5)
         assert_array_equal(trimmed, truth)
-        self.assertTupleEqual(trimmed_box.origin, (9, 11))
-        self.assertTupleEqual(trimmed_box.shape, (7, 17))
+        assert_array_equal(morph, original)
+        self.assertTupleEqual(trimmed_box.origin, (10, 12))
+        self.assertTupleEqual(trimmed_box.shape, (5, 15))
         self.assertEqual(trimmed.dtype, np.float32)
 
     def test_init_monotonic_mask(self):
@@ -90,17 +96,21 @@ class TestInitialization(ScarletTestCase):
         assert_array_equal(morph, masked_morph / np.max(masked_morph))
         self.assertEqual(morph.dtype, np.float32)
 
-        # Specifying parameters
+        # Non-zero threshold AND non-zero padding. This combination
+        # exercises the path-1 trim_morphology call AND the post-trim
+        # padding step; if those ever double up again (audit I-2), the
+        # bbox below would grow to (34, 28) at origin (1017, 2000)
+        # rather than (30, 25) at (1019, 2001).
         bbox, morph = init_monotonic_morph(
             self.detect.copy(),
             center,
             full_box,
-            0,  # padding
-            False,  # normalizae
+            2,  # padding
+            False,  # normalize
             None,  # monotonicity
             0.2,  # threshold
         )
-        self.assertBoxEqual(bbox, Box((26, 21), (1021, 2003)))
+        self.assertBoxEqual(bbox, Box((30, 25), (1019, 2001)))
         # Remove pixels below the threshold
         truth = masked_morph.copy()
         truth[truth < 0.2] = 0
@@ -127,19 +137,22 @@ class TestInitialization(ScarletTestCase):
         assert_array_equal(morph, truth)
         self.assertEqual(morph.dtype, np.float32)
 
-        # Specify parameters
+        # Non-zero threshold AND non-zero padding. trim_morphology is
+        # always called on path 2; pairing that with padding > 0 makes
+        # the regression for audit I-2 (double padding) observable
+        # rather than masked by clipping or padding=0.
         bbox, morph = init_monotonic_morph(
             self.detect.copy(),
             center,
             full_box,
-            0,  # padding
+            2,  # padding
             False,  # normalize
             monotonicity,  # monotonicity
             0.2,  # threshold
         )
         truth = monotonicity(self.detect.copy(), local_center)
         truth[truth < 0.2] = 0
-        self.assertBoxEqual(bbox, Box((45, 44), origin=(1010, 2003)))
+        self.assertBoxEqual(bbox, Box((49, 47), origin=(1008, 2001)))
         assert_array_equal(morph, truth)
         self.assertEqual(morph.dtype, np.float32)
 
@@ -202,6 +215,117 @@ class TestInitialization(ScarletTestCase):
         self.assertEqual(fit_spectra.dtype, spectra.dtype)
         assert_almost_equal(fit_spectra, spectra, decimal=5)
 
+    def test_psf_component_at_boundary(self):
+        """``get_psf_component`` must extract the surviving region of
+        the model PSF when the source center is close enough to the
+        observation boundary that the PSF box is clipped.
+
+        Audit finding I-3: the original code created the Image with
+        ``yx0=bbox.origin`` (the *intersection's* origin) instead of
+        the original PSF origin, so ``[bbox]`` returned the top-left
+        of the PSF rather than the portion of the PSF that survived
+        the clip. The PSF was therefore spatially misaligned with the
+        actual source center.
+        """
+        init = FactorizedInitialization(self.observation, self.centers)
+        model_psf = self.observation.model_psf[0]
+
+        # Case 1: positive psf_bbox.origin. Center at the top-left
+        # corner of the observation (origin (1000, 2000)): the 15x15
+        # model PSF (py=px=7) extends 7 rows above and 3 columns to
+        # the left of the observation bbox, so 7 rows and 3 columns
+        # are clipped. psf_bbox.origin = (993, 1997) — both positive.
+        center = (1000, 2004)
+        component = init.get_psf_component(center)
+        self.assertBoxEqual(component.bbox, Box((8, 12), origin=(1000, 2000)))
+        # The surviving region is psf[7:15, 3:15] — the bottom-right
+        # of the PSF, not the top-left.
+        assert_array_equal(component.morph, model_psf[7:15, 3:15])
+
+        # Case 2: negative psf_bbox.origin. Build a synthetic
+        # observation at origin (0, 0) and place a center near the
+        # corner so psf_bbox.origin = (-5, -2) — both negative. The
+        # negative-origin path must still produce the correct
+        # surviving region. ``Box.slices`` rejects negative origins,
+        # so this also guards against future refactors that would
+        # call ``.slices`` on ``psf_bbox`` directly.
+        bands = ("r",)
+        shape = (30, 30)
+        images = np.ones((1,) + shape, dtype=np.float32)
+        variance = np.ones((1,) + shape, dtype=np.float32)
+        psfs = np.array([integrated_circular_gaussian(sigma=1.0)], dtype=np.float32)
+        small_model_psf = integrated_circular_gaussian(sigma=0.8).astype(np.float32)
+        small_obs = Observation(
+            Image(images, bands=bands, yx0=(0, 0)),
+            Image(variance, bands=bands, yx0=(0, 0)),
+            Image(1 / variance, bands=bands, yx0=(0, 0)),
+            psfs,
+            small_model_psf[None],
+            bands=bands,
+        )
+        small_init = FactorizedInitialization(small_obs, [(2, 5)])
+        component = small_init.get_psf_component((2, 5))
+        self.assertBoxEqual(component.bbox, Box((10, 13), origin=(0, 0)))
+        assert_array_equal(component.morph, small_model_psf[5:15, 2:15])
+
+        # Case 3: PSF footprint does not overlap the observation at
+        # all -> raise an informative error rather than silently
+        # producing a degenerate component.
+        with self.assertRaises(ValueError):
+            small_init.get_psf_component((-100, -100))
+
+    def test_get_psf_component_zero_psf_spectrum(self):
+        """``get_psf_component`` must produce a finite spectrum even
+        when one of the per-band ``psf_spectrum`` values is zero.
+
+        Audit finding I-10: dividing by ``self.psf_spectrum`` produces
+        ``inf`` (or ``nan`` for 0/0) for any band with a degenerate
+        model PSF whose central value is zero. The trailing
+        ``spectrum[spectrum < 0] = 0`` mask does not catch either.
+        Same fix pattern as I-4.
+        """
+        init = FactorizedInitialization(self.observation, self.centers)
+        # Force one band's psf_spectrum to zero. Real model PSFs always
+        # have a positive central pixel, but a degenerate PSF could
+        # exhibit this — and the masked branch should still be finite.
+        init.psf_spectrum[0] = 0
+        center = (int(self.centers[0][0]), int(self.centers[0][1]))
+        component = init.get_psf_component(center)
+        np.testing.assert_array_equal(np.isfinite(component.spectrum), True)
+        np.testing.assert_array_equal(component.spectrum >= 0, True)
+        # The zero-psf_spectrum band must yield zero flux rather than
+        # inf or a saturating large value.
+        self.assertEqual(component.spectrum[0], 0)
+
+    def test_get_single_component_zero_convolved(self):
+        """``get_single_component`` must produce a finite spectrum
+        even when the convolved detection image is zero at the source
+        center.
+
+        Audit finding I-4: ``spectrum = images / convolved`` produces
+        ``inf`` (or ``nan`` for 0/0) at zero-convolved pixels, and
+        the subsequent ``spectrum[spectrum < 0] = 0`` does not catch
+        either, so the component is initialized with non-finite
+        flux.
+        """
+        init = FactorizedInitialization(self.observation, self.centers)
+        center = (int(self.centers[0][0]), int(self.centers[0][1]))
+        local_center = (
+            center[0] - init.observation.bbox.origin[0],
+            center[1] - init.observation.bbox.origin[1],
+        )
+        # Force the convolved detection image to zero at the source
+        # center across all bands. The detection image still has flux
+        # at this pixel, so ``init_monotonic_morph`` returns a valid
+        # morph and the spectrum branch is exercised.
+        init.convolved.data[:, local_center[0], local_center[1]] = 0
+
+        thresh = np.mean(self.observation.noise_rms) * init.initial_bg_thresh
+        component = init.get_single_component(center, init.detect.copy(), thresh, init.padding)
+        assert component is not None
+        np.testing.assert_array_equal(np.isfinite(component.spectrum), True)
+        np.testing.assert_array_equal(component.spectrum >= 0, True)
+
     def test_factorized_chi2_init(self):
         # Test default parameters
         init = FactorizedInitialization(self.observation, self.centers)
@@ -220,6 +344,43 @@ class TestInitialization(ScarletTestCase):
         self.assertEqual(len(init.sources), 8)
         for src in init.sources:
             self.assertEqual(src.get_model().dtype, np.float32)
+
+    @deprecated(
+        version="v29.0",
+        reason="FactorizedWaveletInitialization is deprecated and will be removed after v29.0",
+    )
+    def test_wavelet_init_source_falls_back_to_psf(self):
+        """init_source must always return a Source with at least one
+        component, even when individual init paths fail.
+
+        Audit finding I-1: when get_single_component returned None or
+        the two-component path produced all-zero spectra, ``components``
+        was either left unbound (UnboundLocalError) or set to an empty
+        list. Both cases must now fall back to a PSF component.
+        """
+        init = FactorizedWaveletInitialization(self.observation, self.centers)
+        int_centers = [(int(round(c[0])), int(round(c[1]))) for c in self.centers]
+
+        # Failure mode 1: get_single_component always returns None.
+        # Centers hitting the single-component branch or the
+        # two-component fallback must fall back to PSF rather than
+        # raising or producing an empty Source.
+        with patch.object(FactorizedWaveletInitialization, "get_single_component", return_value=None):
+            for center in int_centers:
+                source = init.init_source(center)
+                self.assertGreater(len(source.components), 0)
+
+        # Failure mode 2: two-component path returns all-zero spectra
+        # for both bulge and disk -> empty components list, also a fall
+        # back case.
+        n_bands = len(self.observation.bands)
+        with patch(
+            "lsst.scarlet.lite.initialization.multifit_spectra",
+            return_value=np.zeros((2, n_bands), dtype=np.float32),
+        ):
+            for center in int_centers:
+                source = init.init_source(center)
+                self.assertGreater(len(source.components), 0)
 
     @deprecated(
         version="v29.0",

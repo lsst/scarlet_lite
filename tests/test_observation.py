@@ -199,6 +199,45 @@ class TestObservation(ScarletTestCase):
         convolved = observation.convolve(small_psf)
         self.assertImageAlmostEqual(convolved, truth)
 
+    def test_convolve_cache_default_off(self):
+        """``Observation.convolve`` must default to ``cache=False`` so
+        that ad-hoc downstream calls (per-source models, components
+        with varying shapes) don't grow the long-lived ``diff_kernel``
+        and ``grad_kernel`` FFT dicts. Regression for audit O-4.
+        """
+        observation = self.observation
+        observation.diff_kernel._fft.clear()
+        observation.grad_kernel._fft.clear()
+
+        # Convolve at the full-blend shape, then at a smaller shape.
+        observation.convolve(self.data.images)
+        coords = np.linspace(-3, 3, 7)
+        small_array = integrated_circular_gaussian(x=coords, y=coords, sigma=0.8)
+        small = Image(np.array([small_array, small_array, small_array]), bands=self.bands)
+        observation.convolve(small)
+        observation.convolve(self.data.images, grad=True)
+
+        self.assertEqual(len(observation.diff_kernel._fft), 0)
+        self.assertEqual(len(observation.grad_kernel._fft), 0)
+
+    def test_convolve_cache_opt_in(self):
+        """``cache=True`` must populate the kernel's FFT dict and reuse
+        the entry on subsequent calls at the same shape.
+        """
+        observation = self.observation
+        observation.diff_kernel._fft.clear()
+        observation.grad_kernel._fft.clear()
+
+        observation.convolve(self.data.images, cache=True)
+        self.assertEqual(len(observation.diff_kernel._fft), 1)
+        # Repeat call at the same shape: cache hit, dict size unchanged.
+        observation.convolve(self.data.images, cache=True)
+        self.assertEqual(len(observation.diff_kernel._fft), 1)
+        # Gradient convolve uses the *separate* grad_kernel dict.
+        observation.convolve(self.data.images, grad=True, cache=True)
+        self.assertEqual(len(observation.diff_kernel._fft), 1)
+        self.assertEqual(len(observation.grad_kernel._fft), 1)
+
     def test_index_extraction(self):
         alpha_bands = ("g", "i", "r", "y", "z")
         images = np.arange(60).reshape(5, 3, 4)

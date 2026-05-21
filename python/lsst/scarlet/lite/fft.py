@@ -23,12 +23,15 @@ from __future__ import annotations
 
 __all__ = ["Fourier"]
 
+import logging
 import operator
 from typing import Callable, Sequence
 
 import numpy as np
 from numpy.typing import DTypeLike
 from scipy import fftpack
+
+logger = logging.getLogger("scarlet.lite.fft")
 
 
 def centered(arr: np.ndarray, newshape: Sequence[int]) -> np.ndarray:
@@ -310,7 +313,12 @@ class Fourier:
         """The shape of the real space image"""
         return self._image.shape
 
-    def fft(self, fft_shape: Sequence[int], axes: int | Sequence[int]) -> np.ndarray:
+    def fft(
+        self,
+        fft_shape: Sequence[int],
+        axes: int | Sequence[int],
+        cache: bool = True,
+    ) -> np.ndarray:
         """The FFT of an image for a given `fft_shape` along desired `axes`
 
         Parameters
@@ -324,21 +332,30 @@ class Fourier:
             complex k-space to real space.
         axes:
             The dimension(s) of the array that will be transformed.
+        cache:
+            Whether to store the computed FFT in ``self._fft`` for reuse.
+            An already-cached entry for the same key is always returned
+            regardless of this flag; ``cache=False`` only suppresses
+            *adding* new entries, which prevents unbounded growth when a
+            long-lived `Fourier` (e.g. a kernel stored on `Observation`)
+            is convolved against many different shapes.
         """
         if isinstance(axes, int):
             axes = (axes,)
         all_axes = range(len(self.image.shape))
         fft_key = (tuple(fft_shape), tuple(axes), tuple(all_axes))
 
-        # If this is the first time calling `fft` for this shape,
-        # generate the FFT.
-        if fft_key not in self._fft:
-            if len(fft_shape) != len(axes):
-                msg = f"fft_shape self.axes must have the same number of dimensions, got {fft_shape}, {axes}"
-                raise ValueError(msg)
-            image = _pad(self.image, fft_shape, axes)
-            self._fft[fft_key] = np.fft.rfftn(np.fft.ifftshift(image, axes), axes=axes)
-        return self._fft[fft_key]
+        if fft_key in self._fft:
+            return self._fft[fft_key]
+
+        if len(fft_shape) != len(axes):
+            msg = f"fft_shape self.axes must have the same number of dimensions, got {fft_shape}, {axes}"
+            raise ValueError(msg)
+        image = _pad(self.image, fft_shape, axes)
+        result = np.fft.rfftn(np.fft.ifftshift(image, axes), axes=axes)
+        if cache:
+            self._fft[fft_key] = result
+        return result
 
     def __len__(self) -> int:
         """Length of the image"""
@@ -378,6 +395,7 @@ def _kspace_operation(
     op: Callable,
     shape: Sequence[int],
     axes: int | Sequence[int],
+    cache: bool = True,
 ) -> Fourier:
     """Combine two images in k-space using a given `operator`
 
@@ -397,6 +415,9 @@ def _kspace_operation(
         The shape of the output image.
     axes:
         The dimension(s) of the array that will be transformed.
+    cache:
+        Whether the per-shape FFT of each input should be stored on the
+        respective `Fourier` instance. Forwarded to `Fourier.fft`.
     """
     if len(image1.shape) != len(image2.shape):
         msg = (
@@ -413,8 +434,8 @@ def _kspace_operation(
         or op == operator.ifloordiv
     ):
         # prevent divide by zero
-        lhs = image1.fft(fft_shape, axes)
-        rhs = image2.fft(fft_shape, axes)
+        lhs = image1.fft(fft_shape, axes, cache=cache)
+        rhs = image2.fft(fft_shape, axes, cache=cache)
 
         # Broadcast, if necessary
         if rhs.shape[0] == 1 and lhs.shape[0] != rhs.shape[0]:
@@ -426,7 +447,10 @@ def _kspace_operation(
         transformed_fft = np.zeros(lhs.shape, dtype=lhs.dtype)
         transformed_fft[cuts] = op(lhs[cuts], rhs[cuts])
     else:
-        transformed_fft = op(image1.fft(fft_shape, axes), image2.fft(fft_shape, axes))
+        transformed_fft = op(
+            image1.fft(fft_shape, axes, cache=cache),
+            image2.fft(fft_shape, axes, cache=cache),
+        )
     return Fourier.from_fft(transformed_fft, fft_shape, shape, axes, image1.image.dtype)
 
 
@@ -436,7 +460,8 @@ def match_kernel(
     padding: int = 3,
     axes: int | Sequence[int] = (-2, -1),
     return_fourier: bool = True,
-    normalize: bool = False,
+    normalize: None = None,
+    cache: bool = True,
 ) -> Fourier | np.ndarray:
     """Calculate the difference kernel to match kernel1 to kernel2
 
@@ -454,13 +479,21 @@ def match_kernel(
     return_fourier:
         Whether to return `Fourier` or array
     normalize:
-        Whether or not to normalize the input kernels.
+        Deprecated and unused. Will be removed after v31.0.
+    cache:
+        Whether the per-shape FFTs of the inputs should be stored on the
+        respective `Fourier` instances. Forwarded to `Fourier.fft`.
 
     Returns
     -------
     result:
         The difference kernel to go from `kernel1` to `kernel2`.
     """
+    if normalize is not None:
+        logger.warning(
+            "normalize is deprecated and will be removed after v31.0. "
+            "It has never been used by match_kernel."
+        )
     if not isinstance(kernel1, Fourier):
         kernel1 = Fourier(kernel1)
     if not isinstance(kernel2, Fourier):
@@ -471,7 +504,7 @@ def match_kernel(
     else:
         shape = kernel1.shape
 
-    diff = _kspace_operation(kernel1, kernel2, padding, operator.truediv, shape, axes=axes)
+    diff = _kspace_operation(kernel1, kernel2, padding, operator.truediv, shape, axes=axes, cache=cache)
     if return_fourier:
         return diff
     else:
@@ -484,7 +517,8 @@ def convolve(
     padding: int = 3,
     axes: int | Sequence[int] = (-2, -1),
     return_fourier: bool = True,
-    normalize: bool = False,
+    normalize: None = None,
+    cache: bool = True,
 ) -> np.ndarray | Fourier:
     """Convolve image with a kernel
 
@@ -502,19 +536,30 @@ def convolve(
     return_fourier:
         Whether to return `Fourier` or array
     normalize:
-        Whether or not to normalize the input kernels.
+        Deprecated and unused. Will be removed after v31.0.
+    cache:
+        Whether the per-shape FFTs of `image` and `kernel` should be
+        stored on the respective `Fourier` instances. Forwarded to
+        `Fourier.fft`. Long-lived `kernel` objects (e.g. those held by
+        `Observation`) accumulate one cache entry per distinct image
+        shape; pass ``cache=False`` when convolving with shapes that
+        won't recur, to avoid unbounded growth.
 
     Returns
     -------
     result:
         The convolution of the image with the kernel.
     """
+    if normalize is not None:
+        logger.warning(
+            "normalize is deprecated and will be removed after v31.0. " "It has never been used by convolve."
+        )
     if not isinstance(image, Fourier):
         image = Fourier(image)
     if not isinstance(kernel, Fourier):
         kernel = Fourier(kernel)
 
-    convolved = _kspace_operation(image, kernel, padding, operator.mul, image.shape, axes=axes)
+    convolved = _kspace_operation(image, kernel, padding, operator.mul, image.shape, axes=axes, cache=cache)
     if return_fourier:
         return convolved
     else:

@@ -26,7 +26,7 @@ import numpy as np
 from deprecated.sphinx import deprecated  # type: ignore
 
 from .bbox import Box
-from .component import FactorizedComponent
+from .component import Component, FactorizedComponent
 from .detect import bounds_to_bbox, get_detect_wavelets
 from .image import Image
 from .measure import calculate_snr
@@ -40,7 +40,6 @@ logger = logging.getLogger("scarlet.lite.initialization")
 def trim_morphology(
     morph: np.ndarray,
     threshold: float = 0,
-    padding: int = 5,
     bg_thresh: float | None = None,
 ) -> tuple[np.ndarray, Box]:
     """Trim the morphology up to pixels above a threshold
@@ -49,19 +48,18 @@ def trim_morphology(
     ----------
     morph:
         The morphology to be trimmed.
-    thresh:
+    threshold:
         The morphology is trimmed to pixels above the threshold.
     bg_thresh:
-        Deprecated in favor of `thresh`.
-    padding:
-        The amount to pad each side to allow the source to grow.
+        Deprecated in favor of ``threshold``.
 
     Returns
     -------
     morph:
-        The trimmed morphology
+        The trimmed morphology.
     box:
-        The box that contains the morphology.
+        A tight bounding box around the non-zero pixels of the trimmed
+        morphology. The caller is responsible for any padding.
     """
     # Temporarily support bg_thresh
     if bg_thresh is not None:
@@ -69,10 +67,9 @@ def trim_morphology(
         threshold = bg_thresh
 
     # trim morph to pixels above threshold
-    mask = morph > threshold
-    morph[~mask] = 0
-    bbox = Box.from_data(morph, threshold=0).grow(padding)
-    return morph, bbox
+    trimmed = np.where(morph > threshold, morph, 0)
+    bbox = Box.from_data(trimmed, threshold=0)
+    return trimmed, bbox
 
 
 def init_monotonic_morph(
@@ -146,13 +143,13 @@ def init_monotonic_morph(
             return Box((0, 0)), None
 
         if threshold > 0:
-            morph, bbox = trim_morphology(morph, threshold=threshold, padding=padding)
+            morph, bbox = trim_morphology(morph, threshold=threshold)
 
     else:
         morph = monotonicity(detect, center)
 
         # truncate morph at thresh * bg_rms
-        morph, bbox = trim_morphology(morph, threshold=threshold, padding=padding)
+        morph, bbox = trim_morphology(morph, threshold=threshold)
 
     # Shift the bounding box to account for the non-zero origin
     bbox += full_box.origin
@@ -215,7 +212,7 @@ def multifit_spectra(
     spectra = np.zeros((len(morphs), n_bands), dtype=dtype)
 
     for b in range(n_bands):
-        a = np.vstack(morph_images[b]).T
+        a = morph_images[b].T
         spectra[:, b] = np.linalg.lstsq(a, image[observation.bands[b]].data.flatten(), rcond=None)[0]
     spectra[spectra < 0] = 0
     return spectra
@@ -398,6 +395,8 @@ class FactorizedInitialization:
         component:
             A `FactorizedComponent` with a PSF-like morphology.
         """
+        if not self.observation.bbox.contains(center):
+            raise ValueError(f"Source center {center} is outside the observation {self.observation.bbox}")
         local_center = (
             center[0] - self.observation.bbox.origin[0],
             center[1] - self.observation.bbox.origin[1],
@@ -405,15 +404,21 @@ class FactorizedInitialization:
         # There wasn't sufficient flux for an extended source,
         # so create a PSF source.
         spectrum_center = (slice(None), local_center[0], local_center[1])
-        spectrum = self.observation.images.data[spectrum_center] / self.psf_spectrum
+        img_center = self.observation.images.data[spectrum_center]
+        spectrum = np.divide(
+            img_center,
+            self.psf_spectrum,
+            out=np.zeros_like(img_center),
+            where=self.psf_spectrum > 0,
+        )
         spectrum[spectrum < 0] = 0
 
         psf = cast(np.ndarray, self.observation.model_psf)[0].copy()
         py = psf.shape[0] // 2
         px = psf.shape[1] // 2
-        bbox = Box(psf.shape, origin=(-py + center[0], -px + center[1]))
-        bbox = self.observation.bbox & bbox
-        morph = Image(psf, yx0=cast(tuple[int, int], bbox.origin))[bbox].data
+        psf_bbox = Box(psf.shape, origin=(-py + center[0], -px + center[1]))
+        bbox = self.observation.bbox & psf_bbox
+        morph = Image(psf, yx0=cast(tuple[int, int], psf_bbox.origin))[bbox].data
         component = FactorizedComponent(
             self.observation.bands,
             spectrum,
@@ -481,7 +486,14 @@ class FactorizedInitialization:
         images = self.observation.images
 
         convolved = self.convolved
-        spectrum = images.data[spectrum_center] / convolved.data[spectrum_center]
+        img_center = images.data[spectrum_center]
+        conv_center = convolved.data[spectrum_center]
+        spectrum = np.divide(
+            img_center,
+            conv_center,
+            out=np.zeros_like(img_center),
+            where=conv_center > 0,
+        )
         spectrum[spectrum < 0] = 0
         morph_max = np.max(morph)
         spectrum *= morph_max
@@ -502,14 +514,10 @@ class FactorizedInitialization:
     def init_source(self, center: tuple[int, int]) -> Source:
         """Initialize a source from a chi^2 detection.
 
-        Parameter
-        ---------
+        Parameters
+        ----------
         center:
             The center of the source.
-        init:
-            The initialization parameters common to all of the sources.
-        max_components:
-            The maximum number of components in the source.
         """
         # Some operators need the local center, not center in the full image
         local_center = (
@@ -538,7 +546,7 @@ class FactorizedInitialization:
             # so split the single component model into two components,
             # using the same algorithm as scarlet main.
             bulge_morph = component.morph.copy()
-            disk_morph = component.morph
+            disk_morph = component.morph.copy()
             # Set the threshold for the bulge.
             # Since the morphology is monotonic, this selects the inner
             # of the single component morphology and assigns it to the bulge.
@@ -740,8 +748,8 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
     def init_source(self, center: tuple[int, int]) -> Source:
         """Initialize a source from a chi^2 detection.
 
-        Parameter
-        ---------
+        Parameters
+        ----------
         center:
             The center of the source.
         """
@@ -751,6 +759,8 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
         )
         nbr_components = self.get_snr(center)
         observation = self.observation
+
+        components: list[Component] | None = None
 
         if (nbr_components < 1 and self.use_psf) or self.detectlets[local_center[0], local_center[1]] <= 0:
             # Initialize the source as an PSF source
@@ -792,7 +802,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                 )
 
                 components = []
-                if np.sum(bulge_spectrum != 0):
+                if np.any(bulge_spectrum != 0):
                     components.append(
                         FactorizedComponent(
                             observation.bands,
@@ -805,7 +815,7 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                     )
                 else:
                     logger.debug("cut bulge")
-                if np.sum(disk_spectrum) != 0:
+                if np.any(disk_spectrum != 0):
                     components.append(
                         FactorizedComponent(
                             observation.bands,
@@ -818,4 +828,13 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
                     )
                 else:
                     logger.debug("cut disk")
-        return Source(components)  # type: ignore
+
+        # If every init path above either failed (left components as
+        # None) or produced no components (empty list when bulge and
+        # disk spectra were both cut), fall back to a PSF source -- a
+        # point-source model is the most conservative non-empty model
+        # we can return.
+        if not components:
+            logger.debug("fall back to PSF source")
+            components = [self.get_psf_component(center)]
+        return Source(components)

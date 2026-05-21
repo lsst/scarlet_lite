@@ -274,7 +274,13 @@ class Observation:
         """The bounding box for the full observation."""
         return self.images.bbox
 
-    def convolve(self, image: Image, mode: str | None = None, grad: bool = False) -> Image:
+    def convolve(
+        self,
+        image: Image,
+        mode: str | None = None,
+        grad: bool = False,
+        cache: bool = False,
+    ) -> Image:
         """Convolve the model into the observed seeing in each band.
 
         Parameters
@@ -289,6 +295,14 @@ class Observation:
         grad:
             Whether this is a backward gradient convolution
             (`grad==True`) or a pure convolution with the PSF.
+        cache:
+            Whether to cache the FFT of the kernel at this image's shape.
+            Defaults to ``False`` because most call sites convolve
+            many different shapes (per-source / per-component) and would
+            grow `diff_kernel._fft` unboundedly. Pass ``cache=True``
+            for repeated full-blend convolutions (e.g. inside the fit
+            loop), where the same shape recurs every iteration.
+            Ignored for ``mode == "real"``.
 
         Returns
         -------
@@ -311,6 +325,7 @@ class Observation:
                 kernel,
                 axes=(1, 2),
                 return_fourier=False,
+                cache=cache,
             )
         elif mode == "real":
             dy = image.shape[1] - kernel.image.shape[1]

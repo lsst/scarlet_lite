@@ -68,6 +68,16 @@ class TestParameters(ScarletTestCase):
         param2 = parameter(param)
         self.assertIs(param2, param)
 
+        # Audit finding K-1: ``__copy__`` and ``__deepcopy__`` must
+        # propagate ``step``, ``grad``, and ``prox``. Previously the
+        # base class re-built the copy with ``step=0`` and no grad
+        # or prox, leaving the copy non-functional for optimization.
+        param = Parameter(x, {"y": y}, 0.25, grad=grad, prox=prox_ceiling)
+        for copied in (param.copy(deep=False), param.copy(deep=True)):
+            self.assertEqual(copied.step, 0.25)
+            self.assertIs(copied.grad, grad)
+            self.assertIs(copied.prox, prox_ceiling)
+
     def test_growing(self):
         x = np.arange(15, dtype=float).reshape(3, 5)
         y = np.zeros((3, 5), dtype=float)
@@ -134,6 +144,74 @@ class TestParameters(ScarletTestCase):
                 scheme=scheme,
             )
             param.update(10, x, x2)
+
+        # Audit finding O-1: ``update`` must work when ``prox`` is
+        # None (the default), matching ``FistaParameter.update``.
+        # Previously ``self.prox(_x)`` was called unconditionally and
+        # raised ``TypeError`` on ``None``.
+        param = AdaproxParameter(x2.copy(), 0.1, grad)
+        param.update(10, x, x2)
+        param.update(0, x, x2)
+
+    def test_adaprox_variants_converge(self):
+        """Each ADAM variant must drive a simple quadratic loss to
+        its optimum.
+
+        The loss is ``0.5 * sum((x - target)**2)`` with gradient
+        ``x - target``. Every scheme should reach ``target`` within
+        a small tolerance after a fixed iteration budget. This
+        catches semantic regressions in any of the per-iteration
+        update formulas (the kinds of bug in O-2).
+        """
+        target = np.array([3.0, -2.0, 5.0])
+
+        def quad_grad(input_grad, x):
+            return x - target
+
+        for scheme in tuple(phi_psi.keys()):
+            param = AdaproxParameter(
+                np.zeros_like(target),
+                step=0.1,
+                grad=quad_grad,
+                scheme=scheme,
+            )
+            for it in range(2000):
+                param.update(it, np.zeros_like(target))
+            np.testing.assert_allclose(
+                param.x,
+                target,
+                atol=1e-3,
+                err_msg=f"AdaproxParameter scheme={scheme!r} failed to converge",
+            )
+
+    def test_adamx_first_iteration(self):
+        """``_adamx_phi_psi`` must treat ``factor`` as 1 on the first
+        iteration rather than indexing ``b1[it-1] = b1[-1]``.
+
+        Audit finding O-2: at ``it=0`` the formula
+        ``(1 - b1[it])**2 / (1 - b1[it-1])**2`` accidentally reads
+        the *last* element of a varying ``b1`` schedule. With the
+        default ``SingleItemArray`` (constant ``b1``) this returns
+        the right value by coincidence; with a real array of varying
+        decay rates the factor is wrong on the very first step.
+        """
+        adamx = phi_psi["adamx"]
+        # b1[-1] differs sharply from b1[0], so the buggy and fixed
+        # branches diverge.
+        b1 = np.array([0.9, 0.5])
+        g = np.array([1.0])
+        m = np.array([0.0])
+        v = np.array([0.0])
+        # Non-default ``vhat`` so the factor multiplies a finite
+        # value (the default ``-inf`` would absorb any positive
+        # factor).
+        vhat = np.array([1.0])
+        _, psi = adamx(0, g, m, v, vhat, b1, 0.999, 0, 0.5)
+        # v after update: (1-0.999)*1 = 0.001
+        # Fixed: vhat = max(1.0 * 1.0, 0.001) = 1.0; psi = sqrt(1.0) = 1.0
+        # Buggy: factor = (0.1)**2/(0.5)**2 = 0.04
+        #        vhat = max(0.04 * 1.0, 0.001) = 0.04; psi = sqrt(0.04) = 0.2
+        np.testing.assert_allclose(psi, 1.0)
 
     def test_fixed_parameter(self):
         x = np.arange(10, dtype=float)

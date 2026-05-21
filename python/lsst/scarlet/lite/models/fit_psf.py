@@ -35,7 +35,41 @@ from ..parameters import parameter
 
 
 class FittedPsfObservation(Observation):
-    """An observation that fits the PSF used to convolve the model."""
+    """An observation that fits the PSF used to convolve the model.
+
+    Parameters
+    ----------
+    images:
+        (bands, y, x) array of observed images.
+    variance:
+        (bands, y, x) array of variance for each image pixel.
+    weights:
+        (bands, y, x) array of weights to use when calculate the
+        likelihood of each pixel.
+    psfs:
+        (bands, y, x) array of the PSF image in each band.
+    model_psf:
+        (bands, y, x) array of the model PSF image in each band.
+        If `model_psf` is `None` then convolution is performed,
+        which should only be done when the observation is a
+        PSF matched coadd, and the scarlet model has the same PSF.
+    noise_rms:
+        Per-band average noise RMS. If `noise_rms` is `None` then the mean
+        of the sqrt of the variance is used.
+    bbox:
+        The bounding box containing the model. If `bbox` is `None` then
+        a `Box` is created that is the shape of `images` with an origin
+        at `(0, 0)`.
+    bands:
+        The bands covered by the observation.
+    padding:
+        Padding to use when performing an FFT convolution.
+    convolution_mode:
+        The method of convolution. This should be either "fft" or "real".
+    shape:
+        The `(height, width)` shape of the fitted PSF kernel.
+        If `None` then ``(41, 41)`` is used.
+    """
 
     def __init__(
         self,
@@ -51,10 +85,6 @@ class FittedPsfObservation(Observation):
         convolution_mode: str = "fft",
         shape: tuple[int, int] | None = None,
     ):
-        """Initialize a `FitPsfObservation`
-
-        See `Observation` for a description of the parameters.
-        """
         super().__init__(
             images,
             variance,
@@ -115,7 +145,13 @@ class FittedPsfObservation(Observation):
     def cached_kernel(self):
         return self.fitted_kernel[:, ::-1, ::-1]
 
-    def convolve(self, image: Image, mode: str | None = None, grad: bool = False) -> Image:
+    def convolve(
+        self,
+        image: Image,
+        mode: str | None = None,
+        grad: bool = False,
+        cache: bool = False,
+    ) -> Image:
         """Convolve the model into the observed seeing in each band.
 
         Parameters
@@ -130,6 +166,12 @@ class FittedPsfObservation(Observation):
         grad:
             Whether this is a backward gradient convolution
             (`grad==True`) or a pure convolution with the PSF.
+        cache:
+            See `Observation.convolve`. The fitted-PSF kernel is wrapped
+            in a fresh `Fourier` on every call (since the kernel data
+            changes during fitting), so this flag mainly serves to
+            propagate caller intent through to `super().convolve` when
+            delegating for non-FFT modes.
         """
         if grad:
             kernel = self.cached_kernel
@@ -137,13 +179,14 @@ class FittedPsfObservation(Observation):
             kernel = self.fitted_kernel
 
         if mode != "fft" and mode is not None:
-            return super().convolve(image, mode, grad)
+            return super().convolve(image, mode, grad, cache=cache)
 
         result = fft_convolve(
             Fourier(image.data),
             Fourier(kernel),
             axes=(1, 2),
             return_fourier=False,
+            cache=cache,
         )
         return Image(cast(np.ndarray, result), bands=image.bands, yx0=image.yx0)
 
@@ -217,7 +260,7 @@ class FittedPsfBlend(Blend):
         while it < max_iter:
             # Calculate the gradient wrt the on-convolved model
             grad_log_likelihood, model = self._grad_log_likelihood()
-            _grad_log_likelihood = self.observation.convolve(grad_log_likelihood, grad=True)
+            _grad_log_likelihood = self.observation.convolve(grad_log_likelihood, grad=True, cache=True)
             # Check if resizing needs to be performed in this iteration
             if resize is not None and self.it > 0 and self.it % resize == 0:
                 do_resize = True

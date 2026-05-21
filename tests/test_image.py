@@ -221,6 +221,11 @@ class TestImage(ScarletTestCase):
         data_int = np.random.randint(-10, 10, (2, 3, 4))
         data_int[data_int == 0] = 1
         data_float = (np.random.random((2, 3, 4)) - 0.5) * 10
+        # Force a few pixels to be exactly equal so the comparison ops
+        # (eq/ne, gt/ge, lt/le) actually differentiate strict from
+        # non-strict comparisons (audit C-4).
+        data_float[0, 0, 0] = data_int[0, 0, 0]
+        data_float[1, 2, 3] = data_int[1, 2, 3]
         self.check_simple_arithmetic(data_bool, data_int, data_float, bands=("g", "r"))
 
     def test_simple_2d_arithmetic(self):
@@ -229,6 +234,9 @@ class TestImage(ScarletTestCase):
         data_int = np.random.randint(-10, 10, (3, 4))
         data_int[data_int == 0] = 1
         data_float = (np.random.random((3, 4)) - 0.5) * 10
+        # See test_simple_3d_arithmetic for rationale.
+        data_float[0, 0] = data_int[0, 0]
+        data_float[2, 3] = data_int[2, 3]
         self.check_simple_arithmetic(data_bool, data_int, data_float, bands=None)
 
     def test_3d_image_equality(self):

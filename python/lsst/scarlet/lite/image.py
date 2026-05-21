@@ -563,16 +563,16 @@ class Image:
     ) -> Image:
         """Project this image into a different set of bands
 
-         Parameters
-         ----------
-         bands:
+        Parameters
+        ----------
+        bands:
             Spectral bands to project this image into.
             Not all bands have to be contained in the image, and not all
             bands contained in the image have to be used in the projection.
-         bbox:
+        bbox:
             A bounding box to project the image into.
 
-        Results
+        Returns
         -------
         image:
             A new image creating by projecting this image into
@@ -910,16 +910,16 @@ class Image:
         return self._check_equality(other, operator.le)
 
     def __gt__(self, other: Image | ScalarLike) -> Image:
-        """Check if this image is greater than or equal to another."""
+        """Check if this image is greater than another."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=self.data > other)
-        return self._check_equality(other, operator.ge)
+        return self._check_equality(other, operator.gt)
 
     def __lt__(self, other: Image | ScalarLike) -> Image:
-        """Check if this image is less than or equal to another."""
+        """Check if this image is less than another."""
         if type(other) in ScalarTypes:
             return self.copy_with(data=self.data < other)
-        return self._check_equality(other, operator.le)
+        return self._check_equality(other, operator.lt)
 
     def __neg__(self):
         """Take the negative of the image."""

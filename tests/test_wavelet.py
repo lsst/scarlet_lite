@@ -90,3 +90,115 @@ class TestWavelet(ScarletTestCase):
         get_multiresolution_support(image, starlets, 0.1)
         get_multiresolution_support(image, starlets, 0.1, image_type="space")
         apply_wavelet_denoising(image)
+
+    def test_ground_branch_unbiased_sigma(self):
+        """Audit finding D-5: the per-scale noise estimate in the
+        ``image_type='ground'`` branch must compute std over the
+        insignificant pixels only, not over the full array with
+        significant pixels zeroed (which pulls the variance down).
+
+        Run the algorithm on a synthetic starlet image where a
+        large fraction of pixels are above the significance
+        threshold. ``sigma_j`` is the noise-only std at each scale,
+        so even though most pixels are masked, the returned value
+        must match ``np.std`` of the underlying noise pixels — not
+        ``np.std`` of those pixels mixed with zeros.
+        """
+        rng = np.random.default_rng(0)
+        # Build a single-scale "starlet" array where everything is
+        # noise: half the pixels are unit-sigma noise, the other
+        # half are very-large-amplitude pixels that the iterative
+        # threshold will mask out. The unmasked-only std should
+        # converge to ~1.0; the bug's zero-padded std would be
+        # roughly sqrt(0.5) ~ 0.71.
+        noise = rng.normal(scale=1.0, size=(64, 64)).astype(np.float32)
+        starlets_per_scale = noise.copy()
+        starlets_per_scale[:32] += 100.0  # half the array is "signal"
+        # Stack one finest-scale band plus a coarse residual.
+        starlets = np.stack([starlets_per_scale, np.zeros_like(noise)])
+        # The image just needs a matching shape for the API.
+        image = starlets.sum(axis=0)
+
+        result = get_multiresolution_support(image, starlets, 1.0, image_type="ground")
+        # The finest scale's converged sigma must match the std of
+        # the unmasked noise pixels (~1.0 to within iteration
+        # tolerance), not the bug's zero-padded ~0.71.
+        self.assertGreater(result.sigma[0], 0.9)
+        self.assertLess(result.sigma[0], 1.1)
+
+    def test_space_branch_reproducible(self):
+        """Audit finding D-6: the ``space`` branch draws a Gaussian
+        noise realization to calibrate ``sigma_je``. Pre-fix it used
+        the global ``np.random`` state, so two identical calls
+        produced different supports unless the caller had seeded the
+        global RNG. The default behavior must now be reproducible.
+        """
+        rng = np.random.default_rng(42)
+        image = rng.normal(scale=1.0, size=(64, 64))
+        starlets = starlet_transform(image, generation=1, scales=3)
+
+        r1 = get_multiresolution_support(image, starlets, 1.0, image_type="space")
+        r2 = get_multiresolution_support(image, starlets, 1.0, image_type="space")
+        np.testing.assert_array_equal(r1.support, r2.support)
+        np.testing.assert_array_equal(r1.sigma, r2.sigma)
+
+        # Caller-supplied generator overrides the default seed.
+        # Two calls each given a *fresh* seed-123 generator must
+        # produce identical results.
+        r3 = get_multiresolution_support(
+            image,
+            starlets,
+            1.0,
+            image_type="space",
+            rng=np.random.default_rng(123),
+        )
+        r4 = get_multiresolution_support(
+            image,
+            starlets,
+            1.0,
+            image_type="space",
+            rng=np.random.default_rng(123),
+        )
+        np.testing.assert_array_equal(r3.support, r4.support)
+
+        # And conversely: re-using the *same* generator instance
+        # across two calls advances its state between them, so the
+        # second call sees a different noise draw and may produce a
+        # different support. (This is the standard ``np.random.
+        # Generator`` contract — included to make the difference
+        # between "fresh seed each call" and "shared mutable
+        # generator" explicit.)
+        shared = np.random.default_rng(123)
+        r5 = get_multiresolution_support(image, starlets, 1.0, image_type="space", rng=shared)
+        r6 = get_multiresolution_support(image, starlets, 1.0, image_type="space", rng=shared)
+        with self.assertRaises(AssertionError):
+            np.testing.assert_array_equal(r5.support, r6.support)
+
+    def test_space_branch_iterates_sigma(self):
+        """Audit finding D-2: the ``image_type='space'`` branch of
+        ``get_multiresolution_support`` implements the Starck &
+        Murtagh 1998 multi-resolution support algorithm, which
+        iteratively refines the global noise ``sigma_e`` from pixels
+        that are insignificant at every scale. The iteration is
+        meaningful only if each step's threshold uses the *previous*
+        iteration's ``sigma``, otherwise the support never changes
+        after iteration 0 and the loop is a no-op.
+
+        With a deliberately wrong input ``sigma`` (3x the true noise
+        level), the algorithm must still converge to a support
+        close to what the correct-sigma run produces.
+        """
+        rng = np.random.default_rng(0)
+        image = rng.normal(scale=1.0, size=(64, 64))
+        starlets = starlet_transform(image, generation=1, scales=3)
+
+        result_correct = get_multiresolution_support(image, starlets, 1.0, image_type="space")
+        result_overestimate = get_multiresolution_support(image, starlets, 3.0, image_type="space")
+        # With the bug, the overestimate run never re-thresholds the
+        # mask and produces an essentially empty support (count = 0);
+        # with the fix the iteration adapts and the support count is
+        # within a small factor of the correct-sigma run.
+        correct_count = result_correct.support.sum()
+        overestimate_count = result_overestimate.support.sum()
+        self.assertGreater(overestimate_count, 0)
+        self.assertLess(abs(overestimate_count - correct_count), correct_count)

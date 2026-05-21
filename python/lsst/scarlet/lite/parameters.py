@@ -104,8 +104,8 @@ class Parameter:
     def step(self) -> float:
         """Calculate the step
 
-        Return
-        ------
+        Returns
+        -------
         step:
             The numerical step if no iteration is given.
         """
@@ -130,7 +130,11 @@ class Parameter:
             A shallow copy of this parameter.
         """
         helpers = {k: v.copy() for k, v in self.helpers.items()}
-        return Parameter(self.x.copy(), helpers, 0)
+        copied = Parameter(self.x.copy(), helpers, 0)
+        copied._step = self._step
+        copied.grad = self.grad
+        copied.prox = self.prox
+        return copied
 
     def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Parameter:
         """Create a deep copy of this parameter.
@@ -145,7 +149,11 @@ class Parameter:
             A deep copy of this parameter.
         """
         helpers = {k: deepcopy(v, memo) for k, v in self.helpers.items()}
-        return Parameter(deepcopy(self.x, memo), helpers, 0)
+        copied = Parameter(deepcopy(self.x, memo), helpers, 0)
+        copied._step = deepcopy(self._step, memo)
+        copied.grad = deepcopy(self.grad, memo)
+        copied.prox = deepcopy(self.prox, memo)
+        return copied
 
     def copy(self, deep: bool = False) -> Parameter:
         """Copy this parameter, including all of the helper arrays.
@@ -225,6 +233,23 @@ class FistaParameter(Parameter):
     FISTA proximal gradient method.
 
     See https://www.ceremade.dauphine.fr/~carlier/FISTA
+
+    Parameters
+    ----------
+    x:
+        The array of values that is being fit.
+    step:
+        A numerical step value or function to calculate the step for a
+        given `x`.
+    grad:
+        A function to calculate the gradient of `x`.
+    prox:
+        A function to take the proximal operator of `x`.
+    t0:
+        The initial value of the FISTA momentum term.
+    z0:
+        The initial value of the extrapolation array.
+        If `None` then a copy of `x` is used.
     """
 
     def __init__(
@@ -379,7 +404,10 @@ def _adamx_phi_psi(it, g, m, v, vhat, b1, b2, eps, p):
     v[:] = (1 - b2) * (g**2) + b2 * v
 
     phi = m
-    factor = (1 - b1[it]) ** 2 / (1 - b1[it - 1]) ** 2
+    if it == 0:
+        factor = 1.0
+    else:
+        factor = (1 - b1[it]) ** 2 / (1 - b1[it - 1]) ** 2
     vhat[:] = np.maximum(factor * vhat, v)
     # sanitize zero-gradient elements
     if eps > 0:
@@ -425,7 +453,13 @@ phi_psi = {
 
 
 class SingleItemArray:
-    """Mock an array with only a single item"""
+    """Mock an array with only a single item
+
+    Parameters
+    ----------
+    value:
+        The single value returned for any index.
+    """
 
     def __init__(self, value):
         self.value = value
@@ -435,16 +469,51 @@ class SingleItemArray:
 
 
 class AdaproxParameter(Parameter):
-    """Operator updated using te Proximal ADAM algorithm
+    """Operator updated using the Proximal ADAM algorithm
 
     Uses multiple variants of adaptive quasi-Newton gradient descent
+
         * Adam (Kingma & Ba 2015)
         * NAdam (Dozat 2016)
         * AMSGrad (Reddi, Kale & Kumar 2018)
         * PAdam (Chen & Gu 2018)
         * AdamX (Phuong & Phong 2019)
         * RAdam (Liu et al. 2019)
+
     See details of the algorithms in the respective papers.
+
+    Parameters
+    ----------
+    x:
+        The array of values that is being fit.
+    step:
+        A numerical step value or function to calculate the step for a
+        given `x`.
+    grad:
+        A function to calculate the gradient of `x`.
+    prox:
+        A function to take the proximal operator of `x`.
+    b1:
+        The decay rate of the first moment (mean) of the gradient.
+    b2:
+        The decay rate of the second moment (variance) of the gradient.
+    eps:
+        A small constant added for numerical stability.
+    p:
+        The power used by the ``PAdam`` scheme.
+    m0:
+        The initial value of the first moment.
+        If `None` then an array of zeros is used.
+    v0:
+        The initial value of the second moment.
+        If `None` then an array of zeros is used.
+    vhat0:
+        The initial value of the maximum second moment.
+        If `None` then an array of ``-inf`` is used.
+    scheme:
+        The name of the ADAM variant to use to update the parameter.
+    prox_e_rel:
+        The relative error used by the proximal operator.
     """
 
     def __init__(
@@ -530,7 +599,8 @@ class AdaproxParameter(Parameter):
             # is often much larger than desired.
             _x += -step * phi / psi / 10
 
-        self.x = cast(Callable, self.prox)(_x)
+        if self.prox is not None:
+            self.x = self.prox(_x)
 
     def __deepcopy__(self, memo: dict[int, Any] | None = None) -> AdaproxParameter:
         """Create a deep copy of this parameter.
@@ -586,7 +656,13 @@ class AdaproxParameter(Parameter):
 
 
 class FixedParameter(Parameter):
-    """A parameter that is not updated"""
+    """A parameter that is not updated
+
+    Parameters
+    ----------
+    x:
+        The array of values that is held fixed.
+    """
 
     def __init__(self, x: np.ndarray):
         super().__init__(x, {}, 0)

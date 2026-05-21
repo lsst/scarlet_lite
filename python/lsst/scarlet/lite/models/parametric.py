@@ -65,15 +65,15 @@ SERSIC_B1 = gamma.ppf(0.5, 2)
 
 
 class CartesianFrame:
-    """A grid of X and Y values contained in a bbox"""
+    """A grid of X and Y values contained in a bbox
+
+    Parameters
+    ----------
+    bbox:
+        The bounding box that contains this frame.
+    """
 
     def __init__(self, bbox: Box):
-        """
-        Parameters
-        ----------
-        bbox: Box
-            The bounding box that contains this frame.
-        """
         # Store the new bounding box
         self._bbox = bbox
         # Get the range of x and y
@@ -238,7 +238,11 @@ class EllipseFrame(CartesianFrame):
         result:
             The gradient of the likelihood wrt the semi-major axis.
         """
-        grad = -2 / self._major * self._xa**2
+        # ``grad`` here is half of d(r**2)/d(major), matching the
+        # convention used by ``grad_x0`` / ``grad_y0`` / ``grad_theta``
+        # so the post-multiplications below produce d(r**2) and d(r)
+        # respectively.
+        grad = -1 / self._major * self._xa**2
         if use_r2:
             grad *= 2
         else:
@@ -263,7 +267,8 @@ class EllipseFrame(CartesianFrame):
         result:
             The gradient of the likelihood wrt the semi-minor axis.
         """
-        grad = -2 / self._minor * self._yb**2
+        # See ``grad_major`` for the half-r**2 convention.
+        grad = -1 / self._minor * self._yb**2
         if use_r2:
             grad *= 2
         else:
@@ -447,8 +452,11 @@ def grad_circular_gaussian(
     _grad = -morph * np.einsum("i,i...", spectrum, input_grad)
 
     y0, x0 = params[:2]
-    d_y0 = -2 * np.sum((frame.y_grid - y0) * _grad)
-    d_x0 = -2 * np.sum((frame.x_grid - x0) * _grad)
+    # d morph / d y0 = morph * (y - y0) / (2 * sigma**2), and similarly for x0,
+    # because r2 = ((x-x0)/(2*sigma))**2 + ((y-y0)/(2*sigma))**2.
+    inv_two_sigma_sq = 1.0 / (2.0 * sigma**2)
+    d_y0 = -inv_two_sigma_sq * np.sum((frame.y_grid - y0) * _grad)
+    d_x0 = -inv_two_sigma_sq * np.sum((frame.x_grid - x0) * _grad)
     return np.array([d_y0, d_x0], dtype=params.dtype)
 
 
@@ -625,7 +633,7 @@ def grad_sersic(
         d_exp = -bn / n * morph * r ** (1 / n - 1)
 
     _grad = np.einsum("i,i...", spectrum, input_grad)
-    d_n = np.sum(_grad * bn * morph * ellipse.r_grid ** (1 / n) * np.log10(ellipse.r_grid) / n**2)
+    d_n = np.sum(_grad * bn * morph * ellipse.r_grid ** (1 / n) * np.log(ellipse.r_grid) / n**2)
     _grad = _grad * d_exp
     d_y0 = ellipse.grad_y0(_grad, False)
     d_x0 = ellipse.grad_x0(_grad, False)

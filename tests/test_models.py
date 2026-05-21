@@ -41,6 +41,7 @@ from lsst.scarlet.lite.operators import Monotonicity
 from lsst.scarlet.lite.parameters import AdaproxParameter, parameter, relative_step
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_array_equal
+from scipy.stats import gamma as gamma_dist
 from utils import ScarletTestCase
 
 
@@ -234,6 +235,193 @@ class TestParametric(ScarletTestCase):
 
         # Make sure that none of the methods changed the input gradient
         assert_array_equal(input_grad, original_grad)
+
+    def test_grad_sersic_n_index(self):
+        """Finite-difference check of the Sersic gradient w.r.t. n.
+
+        Protects against regressions in the analytical gradient (e.g. the
+        np.log10 vs np.log mistake fixed for audit finding C-1). The
+        analytical gradient holds bn(n) fixed -- differentiating the
+        inverse incomplete gamma function is intentionally omitted -- so
+        the finite-difference comparison does the same.
+        """
+        bbox = Box((33, 33), origin=(0, 0))
+        y0, x0 = 16.0, 16.0
+        sigma_y, sigma_x = 5.0, 4.0
+        theta = 0.3
+        spectrum = np.array([1.0])
+
+        def sersic_fixed_bn(n_value, bn_value, ellipse):
+            r = ellipse.r_grid
+            return np.exp(-bn_value * (r ** (1 / n_value) - 1))
+
+        for n in (0.5, 1.5, 2.0, 3.0, 4.0):
+            ellipse = EllipseFrame(y0, x0, sigma_y, sigma_x, theta, bbox)
+            bn = gamma_dist.ppf(0.5, 2 * n)
+            morph = sersic_fixed_bn(n, bn, ellipse)
+            input_grad = np.ones((1,) + morph.shape)
+            params = np.array([y0, x0, sigma_y, sigma_x, theta, n])
+
+            d_n_analytical = models.grad_sersic(input_grad, params, morph, spectrum, ellipse)[5]
+
+            # Centered finite difference: df/dn ~ (f(n+e) - f(n-e)) / (2e)
+            # where f(n) = sum(sersic_fixed_bn(n)). bn is held fixed in both
+            # evaluations to match the analytical formulation, which omits
+            # the dbn/dn contribution.
+            eps = 1e-5 * max(1.0, abs(n))
+            loss_plus = np.sum(sersic_fixed_bn(n + eps, bn, ellipse))
+            loss_minus = np.sum(sersic_fixed_bn(n - eps, bn, ellipse))
+            d_n_fd = (loss_plus - loss_minus) / (2 * eps)
+
+            np.testing.assert_allclose(
+                d_n_analytical,
+                d_n_fd,
+                rtol=1e-4,
+                err_msg=f"grad_sersic d/dn mismatch at n={n}",
+            )
+
+    def test_grad_circular_gaussian(self):
+        """Finite-difference check of the circular Gaussian gradient.
+
+        Protects against regressions in grad_circular_gaussian (audit
+        finding C-2). The forward model is morph = exp(-r2) where
+        r2 = ((x-x0)/(2*sigma))**2 + ((y-y0)/(2*sigma))**2, so the gradient
+        must scale with 1/(2*sigma**2). A previous version of the code used
+        a fixed factor of 2, ignoring sigma entirely.
+        """
+        bbox = Box((33, 33), origin=(0, 0))
+        y0, x0 = 16.3, 16.7
+        spectrum = np.array([1.0])
+        frame = CartesianFrame(bbox)
+
+        for sigma in (0.6, 0.8, 1.5, 3.0):
+            morph = models.circular_gaussian((y0, x0), frame, sigma=sigma)
+            input_grad = np.ones((1,) + morph.shape)
+            params = np.array([y0, x0])
+
+            d_analytical = models.grad_circular_gaussian(
+                input_grad, params, morph, spectrum, frame, sigma=sigma
+            )
+
+            # Centered finite difference on f(y0, x0) = sum(morph(y0, x0)).
+            eps = 1e-4
+            f_yp = np.sum(models.circular_gaussian((y0 + eps, x0), frame, sigma=sigma))
+            f_ym = np.sum(models.circular_gaussian((y0 - eps, x0), frame, sigma=sigma))
+            f_xp = np.sum(models.circular_gaussian((y0, x0 + eps), frame, sigma=sigma))
+            f_xm = np.sum(models.circular_gaussian((y0, x0 - eps), frame, sigma=sigma))
+            d_fd = np.array([(f_yp - f_ym) / (2 * eps), (f_xp - f_xm) / (2 * eps)])
+
+            np.testing.assert_allclose(
+                d_analytical,
+                d_fd,
+                rtol=1e-4,
+                atol=1e-8,
+                err_msg=f"grad_circular_gaussian mismatch at sigma={sigma}",
+            )
+
+    def test_grad_gaussian2(self):
+        """Finite-difference check of the elliptical 2D Gaussian
+        gradient.
+
+        ``grad_gaussian2`` returns d/d{y0, x0, sigma_y, sigma_x,
+        theta} of ``sum(spectrum * input_grad * morph)``. With
+        ``spectrum = [1]`` and ``input_grad = ones``, the loss is
+        just ``sum(morph)``.
+
+        Also exercises ``EllipseFrame.grad_major`` and
+        ``grad_minor``: the ``-2/major * _xa**2`` base in those
+        methods is already ``d(r**2)/d(major)``, while the
+        ``grad_x0/y0/theta`` base is ``(1/2) * d(r**2)/d(...)``.
+        Multiplying by 2 (``use_r2=True``) or by ``1/r``
+        (``use_r2=False``) was therefore producing 2x the correct
+        gradient for the size parameters.
+        """
+        bbox = Box((33, 33), origin=(0, 0))
+        spectrum = np.array([1.0])
+        # y0, x0, sigma_y, sigma_x, theta
+        y0, x0, sigma_y, sigma_x, theta = 16.3, 16.7, 5.0, 4.0, 0.3
+        empty_params = np.array([])
+
+        ellipse = EllipseFrame(y0, x0, sigma_y, sigma_x, theta, bbox)
+        morph = models.gaussian2d(empty_params, ellipse)
+        input_grad = np.ones((1,) + morph.shape)
+        params = np.array([y0, x0, sigma_y, sigma_x, theta])
+        d_analytical = models.grad_gaussian2(input_grad, params, morph, spectrum, ellipse)
+
+        # Smaller eps for theta because the morph is more sensitive
+        # near theta=0.3 (radians), and a too-large eps flattens the
+        # finite-difference signal.
+        eps_list = [1e-4, 1e-4, 1e-4, 1e-4, 1e-5]
+        d_fd = np.zeros(5)
+        for i, eps in enumerate(eps_list):
+            perturb = np.zeros(5)
+            perturb[i] = eps
+            yp, xp, syp, sxp, tp = params + perturb
+            ym, xm, sym, sxm, tm = params - perturb
+            f_plus = np.sum(models.gaussian2d(empty_params, EllipseFrame(yp, xp, syp, sxp, tp, bbox)))
+            f_minus = np.sum(models.gaussian2d(empty_params, EllipseFrame(ym, xm, sym, sxm, tm, bbox)))
+            d_fd[i] = (f_plus - f_minus) / (2 * eps)
+
+        np.testing.assert_allclose(d_analytical, d_fd, rtol=1e-3, atol=1e-7)
+
+    def test_grad_integrated_gaussian(self):
+        """Finite-difference check of the integrated Gaussian
+        gradient. ``grad_integrated_gaussian`` returns
+        d/d{y0, x0, sigma}.
+        """
+        bbox = Box((33, 33), origin=(0, 0))
+        spectrum = np.array([1.0])
+        frame = CartesianFrame(bbox)
+        params = np.array([16.3, 16.7, 1.5])
+        morph = models.integrated_gaussian(params, frame)
+        input_grad = np.ones((1,) + morph.shape)
+
+        d_analytical = models.grad_integrated_gaussian(input_grad, params, morph, spectrum, frame)
+
+        eps = 1e-4
+        d_fd = np.zeros(3)
+        for i in range(3):
+            perturb = np.zeros(3)
+            perturb[i] = eps
+            f_plus = np.sum(models.integrated_gaussian(params + perturb, frame))
+            f_minus = np.sum(models.integrated_gaussian(params - perturb, frame))
+            d_fd[i] = (f_plus - f_minus) / (2 * eps)
+
+        np.testing.assert_allclose(d_analytical, d_fd, rtol=1e-3, atol=1e-7)
+
+    def test_grad_sersic_ellipse_params(self):
+        """Finite-difference check of grad_sersic for the ellipse
+        parameters. Index 5 (d/dn) is covered by
+        ``test_grad_sersic_n_index``; this covers indices 0-4:
+        d/d{y0, x0, sigma_y, sigma_x, theta}. ``bn(n)`` does not
+        depend on these parameters, so the FD evaluation can use
+        ``models.sersic`` directly.
+        """
+        bbox = Box((33, 33), origin=(0, 0))
+        spectrum = np.array([1.0])
+        n = 1.5
+        n_params = np.array([n])
+        y0, x0, sigma_y, sigma_x, theta = 16.0, 16.0, 5.0, 4.0, 0.3
+
+        ellipse = EllipseFrame(y0, x0, sigma_y, sigma_x, theta, bbox)
+        morph = models.sersic(n_params, ellipse)
+        input_grad = np.ones((1,) + morph.shape)
+        params = np.array([y0, x0, sigma_y, sigma_x, theta, n])
+        d_analytical = models.grad_sersic(input_grad, params, morph, spectrum, ellipse)[:5]
+
+        eps_list = [1e-4, 1e-4, 1e-4, 1e-4, 1e-5]
+        d_fd = np.zeros(5)
+        ellipse_params = np.array([y0, x0, sigma_y, sigma_x, theta])
+        for i, eps in enumerate(eps_list):
+            perturb = np.zeros(5)
+            perturb[i] = eps
+            yp, xp, syp, sxp, tp = ellipse_params + perturb
+            ym, xm, sym, sxm, tm = ellipse_params - perturb
+            f_plus = np.sum(models.sersic(n_params, EllipseFrame(yp, xp, syp, sxp, tp, bbox)))
+            f_minus = np.sum(models.sersic(n_params, EllipseFrame(ym, xm, sym, sxm, tm, bbox)))
+            d_fd[i] = (f_plus - f_minus) / (2 * eps)
+
+        np.testing.assert_allclose(d_analytical, d_fd, rtol=1e-3, atol=1e-7)
 
     def test_parametric_component(self):
         observation = self.observation

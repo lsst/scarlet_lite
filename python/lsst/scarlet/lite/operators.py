@@ -420,7 +420,12 @@ def uncentered_operator(
         py, px = center
     cy, cx = np.array(x.shape) // 2
 
-    if py == cy and px == cx:
+    # Fast path: skip the slicing only when the full array is
+    # already a valid input for ``func`` (odd-odd shape with the
+    # peak at the geometric center). Even-shaped arrays must take
+    # the slicing path below so the +1 correction yields an
+    # odd-shaped subarray centered on the peak.
+    if py == cy and px == cx and x.shape[0] % 2 == 1 and x.shape[1] % 2 == 1:
         return func(x, **kwargs)
 
     dy = int(round(2 * (py - cy)))
@@ -452,7 +457,13 @@ def prox_sdss_symmetry(x: np.ndarray):
     """SDSS/HSC symmetry operator
 
     This function uses the *minimum* of the two
-    symmetric pixels in the update.
+    symmetric pixels in the update. Symmetry is enforced about the
+    geometric center of ``x``: for odd-shaped axes that is the
+    center pixel, for even-shaped axes it is the half-pixel offset
+    between the two central pixels. Callers that need integer-pixel
+    symmetry on an even-shaped array should go through
+    ``prox_uncentered_symmetry``, which slices to an odd-shaped
+    subregion before calling this helper.
 
     Parameters
     ----------

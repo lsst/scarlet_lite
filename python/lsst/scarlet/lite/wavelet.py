@@ -175,8 +175,10 @@ def multiband_starlet_transform(
     scales = get_starlet_scales(image.shape, scales)
 
     wavelets = np.empty((scales + 1,) + image.shape, dtype=image.dtype)
-    for b, image in enumerate(image):
-        wavelets[:, b] = starlet_transform(image, scales=scales, generation=generation, convolve2d=convolve2d)
+    for b, band_image in enumerate(image):
+        wavelets[:, b] = starlet_transform(
+            band_image, scales=scales, generation=generation, convolve2d=convolve2d
+        )
     return wavelets
 
 
@@ -227,8 +229,8 @@ def multiband_starlet_reconstruction(
     See `starlet_reconstruction` for a description of the
     remainder of the parameters.
     """
-    _, bands, width, height = starlets.shape
-    result = np.zeros((bands, width, height), dtype=starlets.dtype)
+    _, bands, height, width = starlets.shape
+    result = np.zeros((bands, height, width), dtype=starlets.dtype)
     for band in range(bands):
         result[band] = starlet_reconstruction(starlets[:, band], generation=generation, convolve2d=convolve2d)
     return result
@@ -236,6 +238,17 @@ def multiband_starlet_reconstruction(
 
 @dataclass
 class MultiResolutionSupport:
+    """The multi-resolution support of a set of starlet coefficients.
+
+    Attributes
+    ----------
+    support:
+        A per-scale mask, with the shape of the starlet coefficients,
+        that is non-zero where a coefficient is considered significant.
+    sigma:
+        The noise standard deviation estimated at each scale.
+    """
+
     support: np.ndarray
     sigma: np.ndarray
 
@@ -248,6 +261,7 @@ def get_multiresolution_support(
     epsilon: float = 1e-1,
     max_iter: int = 20,
     image_type: str = "ground",
+    rng: np.random.Generator | None = None,
 ) -> MultiResolutionSupport:
     """Calculate the multi-resolution support for a
     dictionary of starlet coefficients.
@@ -282,6 +296,11 @@ def get_multiresolution_support(
         The type of image that is being used.
         This should be "ground" for ground based images with wide PSFs or
         "space" for images from space-based telescopes with a narrow PSF.
+    rng:
+        Random number generator used to draw the Gaussian noise
+        realization that calibrates ``sigma_je`` in the ``space``
+        branch. Defaults to ``np.random.default_rng(0)`` so repeated
+        calls with the same input return the same support.
 
     Returns
     -------
@@ -294,7 +313,9 @@ def get_multiresolution_support(
     if image_type == "space":
         # Calculate sigma_je, the standard deviation at
         # each scale due to gaussian noise
-        noise_img = np.random.normal(size=image.shape)
+        if rng is None:
+            rng = np.random.default_rng(0)
+        noise_img = rng.normal(size=image.shape)
         noise_starlet = starlet_transform(noise_img, generation=1, scales=len(starlets) - 1)
         sigma_je = np.zeros((len(noise_starlet),))
         for j, star in enumerate(noise_starlet):
@@ -303,7 +324,7 @@ def get_multiresolution_support(
 
         last_sigma_i = sigma
         for it in range(max_iter):
-            m = np.abs(starlets) > sigma_scaling * sigma * sigma_je[:, None, None]
+            m = np.abs(starlets) > sigma_scaling * last_sigma_i * sigma_je[:, None, None]
             s = np.sum(m, axis=0) == 0
             sigma_i = np.std(noise * s)
             if np.abs(sigma_i - last_sigma_i) / sigma_i < epsilon:
@@ -318,9 +339,18 @@ def get_multiresolution_support(
         for it in range(max_iter):
             m = np.abs(starlets) > sigma_scaling * sigma_j[:, None, None]
             # Take the standard deviation of the current
-            # insignificant coeffs at each scale
-            s = ~m
-            sigma_j = np.std(starlets * s.astype(int), axis=(1, 2))
+            # insignificant coeffs at each scale, excluding
+            # significant pixels entirely. Including them as zeros
+            # (the pre-fix behavior) biased ``sigma_j`` downward
+            # whenever a non-trivial fraction of pixels were
+            # significant. Scales where every pixel is significant
+            # get ``sigma_j[j] = 0``, treated downstream as "skip
+            # this scale" by the ``sigma_j > 0`` cut.
+            sigma_j = np.zeros(len(starlets), dtype=image.dtype)
+            for j in range(len(starlets)):
+                unmasked = starlets[j][~m[j]]
+                if unmasked.size > 0:
+                    sigma_j[j] = np.std(unmasked)
             # At lower scales all of the pixels may be significant,
             # so sigma is effectively zero. To avoid infinities we
             # only check the scales with non-zero sigma

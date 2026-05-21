@@ -8,3 +8,4 @@ doxygen.conf
 # Sphinx products
 _build
 py-api
+api
