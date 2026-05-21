@@ -571,21 +571,16 @@ class CubeComponent(Component):
 
     If scarlet lite ever implements a component as a data cube,
     this class can be removed.
+
+    Parameters
+    ----------
+    model:
+        The 3D (bands, y, x) model of the component.
+    peak:
+        The `(y, x)` peak of the component.
     """
 
     def __init__(self, model: Image, peak: tuple[int, int]):
-        """Initialization
-
-        Parameters
-        ----------
-        bands :
-        model :
-            The 3D (bands, y, x) model of the component.
-        peak :
-            The `(y, x)` peak of the component.
-        bbox :
-            The bounding box of the component.
-        """
         super().__init__(model.bands, model.bbox)
         self._model = model
         self.peak = peak

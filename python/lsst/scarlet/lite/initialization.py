@@ -514,14 +514,10 @@ class FactorizedInitialization:
     def init_source(self, center: tuple[int, int]) -> Source:
         """Initialize a source from a chi^2 detection.
 
-        Parameter
-        ---------
+        Parameters
+        ----------
         center:
             The center of the source.
-        init:
-            The initialization parameters common to all of the sources.
-        max_components:
-            The maximum number of components in the source.
         """
         # Some operators need the local center, not center in the full image
         local_center = (
@@ -752,8 +748,8 @@ class FactorizedWaveletInitialization(FactorizedInitialization):
     def init_source(self, center: tuple[int, int]) -> Source:
         """Initialize a source from a chi^2 detection.
 
-        Parameter
-        ---------
+        Parameters
+        ----------
         center:
             The center of the source.
         """

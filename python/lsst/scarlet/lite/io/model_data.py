@@ -20,7 +20,7 @@ MigrationRegistry.set_current(MODEL_TYPE, CURRENT_SCHEMA)
 class ScarletModelData:
     """A container that propagates scarlet models for an entire catalog.
 
-    Attributes
+    Parameters
     ----------
     blends :
         Map from parent IDs in the source catalog
@@ -28,6 +28,9 @@ class ScarletModelData:
     metadata :
         Metadata associated with the model,
         for example the order of bands.
+
+    Attributes
+    ----------
     model_type :
         The type of model being stored.
     version :

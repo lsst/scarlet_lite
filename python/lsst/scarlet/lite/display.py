@@ -595,8 +595,8 @@ def show_scene(
 def get_extent(bbox: Box) -> tuple[int, int, int, int]:
     """Convert a `Box` into a list of bounds used in matplotlib
 
-    Paramters
-    ---------
+    Parameters
+    ----------
     bbox:
        The box to convert into an extent list.
 

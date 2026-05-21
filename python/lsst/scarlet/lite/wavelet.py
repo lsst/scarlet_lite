@@ -238,6 +238,17 @@ def multiband_starlet_reconstruction(
 
 @dataclass
 class MultiResolutionSupport:
+    """The multi-resolution support of a set of starlet coefficients.
+
+    Attributes
+    ----------
+    support:
+        A per-scale mask, with the shape of the starlet coefficients,
+        that is non-zero where a coefficient is considered significant.
+    sigma:
+        The noise standard deviation estimated at each scale.
+    """
+
     support: np.ndarray
     sigma: np.ndarray
 

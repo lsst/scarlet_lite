@@ -150,6 +150,27 @@ class FreeFormComponent(Component):
 
     This is a FreeFormComponent that is not factorized into a
     spectrum and morphology with no monotonicity constraint.
+
+    Parameters
+    ----------
+    bands:
+        The bands covered by the component.
+    model:
+        The 3D (bands, y, x) model of the component.
+    model_bbox:
+        The bounding box of the model.
+    bg_thresh:
+        The background threshold, in units of `bg_rms`, below which
+        pixels are set to zero. If `None` then only positivity is enforced.
+    bg_rms:
+        The background RMS in each band.
+    floor:
+        The minimum value to use for the model when it is otherwise empty.
+    peaks:
+        The `(y, x)` peaks of the component, used to keep only the pixels
+        connected to a peak. If `None` then no peak connectivity is enforced.
+    min_area:
+        The minimum area (in pixels) of a connected footprint to keep.
     """
 
     def __init__(

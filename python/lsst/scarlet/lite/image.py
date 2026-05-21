@@ -563,16 +563,16 @@ class Image:
     ) -> Image:
         """Project this image into a different set of bands
 
-         Parameters
-         ----------
-         bands:
+        Parameters
+        ----------
+        bands:
             Spectral bands to project this image into.
             Not all bands have to be contained in the image, and not all
             bands contained in the image have to be used in the projection.
-         bbox:
+        bbox:
             A bounding box to project the image into.
 
-        Results
+        Returns
         -------
         image:
             A new image creating by projecting this image into

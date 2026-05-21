@@ -65,15 +65,15 @@ SERSIC_B1 = gamma.ppf(0.5, 2)
 
 
 class CartesianFrame:
-    """A grid of X and Y values contained in a bbox"""
+    """A grid of X and Y values contained in a bbox
+
+    Parameters
+    ----------
+    bbox:
+        The bounding box that contains this frame.
+    """
 
     def __init__(self, bbox: Box):
-        """
-        Parameters
-        ----------
-        bbox: Box
-            The bounding box that contains this frame.
-        """
         # Store the new bounding box
         self._bbox = bbox
         # Get the range of x and y
