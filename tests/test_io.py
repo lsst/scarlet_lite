@@ -23,7 +23,7 @@ import json
 import os
 
 import numpy as np
-from lsst.scarlet.lite import Blend, Image, Observation, io
+from lsst.scarlet.lite import Blend, Box, Image, Observation, io
 from lsst.scarlet.lite.component import CubeComponent
 from lsst.scarlet.lite.initialization import FactorizedInitialization
 from lsst.scarlet.lite.operators import Monotonicity
@@ -143,6 +143,33 @@ class TestIo(ScarletTestCase):
         # Check that the metadata was stored correctly
         for i in range(len(blend.sources)):
             self.assertEqual(blend.sources[i].metadata, loaded_blend.sources[i].metadata)
+
+    def test_cube_component_to_component_preserves_peak(self):
+        """``ScarletCubeComponentData.to_component`` must preserve the
+        full ``(y, x)`` peak, not collapse both axes onto ``peak[0]``.
+
+        Regression test: the implementation previously read ``peak[0]``
+        twice when constructing the returned ``CubeComponent``, so any
+        non-symmetric peak silently round-tripped as ``(y, y)``.
+        """
+        peak = (54, 105)
+        n_bands, h, w = 3, 8, 10
+        cube_data = io.ScarletCubeComponentData(
+            origin=(50, 100),
+            peak=peak,
+            model=np.zeros((n_bands, h, w), dtype=np.float32),
+        )
+        observation = Observation.empty(
+            bands=("g", "r", "i"),
+            psfs=np.ones((n_bands, 5, 5), dtype=np.float32),
+            model_psf=np.ones((1, 5, 5), dtype=np.float32),
+            bbox=Box((h, w), origin=(50, 100)),
+            dtype=np.float32,
+        )
+
+        component = cube_data.to_component(observation)
+
+        self.assertEqual(component.peak, peak)
 
     def test_legacy_json(self):
         blend = self.blend
