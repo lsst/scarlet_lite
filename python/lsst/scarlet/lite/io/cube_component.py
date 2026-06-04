@@ -89,7 +89,7 @@ class ScarletCubeComponentData(ScarletComponentBaseData):
         if self.peak is None:
             peak = None
         else:
-            peak = (int(np.round(self.peak[0])), int(np.round(self.peak[0])))
+            peak = (int(np.round(self.peak[0])), int(np.round(self.peak[1])))
         assert peak is not None
         component = CubeComponent(
             model=Image(model, yx0=bbox.origin, bands=observation.bands),  # type: ignore
