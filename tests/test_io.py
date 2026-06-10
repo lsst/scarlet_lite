@@ -23,7 +23,7 @@ import json
 import os
 
 import numpy as np
-from lsst.scarlet.lite import Blend, Box, Image, Observation, io
+from lsst.scarlet.lite import Blend, Box, Image, ImagePsf, Observation, io
 from lsst.scarlet.lite.component import CubeComponent
 from lsst.scarlet.lite.initialization import FactorizedInitialization
 from lsst.scarlet.lite.operators import Monotonicity
@@ -45,8 +45,8 @@ class TestIo(ScarletTestCase):
             Image(data["images"], bands=bands),
             Image(data["variance"], bands=bands),
             Image(1 / data["variance"], bands=bands),
-            data["psfs"],
-            model_psf[None],
+            ImagePsf(data["psfs"], bands=bands),
+            ImagePsf(model_psf[None]),
             bands=bands,
         )
         monotonicity = Monotonicity((101, 101))
@@ -56,12 +56,12 @@ class TestIo(ScarletTestCase):
     def test_json(self):
         blend = self.blend
         blend.metadata = {
-            "psf": self.observation.model_psf,
+            "psf": self.observation.model_psf.data,
             "bands": tuple(str(band) for band in self.observation.bands),
         }
         blend_data = blend.to_data()
         metadata = {
-            "model_psf": self.observation.model_psf,
+            "model_psf": self.observation.model_psf.data,
         }
         model_data = io.ScarletModelData(
             blends={1: blend_data},
@@ -116,8 +116,8 @@ class TestIo(ScarletTestCase):
         model_data = io.ScarletModelData(
             blends={1: blend_data},
             metadata={
-                "model_psf": self.observation.model_psf,
-                "psf": self.observation.psfs,
+                "model_psf": self.observation.model_psf.data,
+                "psf": self.observation.psf.data,
                 "bands": tuple(str(band) for band in self.observation.bands),
             },
         )
@@ -176,7 +176,7 @@ class TestIo(ScarletTestCase):
 
         # Create legacy blend JSON data
         blend_data = blend.to_data().as_dict()
-        encoded_psf = io.utils.numpy_to_json(self.observation.psfs)
+        encoded_psf = io.utils.numpy_to_json(self.observation.psf.data)
         blend_data["psf"] = encoded_psf["data"]
         blend_data["psf_shape"] = encoded_psf["shape"]
         blend_data["bands"] = tuple(str(band) for band in self.observation.bands)
@@ -185,7 +185,7 @@ class TestIo(ScarletTestCase):
         # Create legacy model data
         model_data = io.ScarletModelData(blends={}).as_dict()
         model_data["blends"][1] = blend_data
-        encoded_psf = io.utils.numpy_to_json(self.observation.model_psf)
+        encoded_psf = io.utils.numpy_to_json(self.observation.model_psf.data)
         model_data["psf"] = encoded_psf["data"]
         model_data["psfShape"] = encoded_psf["shape"]
 
