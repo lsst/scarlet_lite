@@ -22,7 +22,7 @@
 import os
 
 import numpy as np
-from lsst.scarlet.lite import Blend, Image, Observation, Source
+from lsst.scarlet.lite import Blend, Image, ImagePsf, Observation, Source
 from lsst.scarlet.lite.component import CubeComponent, default_adaprox_parameterization
 from lsst.scarlet.lite.initialization import FactorizedInitialization
 from lsst.scarlet.lite.measure import calculate_snr
@@ -50,7 +50,7 @@ class TestMeasurements(ScarletTestCase):
         variance[1] = 0.1
         variance[2] = 0.05
         variance = Image(variance, bands=bands)
-        snr = calculate_snr(images, variance, psfs, (27, 17))
+        snr = calculate_snr(images, variance, ImagePsf(psfs, bands=bands), (27, 17))
 
         numerator = np.sum(images.data[:, 20:35, 10:25] * psfs)
         denominator = np.sqrt(np.sum(psfs**2 * np.array([0.2, 0.1, 0.05])[:, None, None]))
@@ -68,8 +68,8 @@ class TestMeasurements(ScarletTestCase):
             Image(data["images"], bands=bands),
             Image(data["variance"], bands=bands),
             Image(1 / data["variance"], bands=bands),
-            data["psfs"],
-            model_psf[None],
+            ImagePsf(data["psfs"], bands=bands),
+            ImagePsf(model_psf[None]),
             bands=bands,
         )
         monotonicity = Monotonicity((101, 101))

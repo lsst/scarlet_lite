@@ -32,6 +32,7 @@ from ..fft import convolve as fft_convolve
 from ..image import Image
 from ..observation import Observation
 from ..parameters import parameter
+from ..psf import ImagePsf, Psf
 
 
 class FittedPsfObservation(Observation):
@@ -46,8 +47,9 @@ class FittedPsfObservation(Observation):
     weights:
         (bands, y, x) array of weights to use when calculate the
         likelihood of each pixel.
-    psfs:
-        (bands, y, x) array of the PSF image in each band.
+    psf:
+        The observed PSF as a `Psf`. A bare ``(bands, y, x)`` array is also
+        accepted for backwards compatibility, but doing so is deprecated.
     model_psf:
         (bands, y, x) array of the model PSF image in each band.
         If `model_psf` is `None` then convolution is performed,
@@ -69,6 +71,8 @@ class FittedPsfObservation(Observation):
     shape:
         The `(height, width)` shape of the fitted PSF kernel.
         If `None` then ``(41, 41)`` is used.
+    psfs:
+        Deprecated alias for `psf`. Will be removed after v31.0.
     """
 
     def __init__(
@@ -76,26 +80,29 @@ class FittedPsfObservation(Observation):
         images: np.ndarray | Image,
         variance: np.ndarray | Image,
         weights: np.ndarray | Image,
-        psfs: np.ndarray,
-        model_psf: np.ndarray | None = None,
+        psf: np.ndarray | Psf | None = None,
+        model_psf: np.ndarray | Psf | None = None,
         noise_rms: np.ndarray | None = None,
         bbox: Box | None = None,
         bands: tuple | None = None,
         padding: int = 3,
         convolution_mode: str = "fft",
         shape: tuple[int, int] | None = None,
+        *,
+        psfs: np.ndarray | None = None,
     ):
         super().__init__(
             images,
             variance,
             weights,
-            psfs,
-            model_psf,
-            noise_rms,
-            bbox,
-            bands,
-            padding,
-            convolution_mode,
+            psf=psf,
+            model_psf=model_psf,
+            noise_rms=noise_rms,
+            bbox=bbox,
+            bands=bands,
+            padding=padding,
+            convolution_mode=convolution_mode,
+            psfs=psfs,
         )
 
         self.axes = (-2, -1)
@@ -104,7 +111,7 @@ class FittedPsfObservation(Observation):
             shape = (41, 41)
 
         # Make the DFT of the psf a fittable parameter
-        self._fitted_kernel = parameter(cast(Fourier, self.diff_kernel).image)
+        self._fitted_kernel = parameter(cast(ImagePsf, self.diff_kernel).data)
 
     def grad_fit_kernel(self, input_grad: np.ndarray, psf: np.ndarray, model: np.ndarray) -> np.ndarray:
         """Gradient of the loss wrt the PSF

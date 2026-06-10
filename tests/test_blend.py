@@ -24,7 +24,7 @@ from __future__ import annotations
 from typing import cast
 
 import numpy as np
-from lsst.scarlet.lite import Blend, Box, Image, Observation, Source
+from lsst.scarlet.lite import Blend, Box, Image, ImagePsf, Observation, Source
 from lsst.scarlet.lite.component import CubeComponent, FactorizedComponent, default_adaprox_parameterization
 from lsst.scarlet.lite.initialization import FactorizedInitialization
 from lsst.scarlet.lite.operators import Monotonicity
@@ -81,8 +81,8 @@ class TestBlend(ScarletTestCase):
             test_data.convolved,
             variance,
             weights,
-            psfs,
-            model_psf[None],
+            ImagePsf(psfs, bands=bands),
+            ImagePsf(model_psf[None]),
             bands=bands,
             bbox=Box(variance.shape[-2:], origin=yx0),
         )
