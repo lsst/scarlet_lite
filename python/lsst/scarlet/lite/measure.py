@@ -25,12 +25,13 @@ import numpy as np
 
 from .bbox import Box
 from .image import Image
+from .psf import Psf
 
 
 def calculate_snr(
     images: Image,
     variance: Image,
-    psfs: np.ndarray,
+    psf: Psf,
     center: tuple[int, int],
 ) -> float:
     """Calculate the signal to noise for a point source
@@ -44,8 +45,9 @@ def calculate_snr(
         The 3D (bands, y, x) image containing the data.
     variance:
         The variance of `images`.
-    psfs:
-        The PSF in each band.
+    psf:
+        The observed PSF. The PSF image at `center` is used to weight the
+        signal in each band.
     center:
         The center of the signal.
 
@@ -54,6 +56,7 @@ def calculate_snr(
     snr:
         The signal to noise of the source.
     """
+    psfs = psf.get_image(center).data
     py = psfs.shape[1] // 2
     px = psfs.shape[2] // 2
     bbox = Box(psfs[0].shape, origin=(-py + center[0], -px + center[1]))
@@ -86,8 +89,8 @@ def conserve_flux(blend, mask_footprint: bool = True, images: Image | None = Non
         Whether or not to apply a mask for pixels with zero weight.
     """
     observation = blend.observation
-    py = observation.psfs.shape[-2] // 2
-    px = observation.psfs.shape[-1] // 2
+    py = observation.psf.shape[0] // 2
+    px = observation.psf.shape[1] // 2
 
     if images is None:
         images = observation.images.copy()

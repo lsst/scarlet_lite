@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 import numpy as np
 from deprecated.sphinx import deprecated
-from lsst.scarlet.lite import Box, Image, Observation
+from lsst.scarlet.lite import Box, Image, ImagePsf, Observation
 from lsst.scarlet.lite.initialization import (
     FactorizedInitialization,
     FactorizedWaveletInitialization,
@@ -53,8 +53,8 @@ class TestInitialization(ScarletTestCase):
             Image(data["images"], bands=bands, yx0=yx0),
             Image(data["variance"], bands=bands, yx0=yx0),
             Image(1 / data["variance"], bands=bands, yx0=yx0),
-            data["psfs"],
-            model_psf[None],
+            ImagePsf(data["psfs"], bands=bands),
+            ImagePsf(model_psf[None]),
             bands=bands,
         )
 
@@ -206,8 +206,8 @@ class TestInitialization(ScarletTestCase):
             test_data.convolved,
             variance,
             weights,
-            psfs,
-            model_psf[None],
+            ImagePsf(psfs, bands=bands),
+            ImagePsf(model_psf[None]),
             bands=bands,
         )
 
@@ -228,7 +228,7 @@ class TestInitialization(ScarletTestCase):
         actual source center.
         """
         init = FactorizedInitialization(self.observation, self.centers)
-        model_psf = self.observation.model_psf[0]
+        model_psf = self.observation.model_psf.data[0]
 
         # Case 1: positive psf_bbox.origin. Center at the top-left
         # corner of the observation (origin (1000, 2000)): the 15x15
@@ -259,8 +259,8 @@ class TestInitialization(ScarletTestCase):
             Image(images, bands=bands, yx0=(0, 0)),
             Image(variance, bands=bands, yx0=(0, 0)),
             Image(1 / variance, bands=bands, yx0=(0, 0)),
-            psfs,
-            small_model_psf[None],
+            ImagePsf(psfs, bands=bands),
+            ImagePsf(small_model_psf[None]),
             bands=bands,
         )
         small_init = FactorizedInitialization(small_obs, [(2, 5)])

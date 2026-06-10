@@ -25,7 +25,7 @@ from typing import cast
 
 import lsst.scarlet.lite.models as models
 import numpy as np
-from lsst.scarlet.lite import Blend, Box, FistaParameter, Image, Observation, Source
+from lsst.scarlet.lite import Blend, Box, FistaParameter, Image, ImagePsf, Observation, Source
 from lsst.scarlet.lite.component import Component, FactorizedComponent, default_adaprox_parameterization
 from lsst.scarlet.lite.initialization import FactorizedInitialization
 from lsst.scarlet.lite.models import (
@@ -72,8 +72,8 @@ class TestFreeForm(ScarletTestCase):
             Image(data["images"], bands=bands, yx0=yx0),
             Image(data["variance"], bands=bands, yx0=yx0),
             Image(1 / data["variance"], bands=bands, yx0=yx0),
-            data["psfs"],
-            model_psf[None],
+            ImagePsf(data["psfs"], bands=bands),
+            ImagePsf(model_psf[None]),
             bands=bands,
         )
 
@@ -155,8 +155,8 @@ class TestParametric(ScarletTestCase):
             Image(data["images"], bands=bands),
             Image(data["variance"], bands=bands),
             Image(1 / data["variance"], bands=bands),
-            data["psfs"],
-            self.model_psf[None],
+            ImagePsf(data["psfs"], bands=bands),
+            ImagePsf(self.model_psf[None]),
             bands=bands,
         )
 
@@ -582,8 +582,8 @@ class TestParametric(ScarletTestCase):
             self.data["images"],
             self.data["variance"],
             weights,
-            self.data["psfs"],
-            self.model_psf[None],
+            ImagePsf(self.data["psfs"], bands=self.data["filters"]),
+            ImagePsf(self.model_psf[None]),
             bands=self.data["filters"],
         )
 

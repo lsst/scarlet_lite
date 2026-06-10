@@ -431,8 +431,8 @@ class Blend(BlendBase):
             If `None` then the observation image is used.
         """
         observation = self.observation
-        py = observation.psfs.shape[-2] // 2
-        px = observation.psfs.shape[-1] // 2
+        py = observation.psf.shape[0] // 2
+        px = observation.psf.shape[1] // 2
 
         images = observation.images.copy()
         if mask_footprint:
