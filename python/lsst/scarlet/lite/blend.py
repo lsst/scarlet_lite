@@ -166,8 +166,14 @@ class BlendBase(ABC):
         """
 
     @abstractmethod
-    def to_data(self) -> ScarletBlendData:
+    def to_data(self, persist_psf: bool = False) -> ScarletBlendData:
         """Convert the blend into a serializable dictionary format.
+
+        Parameters
+        ----------
+        persist_psf:
+            Whether to attach the observation's PSFs to the blend data so they
+            are persisted with the blend.
 
         Returns
         -------
@@ -470,13 +476,16 @@ class Blend(BlendBase):
             ratio[ratio > 1] = 1
             src.flux_weighted_image = src_model.copy_with(data=ratio) * images[overlap]
 
-    def to_data(self) -> ScarletBlendData:
+    def to_data(self, persist_psf: bool = False) -> ScarletBlendData:
         """Convert the Blend into a persistable data object
 
         Parameters
         ----------
-        blend :
-            The blend that is being persisted.
+        persist_psf :
+            Whether to attach the observation's PSFs to the blend data so they
+            are persisted with the blend. Defaults to `False`: LSST keeps the
+            PSF on the model container, so per-blend persistence would only
+            bloat the archive. Set it `True` to make a blend self-contained.
 
         Returns
         -------
@@ -493,10 +502,19 @@ class Blend(BlendBase):
             else:
                 sources[sidx] = source.to_data()
 
+        psf = self.observation.psf.to_data() if persist_psf else None
+        model_psf = (
+            self.observation.model_psf.to_data()
+            if persist_psf and self.observation.model_psf is not None
+            else None
+        )
+
         blend_data = ScarletBlendData(
             origin=self.bbox.origin,  # type: ignore
             shape=self.bbox.shape,  # type: ignore
             sources=sources,
+            psf=psf,
+            model_psf=model_psf,
             metadata=self.metadata,
         )
 
