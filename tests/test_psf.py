@@ -24,6 +24,7 @@ import warnings
 import numpy as np
 from lsst.scarlet.lite import Image, ImagePsf, Observation, Psf
 from lsst.scarlet.lite.fft import match_kernel
+from lsst.scarlet.lite.io import ImagePsfData
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from numpy.testing import assert_almost_equal, assert_array_equal
 from utils import ScarletTestCase, get_psfs
@@ -146,6 +147,30 @@ class TestImagePsf(ScarletTestCase):
         diff.grad(image, cache=True)
         self.assertEqual(len(diff.fourier._fft), 1)
         self.assertEqual(len(diff.adjoint.fourier._fft), 1)
+
+    def test_to_data_roundtrip(self):
+        """``to_data`` then ``to_psf`` must round-trip an ``ImagePsf``.
+
+        Like every other scarlet lite object, a `Psf` persists via a companion
+        data object (`ImagePsfData`); the `Psf` itself does not
+        serialize.
+        """
+
+        # The domain object exposes no serialization API of its own.
+        self.assertFalse(hasattr(self.psf, "as_dict"))
+
+        for psf in (self.psf, self.model_psf, self.psf.astype(np.float64)):
+            data = psf.to_data()
+            self.assertIsInstance(data, ImagePsfData)
+            self.assertEqual(data.psf_type, "image")
+            self.assertEqual(tuple(data.bands), psf.bands)
+
+            restored = data.to_psf()
+            self.assertIsInstance(restored, ImagePsf)
+            self.assertEqual(restored.bands, psf.bands)
+            self.assertEqual(restored.padding, psf.padding)
+            self.assertEqual(np.dtype(restored.dtype), np.dtype(psf.dtype))
+            assert_array_equal(restored.data, psf.data)
 
     def test_observation_accepts_psf(self):
         """``Observation`` accepts a ``Psf`` or, deprecated, an ndarray."""

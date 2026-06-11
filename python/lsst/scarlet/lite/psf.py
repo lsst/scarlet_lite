@@ -24,7 +24,7 @@ from __future__ import annotations
 __all__ = ["Psf", "ImagePsf"]
 
 from abc import ABC, abstractmethod
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from numpy.typing import DTypeLike
@@ -33,6 +33,9 @@ from .fft import Fourier, _pad, centered
 from .fft import convolve as fft_convolve
 from .fft import match_kernel
 from .image import Image
+
+if TYPE_CHECKING:
+    from .io.psf import ImagePsfData, PsfBaseData
 
 
 class Psf(ABC):
@@ -45,6 +48,17 @@ class Psf(ABC):
     itself, but both are represented as `Psf` instances so the optimizer,
     measurement and IO code never need to special-case the concrete type.
     """
+
+    @abstractmethod
+    def to_data(self) -> PsfBaseData:
+        """Convert this PSF into a persistable data object.
+
+        Returns
+        -------
+        result:
+            The `~lsst.scarlet.lite.io.PsfBaseData` that serializes this
+            PSF, mirroring `Blend.to_data`, `Component.to_data`, etc.
+        """
 
     @property
     @abstractmethod
@@ -325,6 +339,26 @@ class ImagePsf(Psf):
                 data = data[0]
             return Image(data)
         return Image(self._data, bands=self._bands)
+
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+    def to_data(self) -> ImagePsfData:
+        """Convert this PSF into a persistable data object.
+
+        Returns
+        -------
+        result:
+            A `~lsst.scarlet.lite.io.ImagePsfData` carrying this PSF's
+            array, bands and padding.
+        """
+        from .io.psf import ImagePsfData
+
+        return ImagePsfData(
+            data=self._data,
+            bands=self._bands,
+            padding=self._padding,
+        )
 
     # ------------------------------------------------------------------
     # Convolution helpers
