@@ -109,6 +109,17 @@ class CartesianFrame:
         """The grid of y-values for the entire frame"""
         return self._y
 
+    @property
+    def unscaled_radius_grid(self) -> np.ndarray:
+        """The Euclidean radius of each pixel from the coordinate origin.
+
+        Unlike `EllipseFrame.r_grid`, which scales the radius by the
+        ellipse axes, this is the plain (unscaled) distance from coordinate
+        ``(0, 0)``. For a frame built on a centered box (see `Box.centered`)
+        this is the radius from the center.
+        """
+        return np.sqrt(self._x**2 + self._y**2)
+
 
 class EllipseFrame(CartesianFrame):
     """Frame to scale the radius based on the parameters of an ellipse
