@@ -234,6 +234,32 @@ class Box:
             bounds = [(0, 0)] * len(x.shape)
         return Box.from_bounds(*bounds)
 
+    @staticmethod
+    def centered(shape: tuple[int, ...]) -> Box:
+        """Create a box centered on its central pixel.
+
+        The origin is chosen so that the central pixel of the box lies at
+        coordinate ``0`` in every dimension. For an odd length this places
+        the box symmetrically about the origin (e.g. a length-35 axis runs
+        from ``-17`` to ``17``); for an even length the geometric center
+        falls on the half-pixel boundary.
+
+        This "pixel-grid center" matches the coordinate grid built by
+        `CartesianFrame`. It differs from the continuous `Box.center`
+        (``origin + shape/2``) by half a pixel for odd lengths.
+
+        Parameters
+        ----------
+        shape:
+            Size of the box in each dimension.
+
+        Returns
+        -------
+        bbox:
+            A new box whose central pixel is at the coordinate origin.
+        """
+        return Box(tuple(shape), origin=tuple(-(s // 2) for s in shape))
+
     def contains(self, p: Sequence[int]) -> bool:
         """Whether the box contains a given coordinate `p`"""
         if len(p) != self.ndim:
@@ -263,6 +289,17 @@ class Box:
     def center(self) -> tuple[float, ...]:
         """Tuple of center coordinates"""
         return tuple(o + s / 2 for o, s in zip(self.origin, self.shape))
+
+    @property
+    def int_center(self) -> tuple[int, ...]:
+        """Tuple of integer (central-pixel) center coordinates.
+
+        Unlike `center` (the continuous ``origin + shape/2``), this returns
+        the coordinate of the central pixel (``origin + shape//2``), which
+        matches the grid built by `CartesianFrame` and is ``0`` in every
+        dimension for a box from `Box.centered`.
+        """
+        return tuple(o + s // 2 for o, s in zip(self.origin, self.shape))
 
     @property
     def bounds(self) -> tuple[tuple[int, int], ...]:
