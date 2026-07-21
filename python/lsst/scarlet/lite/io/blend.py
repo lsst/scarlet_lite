@@ -164,8 +164,13 @@ class ScarletBlendData(ScarletBlendBaseData):
             A scarlet blend model extracted from persisted data.
         """
         sources = []
-        for source_data in self.sources.values():
+        for sid, source_data in self.sources.items():
             source = source_data.to_source(observation)
+            # Ensure that the source id is persisted to its metadata
+            if source.metadata is None:
+                source.metadata = {}
+            if "id" not in source.metadata:
+                source.metadata["id"] = sid
             sources.append(source)
 
         return Blend(sources=sources, observation=observation, metadata=self.metadata)
