@@ -398,7 +398,8 @@ def show_observation(
         psf_image = np.zeros(observation.images.shape)
 
         if observation.model_psf is not None:
-            psf_model = observation.psfs
+            # Copy so the in-place rescaling below does not mutate the PSF.
+            psf_model = observation.psf.get_image().data.copy()
             # make PSF as bright as the brightest pixel of the observation
             psf_model *= np.max(np.mean(observation.images.data, axis=0)) / np.max(np.mean(psf_model, axis=0))
             if psf_scaling == "native":

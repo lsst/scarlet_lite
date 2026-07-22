@@ -325,7 +325,8 @@ class FactorizedInitialization:
         # Get the model PSF
         # Convolve the PSF in order to set the spectrum
         # of a point source correctly.
-        model_psf = Image(cast(np.ndarray, observation.model_psf)[0])
+        assert observation.model_psf is not None, "Initialization requires an observation with a model PSF."
+        model_psf = observation.model_psf.get_image()
         convolved_psf = model_psf.repeat(observation.bands)
         self.convolved_psf = observation.convolve(convolved_psf, mode="real").data
         # Get the "spectrum" of the PSF
@@ -376,7 +377,7 @@ class FactorizedInitialization:
             calculate_snr(
                 self.observation.images,
                 self.observation.variance,
-                self.observation.psfs,
+                self.observation.psf,
                 center,
             )
         )
@@ -413,7 +414,10 @@ class FactorizedInitialization:
         )
         spectrum[spectrum < 0] = 0
 
-        psf = cast(np.ndarray, self.observation.model_psf)[0].copy()
+        assert (
+            self.observation.model_psf is not None
+        ), "Initialization requires an observation with a model PSF."
+        psf = self.observation.model_psf.get_image().data.copy()
         py = psf.shape[0] // 2
         px = psf.shape[1] // 2
         psf_bbox = Box(psf.shape, origin=(-py + center[0], -px + center[1]))

@@ -25,6 +25,8 @@ __all__ = [
     "bounded_prox",
     "gaussian2d",
     "grad_gaussian2",
+    "moffat",
+    "grad_moffat",
     "circular_gaussian",
     "grad_circular_gaussian",
     "integrated_gaussian",
@@ -106,6 +108,17 @@ class CartesianFrame:
     def y_grid(self) -> np.ndarray:
         """The grid of y-values for the entire frame"""
         return self._y
+
+    @property
+    def unscaled_radius_grid(self) -> np.ndarray:
+        """The Euclidean radius of each pixel from the coordinate origin.
+
+        Unlike `EllipseFrame.r_grid`, which scales the radius by the
+        ellipse axes, this is the plain (unscaled) distance from coordinate
+        ``(0, 0)``. For a frame built on a centered box (see `Box.centered`)
+        this is the radius from the center.
+        """
+        return np.sqrt(self._x**2 + self._y**2)
 
 
 class EllipseFrame(CartesianFrame):
@@ -395,6 +408,104 @@ def grad_gaussian2(
     d_sigma_x = ellipse.grad_minor(_grad, True)
     d_theta = ellipse.grad_theta(_grad, True)
     return np.array([d_y0, d_x0, d_sigma_y, d_sigma_x, d_theta], dtype=params.dtype)
+
+
+def moffat(params: np.ndarray, ellipse: EllipseFrame) -> np.ndarray:
+    """Model of a 2D elliptical Moffat profile
+
+    The profile is
+
+    .. math::
+
+        \\left(1 + r^2\\right)^{-\\beta},
+
+    where :math:`r^2` is the elliptically scaled radius
+    :math:`(x'/\\alpha_y)^2 + (y'/\\alpha_x)^2` supplied by the
+    `EllipseFrame`. The per-axis core widths :math:`\\alpha_y, \\alpha_x`
+    are the semi-major and semi-minor axes of the ellipse (a separate
+    scalar ``alpha`` would be degenerate with uniformly rescaling both
+    axes, so it is folded into ``major``/``minor``).
+
+    The profile is *not* normalized: it has unit central amplitude, so the
+    component spectrum is the peak amplitude of the Moffat. A leading
+    ``(beta - 1) / (pi * major * minor)`` factor would make it integrate to
+    one, but that is pure normalization (it scales the amplitude without
+    changing the radial shape) and is therefore omitted. Dropping it also
+    avoids a degeneracy at ``beta == 1`` (the :math:`r^{-2}` aureole), where
+    that factor vanishes.
+
+    Parameters
+    ----------
+    params:
+        The radial parameters of the profile.
+        In this case the only parameter is the Moffat index ``beta``.
+    ellipse:
+        The ellipse parameters to scale the radius in all directions.
+        The semi-major and semi-minor axes act as the per-axis Moffat
+        core widths.
+
+    Returns
+    -------
+    result:
+        The 2D Moffat profile for the given ellipse parameters.
+    """
+    (beta,) = params
+    return (1 + ellipse.r2_grid) ** (-beta)
+
+
+def grad_moffat(
+    input_grad: np.ndarray,
+    params: np.ndarray,
+    morph: np.ndarray,
+    spectrum: np.ndarray,
+    ellipse: EllipseFrame,
+) -> np.ndarray:
+    """Gradient of the component model wrt the Moffat morphology parameters
+
+    Parameters
+    ----------
+    input_grad:
+        Gradient of the likelihood wrt the component model.
+    params:
+        The parameters of the morphology.
+        The full parameter array is
+        ``[y0, x0, major, minor, theta, beta]``.
+    morph:
+        The model of the morphology.
+    spectrum:
+        The model of the spectrum.
+    ellipse:
+        The ellipse parameters to scale the radius in all directions.
+
+    Returns
+    -------
+    result:
+        The gradient of the likelihood wrt the morphology parameters
+        ``[y0, x0, major, minor, theta, beta]``.
+    """
+    # The Moffat index is the only radial parameter, stored after the
+    # five ellipse parameters.
+    beta = params[5]
+    # ``base = 1 + r**2`` is always >= 1, so both the power and its log
+    # are well behaved.
+    base = 1 + ellipse.r2_grid
+
+    # Collapse the per-band gradient against the spectrum: g = dL/d(morph).
+    g = np.einsum("i,i...", spectrum, input_grad)
+    # Gradient that flows through the scaled radius r**2.
+    # d morph / d r**2 = -beta * morph / base, and the ellipse gradients
+    # propagate this to the ellipse parameters using ``use_r2=True``.
+    grad_r2 = g * (-beta * morph / base)
+    d_y0 = ellipse.grad_y0(grad_r2, True)
+    d_x0 = ellipse.grad_x0(grad_r2, True)
+    d_major = ellipse.grad_major(grad_r2, True)
+    d_minor = ellipse.grad_minor(grad_r2, True)
+    d_theta = ellipse.grad_theta(grad_r2, True)
+
+    # d morph / d beta = -ln(base) * morph.
+    d_beta = -np.sum(g * morph * np.log(base))
+
+    return np.array([d_y0, d_x0, d_major, d_minor, d_theta, d_beta], dtype=params.dtype)
 
 
 def circular_gaussian(center: Sequence[int], frame: CartesianFrame, sigma: float) -> np.ndarray:

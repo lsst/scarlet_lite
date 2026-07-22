@@ -23,17 +23,41 @@ from __future__ import annotations
 
 __all__ = ["Observation", "convolve"]
 
+import warnings
 from copy import deepcopy
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import numpy as np
 import numpy.typing as npt
 
 from .bbox import Box
-from .fft import Fourier, _pad, centered
-from .fft import convolve as fft_convolve
-from .fft import match_kernel
 from .image import Image
+from .psf import ImagePsf, Psf
+
+
+class _Required:
+    """Sentinel for a logically-required argument that must carry a default.
+
+    Used by `Observation.empty`, where the new ``psf`` argument needs a
+    default so the deprecated ``psfs`` alias can substitute for it; that
+    forces the arguments after ``psf`` to also have defaults. Marking them
+    ``_REQUIRED`` lets the body re-impose the "required" contract while the
+    deprecation period lasts.
+
+    This can be removed after v31.0, at which point the arguments it marks
+    can be made required in the signature and the checks in `empty`
+    removed.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<required>"
+
+
+# Annotate as Any so `= _REQUIRED` typechecks against any parameter type
+# without per-line ignores, and the public annotations don't gain `| None`.
+_REQUIRED: Final[Any] = _Required()
 
 
 def get_filter_coords(filter_values: np.ndarray, center: tuple[int, int] | None = None) -> np.ndarray:
@@ -190,8 +214,10 @@ class Observation:
     weights:
         (bands, y, x) array of weights to use when calculate the
         likelihood of each pixel.
-    psfs:
-        (bands, y, x) array of the PSF image in each band.
+    psf:
+        The observed PSF as a `Psf`. A bare ``(bands, y, x)`` array is also
+        accepted for backwards compatibility (it is wrapped in an `ImagePsf`),
+        but doing so is deprecated.
     model_psf:
         (bands, y, x) array of the model PSF image in each band.
         If `model_psf` is `None` then convolution is performed,
@@ -208,6 +234,8 @@ class Observation:
         Padding to use when performing an FFT convolution.
     convolution_mode:
         The method of convolution. This should be either "fft" or "real".
+    psfs:
+        Deprecated alias for `psf`. Will be removed after v31.0.
     """
 
     def __init__(
@@ -215,13 +243,15 @@ class Observation:
         images: np.ndarray | Image,
         variance: np.ndarray | Image,
         weights: np.ndarray | Image,
-        psfs: np.ndarray,
-        model_psf: np.ndarray | None = None,
+        psf: np.ndarray | Psf | None = None,
+        model_psf: np.ndarray | Psf | None = None,
         noise_rms: np.ndarray | None = None,
         bbox: Box | None = None,
         bands: tuple | None = None,
         padding: int = 3,
         convolution_mode: str = "fft",
+        *,
+        psfs: np.ndarray | None = None,
     ):
         # Convert the images to a multi-band `Image` and use the resulting
         # bbox and bands.
@@ -231,10 +261,35 @@ class Observation:
         self.images = images
         self.variance = _set_image_like(variance, bands, bbox)
         self.weights = _set_image_like(weights, bands, bbox)
-        # make sure that the images and psfs have the same dtype
-        if psfs.dtype != images.dtype:
-            psfs = psfs.astype(images.dtype)
-        self.psfs = psfs
+        self.padding = padding
+
+        # Resolve the observed PSF from the new ``psf`` argument or the
+        # deprecated ``psfs`` alias.
+        if psfs is not None:
+            if psf is not None:
+                raise ValueError("Provide only one of `psf` or the deprecated `psfs`.")
+            warnings.warn(
+                "The `psfs` argument is deprecated in favor of `psf` and will "
+                "be removed after v31.0. Pass a `Psf` as `psf` instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            psf = ImagePsf(psfs, bands=bands if bands is not None else (), padding=padding)
+        elif psf is not None and not isinstance(psf, Psf):
+            warnings.warn(
+                "Passing an ndarray as `psf` is deprecated and will be "
+                "unsupported after v31.0. Wrap it in an `ImagePsf` instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            psf = ImagePsf(psf, bands=bands if bands is not None else (), padding=padding)
+        if psf is None:
+            raise ValueError("`psf` is required.")
+
+        # Make sure the PSF and images share a dtype.
+        self.psf = psf
+        if self.psf.dtype != images.dtype:
+            self.psf = self.psf.astype(images.dtype)
 
         if convolution_mode not in [
             "fft",
@@ -247,22 +302,29 @@ class Observation:
         self.noise_rms = noise_rms
 
         # Create a difference kernel to convolve the model to the PSF
-        # in each band
-        self.model_psf = model_psf
-        self.padding = padding
+        # in each band. The kernel owns both the forward convolution and its
+        # adjoint (the gradient pass). The model PSF and observed PSF are both
+        # cast to the image dtype so the difference kernel is built from
+        # consistent precision in every band.
+        self.model_psf: Psf | None
+        self.diff_kernel: Psf | None
         if model_psf is not None:
-            if model_psf.dtype != images.dtype:
-                self.model_psf = model_psf.astype(images.dtype)
-            self.diff_kernel: Fourier | None = cast(Fourier, match_kernel(psfs, model_psf, padding=padding))
-            # The gradient of a convolution is another convolution,
-            # but with the flipped and transposed kernel.
-            diff_img = self.diff_kernel.image
-            self.grad_kernel: Fourier | None = Fourier(diff_img[:, ::-1, ::-1])
+            if not isinstance(model_psf, Psf):
+                warnings.warn(
+                    "Passing an ndarray as `model_psf` is deprecated and will "
+                    "be unsupported after v31.0. Wrap it in an `ImagePsf` "
+                    "instead.",
+                    FutureWarning,
+                    stacklevel=2,
+                )
+                model_psf = ImagePsf(model_psf, bands=(), padding=padding)
+            self.model_psf = model_psf
+            if self.model_psf.dtype != images.dtype:
+                self.model_psf = self.model_psf.astype(images.dtype)
+            self.diff_kernel = self.psf.match(self.model_psf, padding=padding)
         else:
+            self.model_psf = None
             self.diff_kernel = None
-            self.grad_kernel = None
-
-        self._convolution_bounds: tuple[int, int, int, int] | None = None
 
     @property
     def bands(self) -> tuple:
@@ -299,7 +361,7 @@ class Observation:
             Whether to cache the FFT of the kernel at this image's shape.
             Defaults to ``False`` because most call sites convolve
             many different shapes (per-source / per-component) and would
-            grow `diff_kernel._fft` unboundedly. Pass ``cache=True``
+            grow the kernel's FFT cache unboundedly. Pass ``cache=True``
             for repeated full-blend convolutions (e.g. inside the fit
             loop), where the same shape recurs every iteration.
             Ignored for ``mode == "real"``.
@@ -309,44 +371,14 @@ class Observation:
         result:
             The convolved image.
         """
-        if grad:
-            kernel = self.grad_kernel
-        else:
-            kernel = self.diff_kernel
-
-        if kernel is None:
+        if self.diff_kernel is None:
             return image
 
         if mode is None:
             mode = self.mode
-        if mode == "fft":
-            result = fft_convolve(
-                Fourier(image.data),
-                kernel,
-                axes=(1, 2),
-                return_fourier=False,
-                cache=cache,
-            )
-        elif mode == "real":
-            dy = image.shape[1] - kernel.image.shape[1]
-            dx = image.shape[2] - kernel.image.shape[2]
-            if dy < 0 or dx < 0:
-                # The image needs to be padded because it is smaller than
-                # the psf kernel
-                _image = image.data
-                newshape = list(_image.shape)
-                if dy < 0:
-                    newshape[1] += kernel.image.shape[1] - image.shape[1]
-                if dx < 0:
-                    newshape[2] += kernel.image.shape[2] - image.shape[2]
-                _image = _pad(_image, newshape)
-                result = convolve(_image, kernel.image, self.convolution_bounds)
-                result = centered(result, image.data.shape)  # type: ignore
-            else:
-                result = convolve(image.data, kernel.image, self.convolution_bounds)
-        else:
-            raise ValueError(f"mode must be either 'fft' or 'real', got {mode}")
-        return Image(cast(np.ndarray, result), bands=image.bands, yx0=image.yx0)
+        if grad:
+            return self.diff_kernel.grad(image, mode=mode, cache=cache)
+        return self.diff_kernel.convolve(image, mode=mode, cache=cache)
 
     def log_likelihood(self, model: Image) -> float:
         """Calculate the log likelihood of the given model
@@ -410,17 +442,17 @@ class Observation:
         new_bands = new_image.bands
         if bands != new_bands:
             band_indices = self.images.spectral_indices(new_bands)
-            psfs = self.psfs[band_indices,]
+            psf = self.psf[new_bands]
             noise_rms = self.noise_rms[band_indices,]
         else:
-            psfs = self.psfs
+            psf = self.psf
             noise_rms = self.noise_rms
 
         return Observation(
             images=new_image,
             variance=new_variance,
             weights=new_weights,
-            psfs=psfs,
+            psf=psf,
             model_psf=self.model_psf,
             noise_rms=noise_rms,
             bbox=new_image.bbox,
@@ -441,7 +473,7 @@ class Observation:
             images=self.images,
             variance=self.variance,
             weights=self.weights,
-            psfs=self.psfs,
+            psf=self.psf,
             model_psf=self.model_psf,
             noise_rms=self.noise_rms,
             bands=self.bands,
@@ -475,7 +507,7 @@ class Observation:
             images=deepcopy(self.images, memo),
             variance=deepcopy(self.variance, memo),
             weights=deepcopy(self.weights, memo),
-            psfs=deepcopy(self.psfs, memo),
+            psf=deepcopy(self.psf, memo),
             model_psf=deepcopy(self.model_psf, memo),
             noise_rms=deepcopy(self.noise_rms, memo),
             bands=deepcopy(self.bands, memo),
@@ -517,25 +549,93 @@ class Observation:
         """The dtype of the observation is the dtype of the images"""
         return self.images.dtype
 
-    @property
-    def convolution_bounds(self) -> tuple[int, int, int, int]:
-        """Build the slices needed for convolution in real space"""
-        if self._convolution_bounds is None:
-            coords = get_filter_coords(cast(Fourier, self.diff_kernel).image[0])
-            self._convolution_bounds = get_filter_bounds(coords.reshape(-1, 2))
-        return self._convolution_bounds
-
     @staticmethod
     def empty(
-        bands: tuple[Any], psfs: np.ndarray, model_psf: np.ndarray, bbox: Box, dtype: npt.DTypeLike
+        bands: tuple[Any],
+        psf: np.ndarray | Psf = _REQUIRED,
+        model_psf: np.ndarray | Psf = _REQUIRED,
+        bbox: Box = _REQUIRED,
+        dtype: npt.DTypeLike = _REQUIRED,
+        *,
+        psfs: np.ndarray | None = None,
     ) -> Observation:
-        dummy_image = np.zeros((len(bands),) + bbox.shape, dtype=dtype)
+        """Create an observation with no image data.
 
+        Parameters
+        ----------
+        bands:
+            The bands of the observation.
+        psf:
+            The observed PSF.
+        model_psf:
+            The model-space PSF, as a `Psf` or a ``(y, x)`` array.
+        bbox:
+            The bounding box of the (empty) model.
+        dtype:
+            The dtype of the dummy image data.
+        psfs:
+            Deprecated alias for `psf` as an array with shape (bands, y, x).
+            Will be removed after v31.0.
+
+        Returns
+        -------
+        result:
+            An `Observation` whose images, variance and weights are all zero.
+        """
+        # The three steps below exist only to support the deprecated `psfs`
+        # alias and the `_REQUIRED` defaults it forces (see `_Required`). Once
+        # both are removed after v31.0 this method collapses to just building
+        # `dummy_image` and the final `return`.
+
+        # 1. Resolve the deprecated `psfs` alias onto `psf`.
+        if psfs is not None:
+            if psf is not _REQUIRED:
+                raise ValueError("Provide only one of `psf` or the deprecated `psfs`.")
+            warnings.warn(
+                "The `psfs` argument is deprecated in favor of `psf` and will be "
+                "removed after v31.0. Pass a `Psf` as `psf` instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            psf = psfs
+
+        # 2. Re-impose the "required" contract on the temporarily-defaulted
+        #    arguments. This must run before anything reads them (e.g. the
+        #    `bbox.shape`/`dtype` use below) so a missing argument raises a
+        #    clear ``TypeError`` rather than an obscure ``AttributeError``.
+        missing = [
+            name
+            for name, value in (("psf", psf), ("model_psf", model_psf), ("bbox", bbox), ("dtype", dtype))
+            if value is _REQUIRED
+        ]
+        if missing:
+            raise TypeError(f"empty() missing required argument(s): {', '.join(map(repr, missing))}")
+
+        # 3. Coerce raw ndarrays to `Psf`, independent of how `psf` arrived.
+        if not isinstance(psf, Psf):
+            warnings.warn(
+                "Passing an ndarray as `psf` is deprecated and will be unsupported "
+                "after v31.0. Wrap it in an `ImagePsf` instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            psf = ImagePsf(psf, bands=bands, padding=3)
+
+        if not isinstance(model_psf, Psf):
+            warnings.warn(
+                "Passing an ndarray as `model_psf` is deprecated and will be "
+                "unsupported after v31.0. Wrap it in an `ImagePsf` instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            model_psf = ImagePsf(model_psf, bands=bands, padding=3)
+
+        dummy_image = np.zeros((len(bands),) + bbox.shape, dtype=dtype)
         return Observation(
             images=dummy_image,
             variance=dummy_image,
             weights=dummy_image,
-            psfs=psfs,
+            psf=psf,
             model_psf=model_psf,
             noise_rms=np.zeros((len(bands),), dtype=dtype),
             bbox=bbox,

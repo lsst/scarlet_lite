@@ -19,8 +19,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import warnings
+
 import numpy as np
-from lsst.scarlet.lite import Box, Image, Observation
+from lsst.scarlet.lite import Box, Image, ImagePsf, Observation
 from lsst.scarlet.lite.observation import convolve as scarlet_convolve
 from lsst.scarlet.lite.observation import get_filter_bounds, get_filter_coords
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
@@ -69,8 +71,8 @@ class TestObservation(ScarletTestCase):
             test_data.convolved,
             variance,
             weights,
-            psfs,
-            model_psf[None],
+            ImagePsf(psfs, bands=bands),
+            ImagePsf(model_psf[None]),
             bands=bands,
         )
         self.data = test_data
@@ -88,13 +90,13 @@ class TestObservation(ScarletTestCase):
         images = self.data.images
         true_convolved = np.array(
             [
-                scipy_convolve(images.data[b], self.observation.psfs[b], mode="same")
+                scipy_convolve(images.data[b], self.observation.psf.data[b], mode="same")
                 for b in range(len(images.data))
             ]
         )
-        coords = get_filter_coords(self.observation.psfs[0])
+        coords = get_filter_coords(self.observation.psf.data[0])
         bounds = get_filter_bounds(coords.reshape(-1, 2))
-        convolved = scarlet_convolve(images.data, self.observation.psfs, bounds)
+        convolved = scarlet_convolve(images.data, self.observation.psf.data, bounds)
         assert_almost_equal(convolved, true_convolved)
 
         with self.assertRaises(ValueError):
@@ -110,16 +112,15 @@ class TestObservation(ScarletTestCase):
             self.data.convolved,
             variance,
             1 / variance,
-            self.psfs,
+            ImagePsf(self.psfs, bands=self.bands),
             bands=self.bands,
         )
         self.assertImageEqual(observation.images, self.data.convolved)
         self.assertImageEqual(observation.variance, Image(variance, bands=self.bands))
         self.assertImageEqual(observation.weights, Image(1 / variance, bands=self.bands))
-        assert_array_equal(observation.psfs, self.psfs)
+        assert_array_equal(observation.psf.data, self.psfs)
         self.assertIsNone(observation.model_psf)
         self.assertIsNone(observation.diff_kernel)
-        self.assertIsNone(observation.grad_kernel)
         assert_array_equal(observation.noise_rms, np.mean(np.sqrt(variance), axis=(1, 2)))
         self.assertBoxEqual(observation.bbox, Box(variance.shape[-2:]))
         self.assertIn(observation.mode, ["fft", "real"])
@@ -133,6 +134,91 @@ class TestObservation(ScarletTestCase):
         self.assertEqual(observation.n_bands, 3)
         self.assertEqual(observation.dtype, float)
 
+    def test_psf_deprecation(self):
+        """``psf`` is the supported argument; ndarray ``psf`` and the ``psfs``
+        alias are deprecated, and ambiguous/missing PSFs raise."""
+        images = self.data.convolved
+        variance = np.ones(images.shape)
+        weights = 1 / variance
+        psf = ImagePsf(self.psfs, bands=self.bands)
+
+        # A `Psf` is the supported path and emits no warning.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            observation = Observation(images, variance, weights, psf, bands=self.bands)
+        assert_array_equal(observation.psf.data, self.psfs)
+
+        # Passing an ndarray as `psf` is deprecated but still works.
+        with self.assertWarns(FutureWarning):
+            observation = Observation(images, variance, weights, self.psfs, bands=self.bands)
+        assert_array_equal(observation.psf.data, self.psfs)
+
+        # The `psfs` alias is deprecated but still works.
+        with self.assertWarns(FutureWarning):
+            observation = Observation(images, variance, weights, psfs=self.psfs, bands=self.bands)
+        assert_array_equal(observation.psf.data, self.psfs)
+
+        # Providing both `psf` and `psfs` is ambiguous.
+        with self.assertRaises(ValueError):
+            Observation(images, variance, weights, psf, psfs=self.psfs, bands=self.bands)
+
+        # A PSF is required.
+        with self.assertRaises(ValueError):
+            Observation(images, variance, weights, bands=self.bands)
+
+        # Passing an ndarray as `model_psf` is deprecated, but a `Psf` is not.
+        model_psf = integrated_circular_gaussian(sigma=0.8)[None]
+        with self.assertWarns(FutureWarning):
+            Observation(images, variance, weights, psf, model_psf, bands=self.bands)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            Observation(images, variance, weights, psf, ImagePsf(model_psf), bands=self.bands)
+
+    def test_empty(self):
+        """``Observation.empty`` resolves `psf`/`psfs`, re-imposes its required
+        arguments, and deprecates ndarray PSFs."""
+        bands = self.bands
+        bbox = self.observation.bbox
+        psf = ImagePsf(self.psfs, bands=bands)
+        model_psf = ImagePsf(integrated_circular_gaussian(sigma=0.8)[None])
+
+        # A `Psf` is the supported path and emits no warning.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            observation = Observation.empty(bands=bands, psf=psf, model_psf=model_psf, bbox=bbox, dtype=float)
+        self.assertBoxEqual(observation.bbox, bbox)
+        assert_array_equal(observation.images.data, np.zeros((len(bands),) + bbox.shape))
+        assert_array_equal(observation.psf.data, self.psfs)
+
+        # The deprecated `psfs` alias still works, with a warning.
+        with self.assertWarns(FutureWarning):
+            observation = Observation.empty(
+                bands=bands, psfs=self.psfs, model_psf=model_psf, bbox=bbox, dtype=float
+            )
+        assert_array_equal(observation.psf.data, self.psfs)
+
+        # An ndarray `model_psf` is deprecated.
+        with self.assertWarns(FutureWarning):
+            Observation.empty(
+                bands=bands,
+                psf=psf,
+                model_psf=integrated_circular_gaussian(sigma=0.8)[None],
+                bbox=bbox,
+                dtype=float,
+            )
+
+        # Providing both `psf` and `psfs` is ambiguous.
+        with self.assertRaises(ValueError):
+            Observation.empty(
+                bands=bands, psf=psf, psfs=self.psfs, model_psf=model_psf, bbox=bbox, dtype=float
+            )
+
+        # Missing required arguments raise a clear ``TypeError`` (regression:
+        # this previously raised ``AttributeError`` from building the dummy
+        # image before validating the arguments).
+        with self.assertRaises(TypeError):
+            Observation.empty(bands=bands, psf=psf)
+
     def test_convolve(self):
         # Test the default initialization with no model psf,
         # menaing observation.convolve is a pass-through operation.
@@ -142,7 +228,7 @@ class TestObservation(ScarletTestCase):
             self.data.convolved,
             variance,
             1 / variance,
-            self.psfs,
+            ImagePsf(self.psfs, bands=self.bands),
             bands=self.bands,
         )
         assert_array_equal(observation.convolve(observation.images), observation.images)
@@ -150,7 +236,7 @@ class TestObservation(ScarletTestCase):
         # Use an observation with a model_psf and difference kernel and check
         # convolution.
         observation = self.observation
-        assert_array_equal(observation.diff_kernel.image, self.data.diff_kernel.image)
+        assert_array_equal(observation.diff_kernel.data, self.data.diff_kernel.image)
         assert_almost_equal(observation.convolve(self.data.images).data, observation.images.data)
 
         # Test real conversions
@@ -163,7 +249,7 @@ class TestObservation(ScarletTestCase):
             [
                 scipy_convolve(
                     deconvolved.data[band],
-                    observation.grad_kernel.image[band],
+                    observation.diff_kernel.adjoint.data[band],
                     mode="same",
                 )
                 for band in range(len(deconvolved.data))
@@ -187,7 +273,7 @@ class TestObservation(ScarletTestCase):
                 [
                     scipy_convolve(
                         small_psf[band].data,
-                        observation.diff_kernel.image[observation.bands.index(band)],
+                        observation.diff_kernel.data[observation.bands.index(band)],
                         method="direct",
                         mode="same",
                     )
@@ -202,12 +288,12 @@ class TestObservation(ScarletTestCase):
     def test_convolve_cache_default_off(self):
         """``Observation.convolve`` must default to ``cache=False`` so
         that ad-hoc downstream calls (per-source models, components
-        with varying shapes) don't grow the long-lived ``diff_kernel``
-        and ``grad_kernel`` FFT dicts. Regression for audit O-4.
+        with varying shapes) don't grow the long-lived difference and
+        adjoint kernel FFT dicts. Regression for audit O-4.
         """
         observation = self.observation
-        observation.diff_kernel._fft.clear()
-        observation.grad_kernel._fft.clear()
+        observation.diff_kernel.fourier._fft.clear()
+        observation.diff_kernel.adjoint.fourier._fft.clear()
 
         # Convolve at the full-blend shape, then at a smaller shape.
         observation.convolve(self.data.images)
@@ -217,26 +303,26 @@ class TestObservation(ScarletTestCase):
         observation.convolve(small)
         observation.convolve(self.data.images, grad=True)
 
-        self.assertEqual(len(observation.diff_kernel._fft), 0)
-        self.assertEqual(len(observation.grad_kernel._fft), 0)
+        self.assertEqual(len(observation.diff_kernel.fourier._fft), 0)
+        self.assertEqual(len(observation.diff_kernel.adjoint.fourier._fft), 0)
 
     def test_convolve_cache_opt_in(self):
         """``cache=True`` must populate the kernel's FFT dict and reuse
         the entry on subsequent calls at the same shape.
         """
         observation = self.observation
-        observation.diff_kernel._fft.clear()
-        observation.grad_kernel._fft.clear()
+        observation.diff_kernel.fourier._fft.clear()
+        observation.diff_kernel.adjoint.fourier._fft.clear()
 
         observation.convolve(self.data.images, cache=True)
-        self.assertEqual(len(observation.diff_kernel._fft), 1)
+        self.assertEqual(len(observation.diff_kernel.fourier._fft), 1)
         # Repeat call at the same shape: cache hit, dict size unchanged.
         observation.convolve(self.data.images, cache=True)
-        self.assertEqual(len(observation.diff_kernel._fft), 1)
-        # Gradient convolve uses the *separate* grad_kernel dict.
+        self.assertEqual(len(observation.diff_kernel.fourier._fft), 1)
+        # Gradient convolve uses the *separate* adjoint kernel's dict.
         observation.convolve(self.data.images, grad=True, cache=True)
-        self.assertEqual(len(observation.diff_kernel._fft), 1)
-        self.assertEqual(len(observation.grad_kernel._fft), 1)
+        self.assertEqual(len(observation.diff_kernel.fourier._fft), 1)
+        self.assertEqual(len(observation.diff_kernel.adjoint.fourier._fft), 1)
 
     def test_index_extraction(self):
         alpha_bands = ("g", "i", "r", "y", "z")
@@ -255,8 +341,8 @@ class TestObservation(ScarletTestCase):
             images,
             variance,
             weights,
-            psfs,
-            model_psf[None],
+            ImagePsf(psfs, bands=alpha_bands),
+            ImagePsf(model_psf[None]),
             bands=alpha_bands,
         )
 
@@ -290,8 +376,8 @@ class TestObservation(ScarletTestCase):
             images,
             variance,
             weights,
-            psfs,
-            model_psf[None],
+            ImagePsf(psfs, bands=all_bands),
+            ImagePsf(model_psf[None]),
             bands=all_bands,
             bbox=bbox,
         )
@@ -312,11 +398,11 @@ class TestObservation(ScarletTestCase):
             Image(weights[1:4, 3:6, 3:7], bands=sliced_bands, yx0=new_box.origin),
         )
         np.testing.assert_array_equal(
-            sliced_observation.psfs,
+            sliced_observation.psf.data,
             psfs[1:4],
         )
         np.testing.assert_array_almost_equal(
-            sliced_observation.model_psf,
+            sliced_observation.model_psf.data,
             model_psf[None, :, :],
         )
         np.testing.assert_array_almost_equal(
