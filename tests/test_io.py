@@ -190,3 +190,10 @@ class TestIo(ScarletTestCase):
         self.assertEqual(len(blend.sources), len(loaded_blend.sources))
         self.assertEqual(len(blend.components), len(loaded_blend.components))
         self.assertImageAlmostEqual(blend.get_model(), loaded_blend.get_model())
+
+        # Legacy models (e.g. DP1) predate the source metadata field, so the
+        # source id is not stored in the source itself. Ensure that the id
+        # is propagated into ``source.metadata["id"]`` on load.
+        for sid, source in zip(model_data.blends[1].sources, loaded_blend.sources):
+            self.assertIsNotNone(source.metadata)
+            self.assertEqual(source.metadata["id"], sid)
