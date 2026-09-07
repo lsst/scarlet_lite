@@ -34,7 +34,7 @@ from .utils import continue_class
 from .wavelet import (
     get_multiresolution_support,
     get_starlet_scales,
-    multiband_starlet_reconstruction,
+    starlet_reconstruction,
     starlet_transform,
 )
 
@@ -393,6 +393,124 @@ def detect_footprints(
     return DetectionResult(
         image_sigmas=sigmas,
         detection=detection,
+        starlets=starlets,
+        peak_footprints=peak_footprints,
+        starlet_sigma=starlet_sigma,
+        starlet_support=starlet_support,
+        detection_sigma=sigma,
+        detection_support=support,
+        footprints=footprints,
+        peaks=peaks,
+        dropped_peaks=dropped_peaks,
+    )
+
+
+def detect_footprints_new(
+    images: np.ndarray,
+    detection: np.ndarray | None = None,
+    skip_scales: list[int] | None = None,
+    generation: int = 2,
+    origin: tuple[int, int] | None = None,
+    min_separation: float = 4,
+    min_starlet_area: int = 4,
+    peak_thresh: float = 3,
+    footprint_thresh: float = 2,
+    min_footprint_area: int = 8,
+) -> DetectionResult:
+    """Detect footprints in an image
+
+    Parameters
+    ----------
+    images:
+        The array of images with shape `(bands, Ny, Nx)` for which to
+        calculate wavelet coefficients.
+    detection:
+        An optional detection image. If `None` then one is created.
+    starlet_scale:
+        The scale of the starlet transform to use for detection.
+        All of the default configs are tuned for `starlet_scale=1`.
+        If using `starlet_scale=2` then it is recommended to use:
+          - `min_starlet_area=1`
+          - `peak_thresh=2`
+    generation:
+        The generation of the starlet transform to use.
+    origin:
+        The location (y, x) of the lower corner of the image.
+    min_separation:
+        The minimum separation between peaks in pixels.
+    min_starlet_area:
+        The minimum area of a footprint in starlet space in pixels.
+    peak_thresh:
+        The threshold for peak detection.
+    footprint_thresh:
+        The threshold for footprint detection.
+    min_footprint_area:
+        The minimum area of a footprint in the image in pixels.
+    """
+    if skip_scales is None:
+        skip_scales = [0]
+    starlet_scale = np.max(skip_scales) + 1
+
+    if origin is None:
+        origin = (0, 0)
+    y0, x0 = origin
+
+    if detection is None:
+        # Find the standard deviation of the noise in each band
+        sigmas = []
+        for image in images:
+            support, sigma = get_support(image)
+            sigmas.append(sigma)
+
+        # Create the variance weighted detection image
+        detection = np.sum([image/sigma for image, sigma in zip(images, sigmas)], axis=0)
+
+    # Use the chosen scale of starlets to act as a compensated filter
+    # for detection
+    starlets = starlet_transform(detection, scales=starlet_scale+1, generation=generation)
+    starlet_sigma = np.median(np.absolute(detection - np.median(detection)))
+    starlet_support = get_multiresolution_support(
+        image=detection,
+        starlets=starlets,
+        sigma=starlet_sigma,
+        sigma_scaling=3,
+        image_type='space',
+    )
+
+    coeffs = starlet_support.support * starlets
+    clean_detection = starlet_reconstruction(
+        coeffs,
+        skip_scales=skip_scales,
+        generation=generation,
+    )
+
+    # Estimate the noise in the detection image
+    starlet_sigma = np.median(np.absolute(clean_detection - np.median(clean_detection)))
+    starlet_support, support_sigma = get_support(
+        image=clean_detection,
+        sigma=starlet_sigma,
+    )
+
+    # Detect peaks on the detection image
+    peak_footprints = get_footprints(
+        clean_detection,
+        min_separation,
+        min_starlet_area,
+        peak_thresh*support_sigma,
+        footprint_thresh*support_sigma,
+        True,
+        y0,
+        x0,
+    )
+
+    # Remove this if we use this function
+    peaks = [peak for fp in peak_footprints for peak in fp.peaks]
+    footprints = peak_footprints
+    dropped_peaks = []
+
+    return DetectionResult(
+        image_sigmas=sigmas,
+        detection=clean_detection,
         starlets=starlets,
         peak_footprints=peak_footprints,
         starlet_sigma=starlet_sigma,
