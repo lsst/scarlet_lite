@@ -23,7 +23,9 @@ import os
 
 import numpy as np
 from lsst.scarlet.lite.wavelet import (
+    MultiResolutionSupport,
     apply_wavelet_denoising,
+    get_multiband_multiresolution_support,
     get_multiresolution_support,
     multiband_starlet_reconstruction,
     multiband_starlet_transform,
@@ -90,6 +92,38 @@ class TestWavelet(ScarletTestCase):
         get_multiresolution_support(image, starlets, 0.1)
         get_multiresolution_support(image, starlets, 0.1, image_type="space")
         apply_wavelet_denoising(image)
+
+    def test_multiband_multiresolution_support(self):
+        image = self.data["images"].astype(float)
+        bands = image.shape[0]
+        starlets = multiband_starlet_transform(image, scales=3)
+
+        support = get_multiband_multiresolution_support(image, starlets, 0.1)
+        self.assertTrue(support.multiband)
+        self.assertTupleEqual(support.support.shape, starlets.shape)
+        self.assertTupleEqual(support.sigma.shape, (len(starlets), bands))
+
+        # Each band must match a direct single-band call.
+        for band in range(bands):
+            single = get_multiresolution_support(image[band], starlets[:, band], 0.1)
+            np.testing.assert_array_equal(support.support[:, band], single.support)
+            np.testing.assert_array_equal(support.sigma[:, band], single.sigma)
+
+        # A per-band sigma is accepted as an alternative to a scalar.
+        per_band = get_multiband_multiresolution_support(image, starlets, np.full(bands, 0.1))
+        np.testing.assert_array_equal(per_band.support, support.support)
+
+    def test_multiresolution_support_dimension_check(self):
+        # The band axis makes multiband support 4D and sigma 2D; the
+        # single-band case is one dimension lower on each. A mismatch
+        # against the ``multiband`` flag is rejected.
+        support = np.zeros((3, 2, 8, 8), dtype=int)
+        sigma = np.zeros((2, 3))
+        MultiResolutionSupport(support=support, sigma=sigma, multiband=True)
+        with self.assertRaises(ValueError):
+            MultiResolutionSupport(support=support, sigma=sigma, multiband=False)
+        with self.assertRaises(ValueError):
+            MultiResolutionSupport(support=support[0], sigma=sigma, multiband=True)
 
     def test_ground_branch_unbiased_sigma(self):
         """Audit finding D-5: the per-scale noise estimate in the
