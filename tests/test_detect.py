@@ -24,6 +24,14 @@ import os
 import numpy as np
 from lsst.scarlet.lite import Box, Image
 from lsst.scarlet.lite.detect import (
+    CANDIDATE_DTYPE,
+    _build_detection_starlets,
+    _build_significance_map,
+    _chi2_to_sigma,
+    _clipped_chi2_survival,
+    _find_peak_candidates,
+    _sigma_to_chi2,
+    _starlet_scale_factors,
     bbox_to_bounds,
     bounds_to_bbox,
     detect_footprints,
@@ -39,7 +47,9 @@ from lsst.scarlet.lite.detect_pybind11 import (
     get_footprints,
 )
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
-from numpy.testing import assert_array_equal
+from lsst.scarlet.lite.wavelet import starlet_transform
+from numpy.testing import assert_allclose, assert_array_equal
+from scipy import stats
 from utils import ScarletTestCase
 
 
@@ -196,40 +206,45 @@ class TestDetect(ScarletTestCase):
     def test_detect_footprints(self):
         # This method doesn't test for accurracy, since
         # there is no variance, so we set it to ones.
+        # detect_footprints is deprecated in favor of detect_peaks;
+        # the calls assert the FutureWarning while still covering the
+        # legacy behavior.
         variance = np.ones(self.image.shape, dtype=self.image.dtype)
 
-        footprints = detect_footprints(
-            self.image.data[None, :, :],
-            variance[None, :, :],
-            scales=1,
-            generation=2,
-            origin=(0, 0),
-            min_separation=1,
-            min_area=4,
-            peak_thresh=1e-15,
-            footprint_thresh=1e-15,
-            find_peaks=True,
-            remove_high_freq=False,
-            min_pixel_detect=1,
-        )
+        with self.assertWarns(FutureWarning):
+            footprints = detect_footprints(
+                self.image.data[None, :, :],
+                variance[None, :, :],
+                scales=1,
+                generation=2,
+                origin=(0, 0),
+                min_separation=1,
+                min_area=4,
+                peak_thresh=1e-15,
+                footprint_thresh=1e-15,
+                find_peaks=True,
+                remove_high_freq=False,
+                min_pixel_detect=1,
+            )
 
         self.assertEqual(len(footprints), 3)
         peaks = [peak for footprint in footprints for peak in footprint.peaks]
         self._check_peaks(peaks)
 
-        footprints = detect_footprints(
-            self.image.data[None, :, :],
-            variance[None, :, :],
-            scales=1,
-            generation=1,
-            min_separation=1,
-            min_area=4,
-            peak_thresh=1e-15,
-            footprint_thresh=1e-15,
-            find_peaks=True,
-            remove_high_freq=True,
-            min_pixel_detect=1,
-        )
+        with self.assertWarns(FutureWarning):
+            footprints = detect_footprints(
+                self.image.data[None, :, :],
+                variance[None, :, :],
+                scales=1,
+                generation=1,
+                min_separation=1,
+                min_area=4,
+                peak_thresh=1e-15,
+                footprint_thresh=1e-15,
+                find_peaks=True,
+                remove_high_freq=True,
+                min_pixel_detect=1,
+            )
 
         self.assertEqual(len(footprints), 2)
         peaks = [peak for footprint in footprints for peak in footprint.peaks]
@@ -245,20 +260,21 @@ class TestDetect(ScarletTestCase):
 
         # Single-band: with min_pixel_detect=2 every pixel fails the
         # "at least 2 bands above 0" check, so nothing survives.
-        footprints = detect_footprints(
-            self.image.data[None, :, :],
-            variance[None, :, :],
-            scales=1,
-            generation=2,
-            origin=(0, 0),
-            min_separation=1,
-            min_area=4,
-            peak_thresh=1e-15,
-            footprint_thresh=1e-15,
-            find_peaks=True,
-            remove_high_freq=False,
-            min_pixel_detect=2,
-        )
+        with self.assertWarns(FutureWarning):
+            footprints = detect_footprints(
+                self.image.data[None, :, :],
+                variance[None, :, :],
+                scales=1,
+                generation=2,
+                origin=(0, 0),
+                min_separation=1,
+                min_area=4,
+                peak_thresh=1e-15,
+                footprint_thresh=1e-15,
+                find_peaks=True,
+                remove_high_freq=False,
+                min_pixel_detect=2,
+            )
         self.assertEqual(len(footprints), 0)
 
         # Two-band: band 0 only contains sources 0+1, band 1 only
@@ -271,38 +287,40 @@ class TestDetect(ScarletTestCase):
         b1 = (full + band1).data
         images = np.stack([b0, b1])
         variance2 = np.ones(images.shape, dtype=images.dtype)
-        footprints = detect_footprints(
-            images,
-            variance2,
-            scales=1,
-            generation=2,
-            origin=(0, 0),
-            min_separation=1,
-            min_area=4,
-            peak_thresh=1e-15,
-            footprint_thresh=1e-15,
-            find_peaks=True,
-            remove_high_freq=False,
-            min_pixel_detect=2,
-        )
+        with self.assertWarns(FutureWarning):
+            footprints = detect_footprints(
+                images,
+                variance2,
+                scales=1,
+                generation=2,
+                origin=(0, 0),
+                min_separation=1,
+                min_area=4,
+                peak_thresh=1e-15,
+                footprint_thresh=1e-15,
+                find_peaks=True,
+                remove_high_freq=False,
+                min_pixel_detect=2,
+            )
         self.assertEqual(len(footprints), 0)
 
         # Sanity: with min_pixel_detect=1 the same multi-band input
         # produces the union of both bands' footprints.
-        footprints = detect_footprints(
-            images,
-            variance2,
-            scales=1,
-            generation=2,
-            origin=(0, 0),
-            min_separation=1,
-            min_area=4,
-            peak_thresh=1e-15,
-            footprint_thresh=1e-15,
-            find_peaks=True,
-            remove_high_freq=False,
-            min_pixel_detect=1,
-        )
+        with self.assertWarns(FutureWarning):
+            footprints = detect_footprints(
+                images,
+                variance2,
+                scales=1,
+                generation=2,
+                origin=(0, 0),
+                min_separation=1,
+                min_area=4,
+                peak_thresh=1e-15,
+                footprint_thresh=1e-15,
+                find_peaks=True,
+                remove_high_freq=False,
+                min_pixel_detect=1,
+            )
         self.assertGreater(len(footprints), 0)
 
     def test_bounds_to_bbox(self):
@@ -368,3 +386,183 @@ class TestDetect(ScarletTestCase):
         wavelets = get_detect_wavelets(images, variance)
 
         self.assertTupleEqual(wavelets.shape, (4, 58, 48))
+
+
+class TestPeakDetection(ScarletTestCase):
+    def setUp(self):
+        # Three isotropic Gaussian sources present in every band on top of
+        # per-band white noise. The bands have different noise levels so the
+        # per-band standardization is actually exercised.
+        rng = np.random.default_rng(42)
+        self.n_bands = 3
+        self.shape = (64, 64)
+        self.centers = [(20, 15), (40, 45), (12, 50)]
+        band_std = np.array([1.5, 2.0, 3.0], dtype=np.float32)
+
+        yy, xx = np.mgrid[0 : self.shape[0], 0 : self.shape[1]]
+        images = rng.standard_normal((self.n_bands,) + self.shape) * band_std[:, None, None]
+        for cy, cx in self.centers:
+            bump = np.exp(-((yy - cy) ** 2 + (xx - cx) ** 2) / (2 * 2.5**2))
+            images += 40.0 * bump
+        self.images = images.astype(np.float32)
+        self.variance = np.tile((band_std**2)[:, None, None], (1,) + self.shape)
+        self.band_std = band_std
+
+    def test_starlet_scale_factors(self):
+        factors = _starlet_scale_factors(3, generation=2)
+        self.assertEqual(factors.shape, (4,))
+        self.assertTrue(np.all(factors > 0))
+        # Coarser scales spread the kernel wider, so each successive
+        # sum(K_j**2) is smaller.
+        self.assertTrue(np.all(np.diff(factors) < 0))
+
+        # White noise of variance ``v`` produces coefficients of variance
+        # ``F_j * v`` at scale ``j``; this is the whole reason the factors
+        # exist. Measure it on the interior to avoid boundary effects.
+        rng = np.random.default_rng(0)
+        v = 4.0
+        noise = rng.standard_normal((512, 512)) * np.sqrt(v)
+        coeffs = starlet_transform(noise, scales=3, generation=2)
+        measured = np.array([c[50:-50, 50:-50].var() for c in coeffs])
+        assert_allclose(measured, factors * v, rtol=0.05)
+
+    def test_build_detection_starlets(self):
+        starlets, sigma = _build_detection_starlets(self.images, self.variance, scales=3)
+        self.assertEqual(starlets.shape, (4, self.n_bands) + self.shape)
+        self.assertEqual(sigma.shape, (4, self.n_bands))
+
+        # sigma_{j,b} = sqrt(F_j * nanmedian(var_b)).
+        factors = _starlet_scale_factors(3)
+        band_var = np.nanmedian(self.variance, axis=(1, 2))
+        expected = np.sqrt(factors[:, None] * band_var[None, :])
+        assert_allclose(sigma, expected, rtol=1e-4)
+
+    def test_build_detection_starlets_ignores_nan_variance(self):
+        variance = self.variance.copy()
+        variance[:, :10, :10] = np.nan
+        _, sigma = _build_detection_starlets(self.images, variance, scales=3)
+        self.assertFalse(np.any(np.isnan(sigma)))
+
+    def test_build_detection_starlets_validation(self):
+        with self.assertRaises(ValueError):
+            _build_detection_starlets(self.images, self.variance[:, :10, :10])
+        with self.assertRaises(ValueError):
+            _build_detection_starlets(self.images[0], self.variance[0])
+
+    def test_clipped_chi2_survival(self):
+        c = np.array([0.5, 2.0, 8.0, 20.0])
+        # For one band the coadd is zero half the time and a chi^2_1 deviate
+        # otherwise, so the survival function is 0.5 * chi2_1.
+        assert_allclose(_clipped_chi2_survival(c, 1), 0.5 * stats.chi2.sf(c, 1))
+        # Two bands: binomial mixture of chi^2_1 and chi^2_2.
+        expected = 0.5 * stats.chi2.sf(c, 1) + 0.25 * stats.chi2.sf(c, 2)
+        assert_allclose(_clipped_chi2_survival(c, 2), expected)
+
+        # At zero the survival equals the probability that at least one band
+        # is positive, 1 - 2**-n.
+        for n in (1, 2, 3, 6):
+            self.assertAlmostEqual(float(_clipped_chi2_survival(0.0, n)), 1 - 2.0**-n)
+
+        # Strictly decreasing.
+        grid = np.linspace(0, 30, 200)
+        self.assertTrue(np.all(np.diff(_clipped_chi2_survival(grid, 3)) < 0))
+
+    def test_clipped_chi2_survival_matches_simulation(self):
+        rng = np.random.default_rng(1)
+        n = 3
+        y = rng.standard_normal((2_000_000, n))
+        coadd = np.sum(np.clip(y, 0, None) ** 2, axis=1)
+        for thr in (2.0, 8.0, 12.0):
+            empirical = np.mean(coadd > thr)
+            assert_allclose(empirical, float(_clipped_chi2_survival(thr, n)), rtol=0.06)
+
+    def test_chi2_to_sigma(self):
+        n = 3
+        c = np.array([1.0, 5.0, 20.0])
+        assert_allclose(_chi2_to_sigma(c, n), stats.norm.isf(_clipped_chi2_survival(c, n)))
+        # Works on a scalar as well as an array.
+        self.assertAlmostEqual(float(_chi2_to_sigma(5.0, n)), float(_chi2_to_sigma(c, n)[1]))
+        # Monotonically increasing.
+        grid = np.linspace(0.1, 50, 100)
+        self.assertTrue(np.all(np.diff(_chi2_to_sigma(grid, n)) > 0))
+        # A bright core stays finite instead of overflowing to infinity.
+        saturated = float(_chi2_to_sigma(1e6, n))
+        self.assertTrue(np.isfinite(saturated))
+        self.assertGreater(saturated, 30.0)
+
+    def test_sigma_to_chi2_inverts_chi2_to_sigma(self):
+        n = 3
+        thresholds = (2.0, 3.0, 5.0, 8.0)
+        for s in thresholds:
+            c = _sigma_to_chi2(s, n)
+            self.assertAlmostEqual(float(_chi2_to_sigma(c, n)), s, places=4)
+            # The threshold carries the requested upper-tail probability.
+            self.assertAlmostEqual(float(_clipped_chi2_survival(c, n)), float(stats.norm.sf(s)), places=6)
+        # Increasing in sigma.
+        values = [_sigma_to_chi2(s, n) for s in thresholds]
+        self.assertTrue(np.all(np.diff(values) > 0))
+
+    def test_build_significance_map(self):
+        starlets, sigma = _build_detection_starlets(self.images, self.variance, scales=3)
+        smap = _build_significance_map(starlets, sigma, first_scale=1)
+
+        # The finest ``first_scale`` scales and the coarse residual are
+        # dropped, and a chi coadd plane is appended to the bands.
+        self.assertEqual(smap.shape, (2, self.n_bands + 1) + self.shape)
+        self.assertEqual(smap.dtype, np.float32)
+
+        # The single-band planes are the standardized coefficients.
+        standardized = starlets[1:-1] / sigma[1:-1, :, None, None]
+        assert_allclose(smap[:, : self.n_bands], standardized, rtol=1e-5)
+
+        # The final plane is the clipped chi coadd of those planes.
+        chi = np.sqrt(np.sum(np.clip(standardized, 0, None) ** 2, axis=1))
+        assert_allclose(smap[:, self.n_bands], chi, rtol=1e-5)
+
+    def test_find_peak_candidates(self):
+        ny, nx = 40, 40
+        n_bands = 2
+        significance_map = np.zeros((1, n_bands + 1, ny, nx), dtype=np.float32)
+        yy, xx = np.mgrid[0:ny, 0:nx]
+
+        # A 10-sigma bump in band 0.
+        band0_center = (25, 12)
+        significance_map[0, 0] = 10.0 * np.exp(
+            -((yy - band0_center[0]) ** 2 + (xx - band0_center[1]) ** 2) / (2 * 2.0**2)
+        )
+        # A bump in the chi plane whose peak maps back to 9 sigma.
+        chi_center = (8, 30)
+        chi_amp = np.sqrt(_sigma_to_chi2(9.0, n_bands))
+        significance_map[0, n_bands] = chi_amp * np.exp(
+            -((yy - chi_center[0]) ** 2 + (xx - chi_center[1]) ** 2) / (2 * 2.0**2)
+        )
+
+        candidates = _find_peak_candidates(
+            significance_map,
+            min_separation=1,
+            min_area=1,
+            peak_thresh=5,
+            footprint_thresh=3,
+            first_scale=1,
+        )
+        self.assertEqual(candidates.dtype, CANDIDATE_DTYPE)
+        # The empty middle band contributes nothing.
+        self.assertEqual(np.sum(candidates["band"] == 1), 0)
+        # Candidates are labeled with the offset starlet scale.
+        assert_array_equal(np.unique(candidates["scale"]), [1])
+
+        band0 = candidates[candidates["band"] == 0]
+        self.assertEqual(len(band0), 1)
+        self.assertEqual((int(band0["y"][0]), int(band0["x"][0])), band0_center)
+        self.assertAlmostEqual(float(band0["flux"][0]), 10.0, places=4)
+
+        chi = candidates[candidates["band"] == n_bands]
+        self.assertEqual(len(chi), 1)
+        self.assertEqual((int(chi["y"][0]), int(chi["x"][0])), chi_center)
+        # The chi peak is reported in sigma.
+        self.assertAlmostEqual(float(chi["flux"][0]), 9.0, places=3)
+
+    def test_find_peak_candidates_empty(self):
+        significance_map = np.zeros((2, 3, 32, 32), dtype=np.float32)
+        candidates = _find_peak_candidates(significance_map, peak_thresh=5, footprint_thresh=3)
+        self.assertEqual(len(candidates), 0)

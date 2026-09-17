@@ -22,10 +22,15 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from math import comb
 from typing import Sequence
 
 import numpy as np
+from deprecated.sphinx import deprecated  # type: ignore
 from lsst.scarlet.lite.detect_pybind11 import Footprint, get_footprints  # type: ignore
+from scipy import stats
+from scipy.optimize import brentq
 
 from .bbox import Box, overlapped_slices
 from .image import Image
@@ -34,6 +39,7 @@ from .wavelet import (
     get_multiresolution_support,
     get_starlet_scales,
     multiband_starlet_reconstruction,
+    multiband_starlet_transform,
     starlet_transform,
 )
 
@@ -246,6 +252,12 @@ def get_detect_wavelets(images: np.ndarray, variance: np.ndarray, scales: int = 
     return (support.support * _coeffs).astype(images.dtype)
 
 
+@deprecated(
+    reason="detect_footprints is replaced by detect_peaks and will be removed after v31.0. "
+    "Use detect_peaks instead.",
+    version="v31.0",
+    category=FutureWarning,
+)
 def detect_footprints(
     images: np.ndarray,
     variance: np.ndarray,
@@ -359,3 +371,423 @@ def detect_footprints(
     )
 
     return footprints
+
+
+# Record type for a peak candidate
+CANDIDATE_DTYPE = np.dtype(
+    [
+        ("y", int),
+        ("x", int),
+        ("band", int),
+        ("scale", int),
+        ("flux", float),
+    ]
+)
+
+
+@dataclass
+class PeakCandidateResult:
+    """Peak candidates and the products used to detect them.
+
+    Attributes
+    ----------
+    candidates :
+        Structured array of peak candidates with dtype `CANDIDATE_DTYPE`.
+        The same source is expected to appear multiple times, once per band
+        and scale it is significant in.
+    significance_map :
+        The per-scale detection map from ``_build_significance_map``, with
+        shape ``(n_scales, n_bands + 1, Ny, Nx)``. Single-band planes are in
+        sigma; the final plane is the chi coadd.
+    starlets :
+        The multiband starlet coefficients, with shape
+        ``(scales + 1, n_bands, Ny, Nx)``.
+    sigma :
+        The per-scale, per-band coefficient noise std, with shape
+        ``(scales + 1, n_bands)``.
+    """
+
+    candidates: np.ndarray
+    significance_map: np.ndarray
+    starlets: np.ndarray
+    sigma: np.ndarray
+
+
+def _starlet_scale_factors(scales: int, generation: int = 2) -> np.ndarray:
+    """Sum of squared effective-kernel weights at each starlet scale.
+
+    Parameters
+    ----------
+    scales :
+        The number of wavelet scales. The result has ``scales + 1`` entries
+        to account for the coarse scale.
+    generation :
+        The generation of the starlet transform, either ``1`` or ``2``.
+
+    Returns
+    -------
+    factors :
+        The factor ``F_j = sum(K_j**2)`` for each scale, where ``K_j`` is the
+        effective a trous kernel. White noise of variance ``v`` transforms to
+        coefficients of variance ``F_j * v`` at scale ``j``.
+
+    Notes
+    -----
+    Because starlets change the scale of the data, we have to change the
+    scale of the variance by a related factor in order to properly calculate
+    the significance of detections. This algorithm computes the sum of squared
+    effective-kernel weights at each starlet scale.
+
+    The factors are read off a delta image transformed through the same fast
+    a trous transform, so they match its generation and boundary handling.
+    """
+    size = 2 ** (scales + 3) + 1
+    delta = np.zeros((size, size))
+    delta[size // 2, size // 2] = 1.0
+    coeffs = starlet_transform(delta, scales=scales, generation=generation)
+    return np.sum(coeffs**2, axis=(1, 2))
+
+
+def _build_detection_starlets(
+    images: np.ndarray,
+    variance: np.ndarray,
+    scales: int = 3,
+    generation: int = 2,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Transform a multiband image and estimate its per-scale noise.
+
+    Parameters
+    ----------
+    images :
+        The multiband image with shape ``(n_bands, Ny, Nx)``.
+    variance :
+        The per-pixel variance, with the same shape as ``images``.
+    scales :
+        The maximum number of wavelet scales to use.
+    generation :
+        The generation of the starlet transform, either ``1`` or ``2``.
+
+    Returns
+    -------
+    starlets :
+        The multiband starlet coefficients with shape
+        ``(scales + 1, n_bands, Ny, Nx)``.
+    sigma :
+        The coefficient noise std at each scale and band, with shape
+        ``(scales + 1, n_bands)``.
+
+    Raises
+    ------
+    ValueError
+        Raised if ``images`` and ``variance`` differ in shape, or if
+        ``images`` is not 3D.
+
+    Notes
+    -----
+    The coefficient noise is propagated from a single variance per band,
+    ``sigma_{j,b} = sqrt(F_j * nanmedian(var_b))``, where ``F_j`` is the
+    per-scale factor from ``_starlet_scale_factors``. This treats the noise as
+    stationary within a band, which is accurate when the variance plane is
+    slowly varying and avoids convolving the variance with the full, dense,
+    per-scale kernels.
+    """
+    if images.shape != variance.shape:
+        raise ValueError("images and variance must have the same shape")
+    if images.ndim != 3:
+        raise ValueError("images and variance must be 3D (bands, Ny, Nx)")
+
+    starlets = multiband_starlet_transform(images, scales=scales, generation=generation)
+    # The transform caps the scale count at the image size, so read the
+    # realized number of scales back off the coefficients.
+    realized_scales = starlets.shape[0] - 1
+    factors = _starlet_scale_factors(realized_scales, generation=generation)
+    band_variance = np.nanmedian(variance, axis=(1, 2))
+    sigma = np.sqrt(factors[:, None] * band_variance[None, :]).astype(starlets.dtype)
+    return starlets, sigma
+
+
+def _clipped_chi2_survival(chi2: np.ndarray | float, n_bands: int) -> np.ndarray | float:
+    """Survival function of the clipped chi-squared coadd under noise.
+
+    Parameters
+    ----------
+    chi2 :
+        The clipped chi-squared coadd value(s); scalar or array.
+    n_bands :
+        The number of bands combined into ``chi2``.
+
+    Returns
+    -------
+    survival :
+        ``P(C > chi2)`` for pure noise, with the same shape as ``chi2``.
+
+    Notes
+    -----
+    See ``_chi2_to_sigma`` for the derivation of this mixture of ``chi^2_k``
+    survival functions weighted by the binomial coefficients ``C(n, k)/2**n``.
+    """
+    return sum(comb(n_bands, k) * 2.0 ** (-n_bands) * stats.chi2.sf(chi2, k) for k in range(1, n_bands + 1))
+
+
+def _chi2_to_sigma(chi2: np.ndarray | float, n_bands: int) -> np.ndarray:
+    """Convert a clipped chi-squared coadd to Gaussian sigma.
+
+    Parameters
+    ----------
+    chi2 :
+        The chi-squared coadd ``sum_b max(w_b, 0)**2`` of per-band
+        coefficients standardized to unit noise variance. This can also be
+        a single pixel, like the value of a peak, to detect its significance.
+    n_bands :
+        The number of bands combined into ``chi2``.
+
+    Returns
+    -------
+    sigma :
+        The equivalent Gaussian significance (upper-tail), with the same
+        shape as ``chi2``.
+
+    Notes
+    -----
+    For an unclipped chi-squared coadd with ``n_bands`` degrees of freedom,
+    ``scipy.stats.chi2.sf(chi2, n)`` gives the probability that a pure-noise
+    pixel exceeds ``chi2``. However, ``_build_detection_starlets`` clips each
+    band's coefficients at zero before squaring to supress false detections
+    from negative structure (wavelet sidelobes, oversubtracted sky, etc).
+    This changes the noise distribution: each standardized coeffficent is in
+    a Gaussian with mean 0 and unit variance, so in any band a noise pixel is
+    clipped to zero with probability 1/2, and the number of bands that
+    contribute to the sum is binomially distributed. If ``k`` bands contribute,
+    the sum is a ``chi^2_k`` deviate, so the probability that a noise pixel
+    exceeds ``chi2`` is the sum over ``k`` of ``stats.chi2.sf(chi2, k)``
+    weighted by the binomial probability ``C(n, k) / 2**n``. That probability
+    is converted to an equivalent Gaussian sigma with ``stats.norm.isf`` so
+    that thresholds are directly comparable to a single-band ``n``-sigma cut.
+    """
+    # Floor the survival function to keep saturated cores finite. The Gaussian
+    # inverse saturates near 37 sigma, so this mapping is for reporting and
+    # display only; peaks are detected on the chi statistic itself
+    # (see `_find_peak_candidates`), which stays strictly monotonic.
+    survival = np.clip(_clipped_chi2_survival(chi2, n_bands), np.finfo(float).tiny, 1.0)
+    return stats.norm.isf(survival)
+
+
+def _sigma_to_chi2(sigma: float, n_bands: int) -> float:
+    """Convert a Gaussian sigma threshold to a chi-squared coadd threshold.
+
+    Parameters
+    ----------
+    sigma :
+        The desired detection threshold in Gaussian sigma (upper-tail).
+    n_bands :
+        The number of bands combined into the chi-squared coadd.
+
+    Returns
+    -------
+    chi2 :
+        The chi-squared coadd value with the same upper-tail probability as
+        ``sigma``, i.e. the inverse of ``_chi2_to_sigma``.
+
+    Notes
+    -----
+    The clipped chi-squared survival function (see ``_chi2_to_sigma``)
+    decreases monotonically, so the matching ``chi2`` is found by bracketing
+    the target upper-tail probability and refining with a root search.
+    Inverting the threshold once avoids mapping every pixel through
+    ``_chi2_to_sigma``, along with that mapping's saturation in bright cores.
+    """
+    target = stats.norm.sf(sigma)
+    hi = 2.0
+    # Brent's method requires an interval [a, b] where the function changes
+    # sign, so the root is guaranteed to lie between 0 and `hi`.
+    # This loop ensures that the upper bound `hi` is large enough so that
+    # the surivival function at `hi` is below the target sigma.
+    while _clipped_chi2_survival(hi, n_bands) > target and hi < 1e12:
+        hi *= 2
+    return float(brentq(lambda chi2: _clipped_chi2_survival(chi2, n_bands) - target, 0.0, hi))
+
+
+def _build_significance_map(
+    starlets: np.ndarray,
+    sigma: np.ndarray,
+    first_scale: int = 1,
+) -> np.ndarray:
+    """Build a per-scale detection map from multiband starlet coefficients.
+
+    Parameters
+    ----------
+    starlets :
+        The multiband starlet coefficients with shape
+        ``(scales + 1, n_bands, Ny, Nx)``.
+    sigma :
+        The per-scale, per-band coefficient noise std with shape
+        ``(scales + 1, n_bands)``, from ``_build_detection_starlets``.
+    first_scale :
+        The first starlet scale to keep. Scales below this (the highest
+        frequencies) and the final residual scale are dropped.
+
+    Returns
+    -------
+    significance_map :
+        The detection map with shape ``(n_scales, n_bands + 1, Ny, Nx)``,
+        where ``n_scales = scales - first_scale``. The first ``n_bands``
+        planes are the standardized single-band coefficients, in units of
+        Gaussian sigma. The last plane is the clipped chi coadd
+        ``sqrt(sum_b max(w_b, 0)**2)``.
+
+    Notes
+    -----
+    We clip the standardized single-band coefficients at zero before computing
+    the chi coadd, to avoid negative contributions. This adds computational
+    complexity (see `chi2_t_sigma`) at the benefit of reducing our false
+    positive detections.
+    """
+    _, n_bands, height, width = starlets.shape
+    scale_slice = slice(first_scale, -1)
+    coeffs = starlets[scale_slice]
+    scale_sigma = sigma[scale_slice]
+    n_scales = coeffs.shape[0]
+
+    significance_map = np.zeros((n_scales, n_bands + 1, height, width), dtype=np.float32)
+    standardized = coeffs / scale_sigma[..., None, None]
+    significance_map[:, :n_bands] = standardized
+    significance_map[:, n_bands] = np.sqrt(np.sum(np.clip(standardized, 0, None) ** 2, axis=1))
+    return significance_map
+
+
+def _find_peak_candidates(
+    significance_map: np.ndarray,
+    min_separation: float = 0,
+    min_area: int = 4,
+    peak_thresh: float = 3,
+    footprint_thresh: float = 2,
+    first_scale: int = 1,
+    origin: tuple[int, int] = (0, 0),
+) -> np.ndarray:
+    """Find peak candidates in each plane of a significance map.
+
+    Parameters
+    ----------
+    significance_map :
+        A detection map from ``_build_significance_map``. The single-band
+        planes are in sigma and the final plane is the chi coadd.
+    min_separation :
+        The minimum separation between peaks in pixels.
+        By default there is no minimum separation, relying on our linking
+        procedure to merge detections within the same band and scale as
+        well across other bands and scales.
+    min_area :
+        The minimum area of a footprint in pixels.
+    peak_thresh :
+        The peak detection threshold, in sigma.
+    footprint_thresh :
+        The footprint detection threshold, in sigma.
+    first_scale :
+        The first starlet scale in ``significance_map``, used to label the
+        ``scale`` field of each candidate.
+    origin :
+        The ``(y, x)`` location of the lower corner of the image.
+
+    Returns
+    -------
+    candidates :
+        Structured array of candidates with dtype `CANDIDATE_DTYPE`. The
+        ``flux`` field is the peak significance in sigma for every plane.
+    """
+    y0, x0 = origin
+    n_bands = significance_map.shape[1] - 1
+    # The chi plane is thresholded in chi units so its bright cores stay
+    # strictly peaked; single-band planes are already in sigma.
+    chi_peak = np.sqrt(_sigma_to_chi2(peak_thresh, n_bands))
+    chi_footprint = np.sqrt(_sigma_to_chi2(footprint_thresh, n_bands))
+
+    candidates = []
+    for scale_index, scale_planes in enumerate(significance_map):
+        scale = scale_index + first_scale
+        for band, plane in enumerate(scale_planes):
+            is_chi = band == n_bands
+            footprints = get_footprints(
+                plane,
+                min_separation,
+                min_area,
+                chi_peak if is_chi else peak_thresh,
+                chi_footprint if is_chi else footprint_thresh,
+                True,
+                y0,
+                x0,
+            )
+            for footprint in footprints:
+                for peak in footprint.peaks:
+                    # Report every plane's peak in sigma; the chi value maps
+                    # back through the coadd survival function.
+                    flux = float(_chi2_to_sigma(peak.flux**2, n_bands)) if is_chi else peak.flux
+                    candidates.append((peak.y, peak.x, band, scale, flux))
+    return np.array(candidates, dtype=CANDIDATE_DTYPE)
+
+
+def detect_peaks(
+    images: np.ndarray,
+    variance: np.ndarray,
+    scales: int = 3,
+    generation: int = 2,
+    first_scale: int = 1,
+    origin: tuple[int, int] | None = None,
+    min_separation: float = 0,
+    min_area: int = 4,
+    peak_thresh: float = 3,
+    footprint_thresh: float = 2,
+) -> PeakCandidateResult:
+    """Detect peak candidates across bands and starlet scales.
+
+    Parameters
+    ----------
+    images :
+        The multiband image with shape ``(n_bands, Ny, Nx)``.
+    variance :
+        The per-pixel variance, with the same shape as ``images``.
+    scales :
+        The maximum number of wavelet scales to use.
+    generation :
+        The generation of the starlet transform, either ``1`` or ``2``.
+    first_scale :
+        The first starlet scale to search for peaks.
+    origin :
+        The ``(y, x)`` location of the lower corner of the image.
+    min_separation :
+        The minimum separation between peaks in pixels.
+    min_area :
+        The minimum area of a footprint in pixels.
+    peak_thresh :
+        The peak detection threshold, in sigma.
+    footprint_thresh :
+        The footprint detection threshold, in sigma.
+
+    Returns
+    -------
+    result :
+        The peak candidates and the intermediate detection products.
+    """
+    if origin is None:
+        origin = (0, 0)
+    starlets, sigma = _build_detection_starlets(
+        images,
+        variance,
+        scales=scales,
+        generation=generation,
+    )
+    significance_map = _build_significance_map(starlets, sigma, first_scale=first_scale)
+    candidates = _find_peak_candidates(
+        significance_map,
+        min_separation,
+        min_area,
+        peak_thresh,
+        footprint_thresh,
+        first_scale,
+        origin,
+    )
+    return PeakCandidateResult(
+        candidates=candidates,
+        significance_map=significance_map,
+        starlets=starlets,
+        sigma=sigma,
+    )
