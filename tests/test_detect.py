@@ -375,7 +375,8 @@ class TestDetect(ScarletTestCase):
     def test_get_wavelets(self):
         images = self.hsc_data["images"]
         variance = self.hsc_data["variance"]
-        wavelets = get_wavelets(images, variance)
+        with self.assertWarns(FutureWarning):
+            wavelets = get_wavelets(images, variance)
 
         self.assertTupleEqual(wavelets.shape, (5, 5, 58, 48))
         self.assertEqual(wavelets.dtype, np.float32)
@@ -383,7 +384,8 @@ class TestDetect(ScarletTestCase):
     def test_get_detect_wavelets(self):
         images = self.hsc_data["images"]
         variance = self.hsc_data["variance"]
-        wavelets = get_detect_wavelets(images, variance)
+        with self.assertWarns(FutureWarning):
+            wavelets = get_detect_wavelets(images, variance)
 
         self.assertTupleEqual(wavelets.shape, (4, 58, 48))
 

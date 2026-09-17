@@ -171,6 +171,12 @@ def footprints_to_image(footprints: Sequence[Footprint], bbox: Box) -> Image:
     return result
 
 
+@deprecated(
+    reason="get_wavelets is only used by the deprecated detect_footprints "
+    "and will be removed after v31.0.",
+    version="v31.0",
+    category=FutureWarning,
+)
 def get_wavelets(
     images: np.ndarray,
     variance: np.ndarray,
@@ -215,6 +221,12 @@ def get_wavelets(
     return coeffs
 
 
+@deprecated(
+    reason="get_detect_wavelets is superseded by detect_peaks and will be "
+    "removed after v31.0.",
+    version="v31.0",
+    category=FutureWarning,
+)
 def get_detect_wavelets(images: np.ndarray, variance: np.ndarray, scales: int = 3) -> np.ndarray:
     """Get an array of wavelet coefficents to use for detection
 

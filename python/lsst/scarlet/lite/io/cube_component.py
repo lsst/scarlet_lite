@@ -24,9 +24,9 @@ logger = logging.getLogger(__name__)
 
 
 @deprecated(
-    reason="ComponentCube is deprecated and will be removed after scarlet_lite v30.0. "
+    reason="ComponentCube is deprecated and will be removed after v31.0. "
     "Please use CubeComponent instead.",
-    version="scarlet_lite v30.0",
+    version="v31.0",
     category=FutureWarning,
 )
 class ComponentCube(CubeComponent):
