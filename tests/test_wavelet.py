@@ -32,7 +32,7 @@ from lsst.scarlet.lite.wavelet import (
     starlet_reconstruction,
     starlet_transform,
 )
-from numpy.testing import assert_almost_equal
+from numpy.testing import assert_allclose, assert_almost_equal
 from utils import ScarletTestCase
 
 
@@ -236,3 +236,19 @@ class TestWavelet(ScarletTestCase):
         overestimate_count = result_overestimate.support.sum()
         self.assertGreater(overestimate_count, 0)
         self.assertLess(abs(overestimate_count - correct_count), correct_count)
+
+    def test_space_branch_sigma_scaling(self):
+        """The ``image_type='space'`` branch scales the per-scale noise
+        by the estimated image noise.
+        """
+        rng = np.random.default_rng(3)
+        image_sigma = 5.0
+        image = rng.standard_normal((256, 256)) * image_sigma
+        starlets = starlet_transform(image, scales=4, generation=2)
+
+        result = get_multiresolution_support(image, starlets, np.std(image), image_type="space")
+
+        # The transform is linear, so for pure noise the true per-scale
+        # coefficient noise is the std of each scale's coefficients.
+        true_sigma = np.array([scale.std() for scale in starlets])
+        assert_allclose(result.sigma, true_sigma, rtol=0.1)

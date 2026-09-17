@@ -351,7 +351,7 @@ def get_multiresolution_support(
             if np.abs(sigma_i - last_sigma_i) / sigma_i < epsilon:
                 break
             last_sigma_i = sigma_i
-        sigma_j = sigma_je
+        sigma_j = sigma_je * sigma_i
     else:
         # Sigma to use for significance at each scale
         # Initially we use the input `sigma`
