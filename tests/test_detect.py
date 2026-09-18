@@ -25,16 +25,23 @@ import numpy as np
 from lsst.scarlet.lite import Box, Image
 from lsst.scarlet.lite.detect import (
     CANDIDATE_DTYPE,
+    DETECTION_DTYPE,
+    POSITION_DTYPE,
+    _assign_peaks,
     _build_detection_starlets,
     _build_significance_map,
+    _chi2_log_survival,
     _chi2_to_sigma,
-    _clipped_chi2_survival,
+    _chi_to_sigma,
+    _collapse_positions,
     _find_peak_candidates,
-    _sigma_to_chi2,
+    _link_radius,
+    _plane_flags,
     _starlet_scale_factors,
     bbox_to_bounds,
     bounds_to_bbox,
     detect_footprints,
+    detect_peaks,
     footprints_to_image,
     get_detect_wavelets,
     get_wavelets,
@@ -246,7 +253,10 @@ class TestDetect(ScarletTestCase):
                 min_pixel_detect=1,
             )
 
-        self.assertEqual(len(footprints), 2)
+        # Three footprints: the two source blends plus the flat 0.5 patch at
+        # [30:32, 40]. The watershed seeds a peak on the patch's plateau, so
+        # the footprint is kept rather than dropped for having no peak.
+        self.assertEqual(len(footprints), 3)
         peaks = [peak for footprint in footprints for peak in footprint.peaks]
         self._check_peaks(peaks)
 
@@ -451,58 +461,64 @@ class TestPeakDetection(ScarletTestCase):
         with self.assertRaises(ValueError):
             _build_detection_starlets(self.images[0], self.variance[0])
 
-    def test_clipped_chi2_survival(self):
+    def test_chi2_log_survival(self):
         c = np.array([0.5, 2.0, 8.0, 20.0])
         # For one band the coadd is zero half the time and a chi^2_1 deviate
         # otherwise, so the survival function is 0.5 * chi2_1.
-        assert_allclose(_clipped_chi2_survival(c, 1), 0.5 * stats.chi2.sf(c, 1))
+        assert_allclose(np.exp(_chi2_log_survival(c, 1)), 0.5 * stats.chi2.sf(c, 1))
         # Two bands: binomial mixture of chi^2_1 and chi^2_2.
         expected = 0.5 * stats.chi2.sf(c, 1) + 0.25 * stats.chi2.sf(c, 2)
-        assert_allclose(_clipped_chi2_survival(c, 2), expected)
+        assert_allclose(np.exp(_chi2_log_survival(c, 2)), expected)
 
         # At zero the survival equals the probability that at least one band
         # is positive, 1 - 2**-n.
         for n in (1, 2, 3, 6):
-            self.assertAlmostEqual(float(_clipped_chi2_survival(0.0, n)), 1 - 2.0**-n)
+            self.assertAlmostEqual(float(np.exp(_chi2_log_survival(0.0, n))), 1 - 2.0**-n)
 
-        # Strictly decreasing.
+        # Strictly decreasing, and finite in log space where the survival
+        # function itself has underflowed to zero.
         grid = np.linspace(0, 30, 200)
-        self.assertTrue(np.all(np.diff(_clipped_chi2_survival(grid, 3)) < 0))
+        self.assertTrue(np.all(np.diff(_chi2_log_survival(grid, 3)) < 0))
+        self.assertTrue(np.isfinite(float(_chi2_log_survival(1e6, 3))))
 
-    def test_clipped_chi2_survival_matches_simulation(self):
+    def test_chi2_log_survival_matches_simulation(self):
         rng = np.random.default_rng(1)
         n = 3
         y = rng.standard_normal((2_000_000, n))
         coadd = np.sum(np.clip(y, 0, None) ** 2, axis=1)
         for thr in (2.0, 8.0, 12.0):
             empirical = np.mean(coadd > thr)
-            assert_allclose(empirical, float(_clipped_chi2_survival(thr, n)), rtol=0.06)
+            assert_allclose(empirical, float(np.exp(_chi2_log_survival(thr, n))), rtol=0.06)
 
     def test_chi2_to_sigma(self):
         n = 3
         c = np.array([1.0, 5.0, 20.0])
-        assert_allclose(_chi2_to_sigma(c, n), stats.norm.isf(_clipped_chi2_survival(c, n)))
+        assert_allclose(_chi2_to_sigma(c, n), stats.norm.isf(np.exp(_chi2_log_survival(c, n))))
         # Works on a scalar as well as an array.
         self.assertAlmostEqual(float(_chi2_to_sigma(5.0, n)), float(_chi2_to_sigma(c, n)[1]))
         # Monotonically increasing.
         grid = np.linspace(0.1, 50, 100)
         self.assertTrue(np.all(np.diff(_chi2_to_sigma(grid, n)) > 0))
-        # A bright core stays finite instead of overflowing to infinity.
-        saturated = float(_chi2_to_sigma(1e6, n))
-        self.assertTrue(np.isfinite(saturated))
-        self.assertGreater(saturated, 30.0)
+        # A bright core keeps climbing rather than saturating: the log-space
+        # mapping stays finite and monotonic however bright the pixel.
+        bright = float(_chi2_to_sigma(1e6, n))
+        self.assertTrue(np.isfinite(bright))
+        self.assertGreater(bright, 900.0)
 
-    def test_sigma_to_chi2_inverts_chi2_to_sigma(self):
+    def test_chi_to_sigma(self):
         n = 3
-        thresholds = (2.0, 3.0, 5.0, 8.0)
-        for s in thresholds:
-            c = _sigma_to_chi2(s, n)
-            self.assertAlmostEqual(float(_chi2_to_sigma(c, n)), s, places=4)
-            # The threshold carries the requested upper-tail probability.
-            self.assertAlmostEqual(float(_clipped_chi2_survival(c, n)), float(stats.norm.sf(s)), places=6)
-        # Increasing in sigma.
-        values = [_sigma_to_chi2(s, n) for s in thresholds]
-        self.assertTrue(np.all(np.diff(values) > 0))
+        chi = np.array([0.0, 1.0, 3.0, 10.0, 80.0], dtype=np.float32)
+        # The lookup table reproduces the exact chi**2 -> sigma mapping, in
+        # both the dense (< 64) and the geometric (> 64) regimes.
+        assert_allclose(_chi_to_sigma(chi, n), _chi2_to_sigma(chi.astype(float) ** 2, n), atol=1e-4)
+        # The dtype of the input is preserved.
+        self.assertEqual(_chi_to_sigma(chi, n).dtype, np.float32)
+        # NaN in, NaN out; finite pixels are untouched.
+        chi_nan = chi.copy()
+        chi_nan[2] = np.nan
+        out = _chi_to_sigma(chi_nan, n)
+        self.assertTrue(np.isnan(out[2]))
+        self.assertFalse(np.any(np.isnan(out[[0, 1, 3, 4]])))
 
     def test_build_significance_map(self):
         starlets, sigma = _build_detection_starlets(self.images, self.variance, scales=3)
@@ -517,13 +533,16 @@ class TestPeakDetection(ScarletTestCase):
         standardized = starlets[1:-1] / sigma[1:-1, :, None, None]
         assert_allclose(smap[:, : self.n_bands], standardized, rtol=1e-5)
 
-        # The final plane is the clipped chi coadd of those planes.
+        # The final plane is the clipped chi coadd mapped to sigma, so it is
+        # on the same footing as the single-band planes.
         chi = np.sqrt(np.sum(np.clip(standardized, 0, None) ** 2, axis=1))
-        assert_allclose(smap[:, self.n_bands], chi, rtol=1e-5)
+        assert_allclose(smap[:, self.n_bands], _chi_to_sigma(chi, self.n_bands), rtol=1e-5)
 
     def test_find_peak_candidates(self):
         ny, nx = 40, 40
         n_bands = 2
+        # Every plane of a significance map is already in sigma, so a bump
+        # is read back at its own amplitude.
         significance_map = np.zeros((1, n_bands + 1, ny, nx), dtype=np.float32)
         yy, xx = np.mgrid[0:ny, 0:nx]
 
@@ -532,10 +551,9 @@ class TestPeakDetection(ScarletTestCase):
         significance_map[0, 0] = 10.0 * np.exp(
             -((yy - band0_center[0]) ** 2 + (xx - band0_center[1]) ** 2) / (2 * 2.0**2)
         )
-        # A bump in the chi plane whose peak maps back to 9 sigma.
+        # A 9-sigma bump in the chi plane.
         chi_center = (8, 30)
-        chi_amp = np.sqrt(_sigma_to_chi2(9.0, n_bands))
-        significance_map[0, n_bands] = chi_amp * np.exp(
+        significance_map[0, n_bands] = 9.0 * np.exp(
             -((yy - chi_center[0]) ** 2 + (xx - chi_center[1]) ** 2) / (2 * 2.0**2)
         )
 
@@ -557,14 +575,201 @@ class TestPeakDetection(ScarletTestCase):
         self.assertEqual(len(band0), 1)
         self.assertEqual((int(band0["y"][0]), int(band0["x"][0])), band0_center)
         self.assertAlmostEqual(float(band0["flux"][0]), 10.0, places=4)
+        # A single peak in a footprint never joins a brighter basin, so its
+        # saddle is NaN.
+        self.assertTrue(np.isnan(band0["saddle"][0]))
 
         chi = candidates[candidates["band"] == n_bands]
         self.assertEqual(len(chi), 1)
         self.assertEqual((int(chi["y"][0]), int(chi["x"][0])), chi_center)
-        # The chi peak is reported in sigma.
         self.assertAlmostEqual(float(chi["flux"][0]), 9.0, places=3)
+
+    def test_find_peak_candidates_kappa_culls_flank(self):
+        # A bright bump with a low-prominence bump on its flank, in one plane.
+        ny, nx = 5, 40
+        x = np.arange(nx)
+        profile = 10.0 * np.exp(-((x - 8) ** 2) / (2 * 2.0**2)) + 4.0 * np.exp(
+            -((x - 14) ** 2) / (2 * 2.0**2)
+        )
+        significance_map = np.zeros((1, 2, ny, nx), dtype=np.float32)
+        significance_map[0, 0, 2] = profile
+
+        # kappa=0 keeps both local maxima.
+        low = _find_peak_candidates(
+            significance_map, min_separation=0, min_area=1, peak_thresh=1, footprint_thresh=0.5, kappa=0.0
+        )
+        self.assertEqual(np.sum(low["band"] == 0), 2)
+
+        # kappa=3 culls the flank bump; it rises less than 3 sigma above the
+        # saddle to the brighter peak.
+        high = _find_peak_candidates(
+            significance_map, min_separation=0, min_area=1, peak_thresh=1, footprint_thresh=0.5, kappa=3.0
+        )
+        band0 = high[high["band"] == 0]
+        self.assertEqual(len(band0), 1)
+        self.assertEqual(int(band0["x"][0]), 8)
 
     def test_find_peak_candidates_empty(self):
         significance_map = np.zeros((2, 3, 32, 32), dtype=np.float32)
         candidates = _find_peak_candidates(significance_map, peak_thresh=5, footprint_thresh=3)
         self.assertEqual(len(candidates), 0)
+
+    def _make_candidates(self, rows):
+        """Build a candidate array from ``(y, x, band, scale, flux)`` rows."""
+        candidates = np.zeros(len(rows), dtype=CANDIDATE_DTYPE)
+        for i, (y, x, band, scale, flux) in enumerate(rows):
+            candidates[i] = (y, x, band, scale, flux, np.nan, -1)
+        return candidates
+
+    def _make_positions(self, rows):
+        """Build positions from ``(y, x, scale, peak_sigma, plane_flags)``."""
+        positions = np.zeros(len(rows), dtype=POSITION_DTYPE)
+        for i, (y, x, scale, peak_sigma, plane_flags) in enumerate(rows):
+            positions[i]["y"] = y
+            positions[i]["x"] = x
+            positions[i]["scale"] = scale
+            positions[i]["peak_sigma"] = peak_sigma
+            positions[i]["flux"] = peak_sigma
+            positions[i]["plane_flags"] = plane_flags
+            positions[i]["peak"] = -1
+        return positions
+
+    def test_link_radius(self):
+        # The PSF FWHM floors the radius at fine scales.
+        self.assertEqual(_link_radius(1, 3.5), 3.5)
+        # The 2**scale term dominates at coarse scales.
+        self.assertEqual(_link_radius(3, 3.5), 8.0)
+        # Vectorized over an array of scales.
+        assert_array_equal(_link_radius(np.array([1, 3]), 3.5), [3.5, 8.0])
+
+    def test_plane_flags(self):
+        # plane = (scale - first_scale) * (n_bands + 1) + band, so band 0 at
+        # first_scale is plane 0, the chi plane (band 3) is plane 3, and band 0
+        # at the next scale is plane 4.
+        candidates = self._make_candidates(
+            [
+                (0, 0, 0, 1, 1.0),
+                (0, 0, 3, 1, 1.0),
+                (0, 0, 0, 2, 1.0),
+            ]
+        )
+        flags = _plane_flags(candidates, n_bands=3, first_scale=1)
+        assert_array_equal(flags, [1 << 0, 1 << 3, 1 << 4])
+
+        # More than 63 planes cannot fit in an int64 bitmask.
+        too_many = self._make_candidates([(0, 0, 0, 20, 1.0)])
+        with self.assertRaisesRegex(ValueError, "at most 63 planes"):
+            _plane_flags(too_many, n_bands=3, first_scale=1)
+
+    def test_collapse_positions(self):
+        # Two candidates at the same pixel in different bands and scales
+        # collapse to one position; a third at another pixel stays separate.
+        candidates = self._make_candidates(
+            [
+                (10, 10, 0, 1, 8.0),
+                (10, 10, 2, 2, 5.0),
+                (10, 14, 1, 1, 6.0),
+            ]
+        )
+        positions = _collapse_positions(candidates, n_bands=3, first_scale=1)
+        self.assertEqual(positions.dtype, POSITION_DTYPE)
+        self.assertEqual(len(positions), 2)
+
+        merged = positions[(positions["y"] == 10) & (positions["x"] == 10)][0]
+        self.assertEqual(merged["band_flags"], (1 << 0) | (1 << 2))
+        self.assertEqual(merged["scale_flags"], (1 << 1) | (1 << 2))
+        self.assertEqual(merged["n_candidates"], 2)
+        # The finest scale wins the position flux; peak_sigma is the brightest.
+        self.assertEqual(merged["scale"], 1)
+        self.assertAlmostEqual(float(merged["flux"]), 8.0)
+        self.assertAlmostEqual(float(merged["peak_sigma"]), 8.0)
+        # ``position`` is filled in place, sending the two co-located
+        # candidates to one position and the third to another.
+        self.assertEqual(candidates["position"][0], candidates["position"][1])
+        self.assertNotEqual(candidates["position"][0], candidates["position"][2])
+
+    def test_assign_peaks_distinct(self):
+        # Two positions within the link radius that were both peaks in the same
+        # plane (they share a plane_flags bit) are distinct and stay two peaks.
+        positions = self._make_positions([(10, 10, 1, 8.0, 0b1), (10, 12, 1, 7.0, 0b1)])
+        seeds, peak_of = _assign_peaks(positions, psf_fwhm=3.5)
+        self.assertEqual(len(seeds), 2)
+        assert_array_equal(np.sort(peak_of), [0, 1])
+
+        # The same two positions sharing no plane bit merge into one peak.
+        positions = self._make_positions([(10, 10, 1, 8.0, 0b1), (10, 12, 1, 7.0, 0b10)])
+        seeds, peak_of = _assign_peaks(positions, psf_fwhm=3.5)
+        self.assertEqual(len(seeds), 1)
+        assert_array_equal(peak_of, [0, 0])
+
+        # Positions beyond the link radius never merge, distinct or not.
+        positions = self._make_positions([(10, 10, 1, 8.0, 0b1), (10, 40, 1, 7.0, 0b10)])
+        seeds, _ = _assign_peaks(positions, psf_fwhm=3.5)
+        self.assertEqual(len(seeds), 2)
+
+    def test_assign_peaks_blend_policy(self):
+        # Two distinct fine-scale peaks with a coarse-scale position between
+        # them, eligible to join either. ``n_linked`` records the ambiguity.
+        rows = [(10, 10, 1, 10.0, 0b1), (10, 16, 1, 10.0, 0b1), (10, 13, 2, 5.0, 0b100)]
+
+        nearest = self._make_positions(rows)
+        seeds, peak_of = _assign_peaks(nearest, psf_fwhm=3.5, blend_policy="nearest")
+        self.assertEqual(len(seeds), 2)
+        # The ambiguous position joins the nearest seed, not dropped.
+        self.assertGreaterEqual(peak_of[2], 0)
+        self.assertEqual(nearest["n_linked"][2], 2)
+
+        drop = self._make_positions(rows)
+        seeds, peak_of = _assign_peaks(drop, psf_fwhm=3.5, blend_policy="drop")
+        self.assertEqual(len(seeds), 2)
+        # With "drop" the ambiguous position is left unassigned.
+        self.assertEqual(peak_of[2], -1)
+        self.assertEqual(drop["n_linked"][2], 2)
+
+        with self.assertRaisesRegex(ValueError, "blend_policy"):
+            _assign_peaks(self._make_positions([(1, 1, 1, 1.0, 0b1)]), psf_fwhm=3.5, blend_policy="bogus")
+
+    def test_detect_peaks_groups_sources(self):
+        result = detect_peaks(self.images, self.variance, scales=3, peak_thresh=5, footprint_thresh=3)
+        self.assertEqual(result.peaks.dtype, DETECTION_DTYPE)
+        self.assertEqual(result.positions.dtype, POSITION_DTYPE)
+
+        # Every injected source is recovered exactly once, within a pixel.
+        self.assertEqual(len(result.peaks), len(self.centers))
+        for cy, cx in self.centers:
+            matched = [p for p in result.peaks if abs(p["y"] - cy) <= 1 and abs(p["x"] - cx) <= 1]
+            self.assertEqual(len(matched), 1)
+
+        # The many per-band, per-scale candidates collapse into each source.
+        peak = result.peaks[0]
+        self.assertGreater(peak["n_candidates"], 1)
+        self.assertGreaterEqual(peak["peak_sigma"], peak["flux"])
+        # These bright sources are seen in all 3 bands and the chi coadd.
+        expected_bands = (1 << self.n_bands + 1) - 1
+        self.assertEqual(peak["band_flags"], expected_bands)
+        self.assertNotEqual(peak["scale_flags"], 0)
+
+    def test_detect_peaks_retraceable(self):
+        result = detect_peaks(self.images, self.variance, scales=3, peak_thresh=5, footprint_thresh=3)
+        # Every position is assigned to a peak in this clean blend.
+        assert_array_equal(result.candidates["position"] >= 0, True)
+        for peak_id, peak in enumerate(result.peaks):
+            member_positions = np.nonzero(result.positions["peak"] == peak_id)[0]
+            self.assertEqual(len(member_positions), peak["n_positions"])
+
+            member_candidates = np.concatenate(
+                [np.nonzero(result.candidates["position"] == pid)[0] for pid in member_positions]
+            )
+            self.assertEqual(len(member_candidates), peak["n_candidates"])
+
+    def test_detect_peaks_empty(self):
+        # A pure-noise floor with a threshold nothing clears yields no peaks
+        # but still well-formed tables.
+        images = np.zeros((self.n_bands,) + self.shape, dtype=np.float32)
+        variance = np.ones_like(images)
+        result = detect_peaks(images, variance, scales=3, peak_thresh=5, footprint_thresh=3)
+        self.assertEqual(len(result.candidates), 0)
+        self.assertEqual(len(result.positions), 0)
+        self.assertEqual(len(result.peaks), 0)
+        self.assertEqual(result.peaks.dtype, DETECTION_DTYPE)
+        self.assertEqual(result.positions.dtype, POSITION_DTYPE)

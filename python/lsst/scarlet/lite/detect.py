@@ -23,14 +23,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from math import comb
-from typing import Sequence
+from math import comb, log
+from typing import Sequence, cast
 
 import numpy as np
 from deprecated.sphinx import deprecated  # type: ignore
 from lsst.scarlet.lite.detect_pybind11 import Footprint, get_footprints  # type: ignore
-from scipy import stats
-from scipy.optimize import brentq
+from scipy import special
+from scipy.spatial import cKDTree
 
 from .bbox import Box, overlapped_slices
 from .image import Image
@@ -222,8 +222,7 @@ def get_wavelets(
 
 
 @deprecated(
-    reason="get_detect_wavelets is superseded by detect_peaks and will be "
-    "removed after v31.0.",
+    reason="get_detect_wavelets is superseded by detect_peaks and will be " "removed after v31.0.",
     version="v31.0",
     category=FutureWarning,
 )
@@ -385,7 +384,9 @@ def detect_footprints(
     return footprints
 
 
-# Record type for a peak candidate
+# Record type for a peak candidate: one local maximum in one plane
+# (band, scale) of the significance map that survived the plane's
+# contrast-limited watershed.
 CANDIDATE_DTYPE = np.dtype(
     [
         ("y", int),
@@ -393,24 +394,75 @@ CANDIDATE_DTYPE = np.dtype(
         ("band", int),
         ("scale", int),
         ("flux", float),
+        ("saddle", float),
+        ("position", int),
+    ]
+)
+
+# Record type for a unique candidate position, the intermediate between the
+# candidates and the final peaks.
+POSITION_DTYPE = np.dtype(
+    [
+        ("y", int),
+        ("x", int),
+        ("scale", int),
+        ("flux", float),
+        ("peak_sigma", float),
+        ("band_flags", int),
+        ("scale_flags", int),
+        ("plane_flags", np.int64),
+        ("n_candidates", int),
+        ("n_linked", int),
+        ("peak", int),
+    ]
+)
+
+# Record type for a final detection, one row per source.
+DETECTION_DTYPE = np.dtype(
+    [
+        ("y", int),
+        ("x", int),
+        ("scale", int),
+        ("flux", float),
+        ("peak_sigma", float),
+        ("band_flags", int),
+        ("scale_flags", int),
+        ("n_candidates", int),
+        ("n_positions", int),
+        ("n_ambiguous", int),
     ]
 )
 
 
 @dataclass
-class PeakCandidateResult:
-    """Peak candidates and the products used to detect them.
+class PeakDetectionResult:
+    """Detected peaks and the products used to detect them.
 
     Attributes
     ----------
+    peaks :
+        Structured array of detections with dtype `DETECTION_DTYPE`, one row
+        per source. Row ids link back to ``positions`` via
+        ``positions["peak"]``.
+    positions :
+        Structured array of unique candidate positions with dtype
+        `POSITION_DTYPE`, the intermediate between candidates and peaks. Row
+        ids link back to ``candidates`` via ``candidates["position"]``.
+        ``plane_flags`` is a bitmask of the planes (band, scale) the position
+        was a distinct peak in; ``n_linked`` is the number of peaks the
+        position could have joined (see ``_assign_peaks``), and ``peak`` is
+        -1 for a position that was not assigned to any peak.
     candidates :
         Structured array of peak candidates with dtype `CANDIDATE_DTYPE`.
         The same source is expected to appear multiple times, once per band
-        and scale it is significant in.
+        and scale it is significant in. ``saddle`` is the level at which the
+        candidate's basin joined a brighter candidate's basin in its plane
+        (NaN for the brightest candidate in a footprint).
     significance_map :
         The per-scale detection map from ``_build_significance_map``, with
-        shape ``(n_scales, n_bands + 1, Ny, Nx)``. Single-band planes are in
-        sigma; the final plane is the chi coadd.
+        shape ``(n_scales, n_bands + 1, Ny, Nx)``. Every plane is in units of
+        Gaussian sigma; the final plane is the clipped chi coadd mapped to
+        sigma.
     starlets :
         The multiband starlet coefficients, with shape
         ``(scales + 1, n_bands, Ny, Nx)``.
@@ -419,6 +471,8 @@ class PeakCandidateResult:
         ``(scales + 1, n_bands)``.
     """
 
+    peaks: np.ndarray
+    positions: np.ndarray
     candidates: np.ndarray
     significance_map: np.ndarray
     starlets: np.ndarray
@@ -518,8 +572,48 @@ def _build_detection_starlets(
     return starlets, sigma
 
 
-def _clipped_chi2_survival(chi2: np.ndarray | float, n_bands: int) -> np.ndarray | float:
-    """Survival function of the clipped chi-squared coadd under noise.
+def _log_gammaincc(a: float, z: np.ndarray) -> np.ndarray:
+    """Log of the regularized upper incomplete gamma function ``Q(a, z)``.
+
+    Parameters
+    ----------
+    a :
+        The shape parameter, ``a > 0``.
+    z :
+        The lower limit(s) of integration, ``z >= 0``.
+
+    Returns
+    -------
+    log_q :
+        ``log(Q(a, z))``, with the same shape as ``z``.
+
+    Notes
+    -----
+    ``scipy.special.gammaincc`` underflows to zero for ``z`` above a few
+    hundred, which would map every sufficiently bright pixel to the same
+    saturated significance. Above ``z = 500`` this uses the asymptotic
+    expansion
+    ``Q(a, z) ~ z**(a-1) exp(-z) / Gamma(a) * sum_m prod_{i<=m}(a-i) / z**m``,
+    whose truncation error at ``z >= 500`` is far below double precision for
+    any ``a`` of interest here (``a = k/2`` for ``k`` bands).
+    """
+    z = np.asarray(z, dtype=float)
+    out = np.empty(z.shape, dtype=float)
+    small = z < 500
+    out[small] = np.log(special.gammaincc(a, z[small]))
+    zl = z[~small]
+    if zl.size:
+        series = np.ones_like(zl)
+        term = np.ones_like(zl)
+        for m in range(1, 8):
+            term = term * (a - m) / zl
+            series += term
+        out[~small] = (a - 1) * np.log(zl) - zl - special.gammaln(a) + np.log(series)
+    return out
+
+
+def _chi2_log_survival(chi2: np.ndarray | float, n_bands: int) -> np.ndarray:
+    """Log survival function of the clipped chi-squared coadd under noise.
 
     Parameters
     ----------
@@ -530,15 +624,22 @@ def _clipped_chi2_survival(chi2: np.ndarray | float, n_bands: int) -> np.ndarray
 
     Returns
     -------
-    survival :
-        ``P(C > chi2)`` for pure noise, with the same shape as ``chi2``.
+    log_survival :
+        ``log P(C > chi2)`` for pure noise, with the shape of ``chi2``.
 
     Notes
     -----
     See ``_chi2_to_sigma`` for the derivation of this mixture of ``chi^2_k``
     survival functions weighted by the binomial coefficients ``C(n, k)/2**n``.
+    The mixture is evaluated in log space so it stays finite for arbitrarily
+    bright pixels; ``chi2_k.sf(x) = Q(k/2, x/2)``.
     """
-    return sum(comb(n_bands, k) * 2.0 ** (-n_bands) * stats.chi2.sf(chi2, k) for k in range(1, n_bands + 1))
+    z = np.asarray(chi2, dtype=float) / 2
+    log_norm = -n_bands * log(2)
+    terms = np.stack(
+        [log(comb(n_bands, k)) + log_norm + _log_gammaincc(k / 2, z) for k in range(1, n_bands + 1)]
+    )
+    return special.logsumexp(terms, axis=0)
 
 
 def _chi2_to_sigma(chi2: np.ndarray | float, n_bands: int) -> np.ndarray:
@@ -563,7 +664,7 @@ def _chi2_to_sigma(chi2: np.ndarray | float, n_bands: int) -> np.ndarray:
     -----
     For an unclipped chi-squared coadd with ``n_bands`` degrees of freedom,
     ``scipy.stats.chi2.sf(chi2, n)`` gives the probability that a pure-noise
-    pixel exceeds ``chi2``. However, ``_build_detection_starlets`` clips each
+    pixel exceeds ``chi2``. However, ``_build_significance_map`` clips each
     band's coefficients at zero before squaring to supress false detections
     from negative structure (wavelet sidelobes, oversubtracted sky, etc).
     This changes the noise distribution: each standardized coeffficent is in
@@ -571,52 +672,71 @@ def _chi2_to_sigma(chi2: np.ndarray | float, n_bands: int) -> np.ndarray:
     clipped to zero with probability 1/2, and the number of bands that
     contribute to the sum is binomially distributed. If ``k`` bands contribute,
     the sum is a ``chi^2_k`` deviate, so the probability that a noise pixel
-    exceeds ``chi2`` is the sum over ``k`` of ``stats.chi2.sf(chi2, k)``
-    weighted by the binomial probability ``C(n, k) / 2**n``. That probability
-    is converted to an equivalent Gaussian sigma with ``stats.norm.isf`` so
-    that thresholds are directly comparable to a single-band ``n``-sigma cut.
+    exceeds ``chi2`` is the sum over ``k`` of ``chi2_k.sf(chi2)`` weighted by
+    the binomial probability ``C(n, k) / 2**n``. That probability is converted
+    to an equivalent Gaussian sigma so that thresholds are directly comparable
+    to a single-band ``n``-sigma cut.
+
+    Due to divergence for large ``chi2``, instead of using scipy.stats.chi2
+    function directly, we calculate in log space (``_chi2_log_survival`` and
+    ``scipy.special.ndtri_exp``), so the mapping is strictly monotonic with no
+    saturation, however bright the pixel.
     """
-    # Floor the survival function to keep saturated cores finite. The Gaussian
-    # inverse saturates near 37 sigma, so this mapping is for reporting and
-    # display only; peaks are detected on the chi statistic itself
-    # (see `_find_peak_candidates`), which stays strictly monotonic.
-    survival = np.clip(_clipped_chi2_survival(chi2, n_bands), np.finfo(float).tiny, 1.0)
-    return stats.norm.isf(survival)
+    return -special.ndtri_exp(_chi2_log_survival(chi2, n_bands))
 
 
-def _sigma_to_chi2(sigma: float, n_bands: int) -> float:
-    """Convert a Gaussian sigma threshold to a chi-squared coadd threshold.
+def _chi_to_sigma(chi: np.ndarray, n_bands: int) -> np.ndarray:
+    """Map a clipped chi coadd plane to Gaussian sigma through a lookup table.
 
     Parameters
     ----------
-    sigma :
-        The desired detection threshold in Gaussian sigma (upper-tail).
+    chi :
+        The chi coadd ``sqrt(sum_b max(w_b, 0)**2)``; any shape.
     n_bands :
-        The number of bands combined into the chi-squared coadd.
+        The number of bands combined into ``chi``.
 
     Returns
     -------
-    chi2 :
-        The chi-squared coadd value with the same upper-tail probability as
-        ``sigma``, i.e. the inverse of ``_chi2_to_sigma``.
+    sigma :
+        ``_chi2_to_sigma(chi**2, n_bands)`` with the shape and dtype of
+        ``chi``, evaluated by linear interpolation of a table.
 
     Notes
     -----
-    The clipped chi-squared survival function (see ``_chi2_to_sigma``)
-    decreases monotonically, so the matching ``chi2`` is found by bracketing
-    the target upper-tail probability and refining with a root search.
-    Inverting the threshold once avoids mapping every pixel through
-    ``_chi2_to_sigma``, along with that mapping's saturation in bright cores.
+    ``chi -> sigma`` is a smooth, monotonic, one-dimensional function for a
+    fixed band count, so evaluating it on a few thousand grid points and
+    interpolating is far cheaper than evaluating the survival-function mixture
+    per pixel, and accurate to well below 1e-4 sigma. The grid is dense where
+    the function has curvature (``chi < 64``) and geometric beyond, where
+    ``sigma`` approaches ``chi`` minus a slowly varying offset.
     """
-    target = stats.norm.sf(sigma)
-    hi = 2.0
-    # Brent's method requires an interval [a, b] where the function changes
-    # sign, so the root is guaranteed to lie between 0 and `hi`.
-    # This loop ensures that the upper bound `hi` is large enough so that
-    # the surivival function at `hi` is below the target sigma.
-    while _clipped_chi2_survival(hi, n_bands) > target and hi < 1e12:
-        hi *= 2
-    return float(brentq(lambda chi2: _clipped_chi2_survival(chi2, n_bands) - target, 0.0, hi))
+    chi_max = float(np.nanmax(chi)) if chi.size else 1.0
+    n_dense = 4096
+    dense_max = 64.0
+    grid = np.linspace(0.0, dense_max, n_dense + 1)
+    table = _chi2_to_sigma(grid**2, n_bands)
+
+    # The dense grid is uniform, so interpolate by direct indexing (a bin
+    # search per pixel with np.interp is ~10x slower on a full image).
+    invalid = np.isnan(chi)
+    t = np.clip(chi, 0, dense_max) * (n_dense / dense_max)
+    if invalid.any():
+        t[invalid] = 0.0
+    idx = t.astype(np.intp)
+    np.minimum(idx, n_dense - 1, out=idx)
+    frac = t - idx
+    sigma = table[idx]
+    sigma += frac * (table[idx + 1] - sigma)
+    if invalid.any():
+        sigma[invalid] = np.nan
+
+    if chi_max > dense_max:
+        # Bright pixels are rare; a geometric grid and np.interp are fine here.
+        bright = chi > dense_max
+        grid_hi = np.geomspace(dense_max, chi_max * 1.01, 513)
+        table_hi = _chi2_to_sigma(grid_hi**2, n_bands)
+        sigma[bright] = np.interp(chi[bright], grid_hi, table_hi)
+    return sigma.astype(chi.dtype, copy=False)
 
 
 def _build_significance_map(
@@ -645,14 +765,16 @@ def _build_significance_map(
         where ``n_scales = scales - first_scale``. The first ``n_bands``
         planes are the standardized single-band coefficients, in units of
         Gaussian sigma. The last plane is the clipped chi coadd
-        ``sqrt(sum_b max(w_b, 0)**2)``.
+        ``sqrt(sum_b max(w_b, 0)**2)`` mapped to Gaussian sigma with
+        ``_chi_to_sigma``, so every plane is on the same footing and a
+        single threshold or contrast applies to all of them.
 
     Notes
     -----
     We clip the standardized single-band coefficients at zero before computing
-    the chi coadd, to avoid negative contributions. This adds computational
-    complexity (see `chi2_t_sigma`) at the benefit of reducing our false
-    positive detections.
+    the chi coadd, to avoid negative contributions. This changes the noise
+    distribution of the coadd (see ``_chi2_to_sigma``), which is why the coadd
+    is mapped to sigma rather than used directly.
     """
     _, n_bands, height, width = starlets.shape
     scale_slice = slice(first_scale, -1)
@@ -663,7 +785,8 @@ def _build_significance_map(
     significance_map = np.zeros((n_scales, n_bands + 1, height, width), dtype=np.float32)
     standardized = coeffs / scale_sigma[..., None, None]
     significance_map[:, :n_bands] = standardized
-    significance_map[:, n_bands] = np.sqrt(np.sum(np.clip(standardized, 0, None) ** 2, axis=1))
+    chi = np.sqrt(np.sum(np.clip(standardized, 0, None) ** 2, axis=1))
+    significance_map[:, n_bands] = _chi_to_sigma(chi, n_bands)
     return significance_map
 
 
@@ -673,6 +796,7 @@ def _find_peak_candidates(
     min_area: int = 4,
     peak_thresh: float = 3,
     footprint_thresh: float = 2,
+    kappa: float = 3,
     first_scale: int = 1,
     origin: tuple[int, int] = (0, 0),
 ) -> np.ndarray:
@@ -681,19 +805,24 @@ def _find_peak_candidates(
     Parameters
     ----------
     significance_map :
-        A detection map from ``_build_significance_map``. The single-band
-        planes are in sigma and the final plane is the chi coadd.
+        A detection map from ``_build_significance_map``, with every plane
+        in sigma.
     min_separation :
-        The minimum separation between peaks in pixels.
-        By default there is no minimum separation, relying on our linking
-        procedure to merge detections within the same band and scale as
-        well across other bands and scales.
+        A hard floor on the separation between peaks in a plane, in pixels.
+        Peaks closer than this to a brighter peak are dropped regardless of
+        the contrast test; ``0`` disables it.
     min_area :
         The minimum area of a footprint in pixels.
     peak_thresh :
         The peak detection threshold, in sigma.
     footprint_thresh :
         The footprint detection threshold, in sigma.
+    kappa :
+        The minimum prominence of a peak, in sigma: the peak must rise at
+        least ``kappa`` above the saddle connecting it to any brighter peak
+        in its footprint, otherwise it is a bump on that peak's flank and is
+        culled. This is what makes two candidates in the same plane distinct
+        sources (see ``_assign_peaks``).
     first_scale :
         The first starlet scale in ``significance_map``, used to label the
         ``scale`` field of each candidate.
@@ -707,34 +836,334 @@ def _find_peak_candidates(
         ``flux`` field is the peak significance in sigma for every plane.
     """
     y0, x0 = origin
-    n_bands = significance_map.shape[1] - 1
-    # The chi plane is thresholded in chi units so its bright cores stay
-    # strictly peaked; single-band planes are already in sigma.
-    chi_peak = np.sqrt(_sigma_to_chi2(peak_thresh, n_bands))
-    chi_footprint = np.sqrt(_sigma_to_chi2(footprint_thresh, n_bands))
-
     candidates = []
     for scale_index, scale_planes in enumerate(significance_map):
         scale = scale_index + first_scale
         for band, plane in enumerate(scale_planes):
-            is_chi = band == n_bands
             footprints = get_footprints(
                 plane,
                 min_separation,
                 min_area,
-                chi_peak if is_chi else peak_thresh,
-                chi_footprint if is_chi else footprint_thresh,
+                peak_thresh,
+                footprint_thresh,
                 True,
                 y0,
                 x0,
+                kappa,
             )
             for footprint in footprints:
                 for peak in footprint.peaks:
-                    # Report every plane's peak in sigma; the chi value maps
-                    # back through the coadd survival function.
-                    flux = float(_chi2_to_sigma(peak.flux**2, n_bands)) if is_chi else peak.flux
-                    candidates.append((peak.y, peak.x, band, scale, flux))
+                    # position is -1 until _collapse_positions fills it.
+                    candidates.append((peak.y, peak.x, band, scale, peak.flux, peak.saddle, -1))
     return np.array(candidates, dtype=CANDIDATE_DTYPE)
+
+
+def _plane_flags(candidates: np.ndarray, n_bands: int, first_scale: int) -> np.ndarray:
+    """One bit per plane ``(band, scale)`` for each candidate.
+
+    Parameters
+    ----------
+    candidates :
+        Structured array of candidates with dtype `CANDIDATE_DTYPE`.
+    n_bands :
+        The number of single-band planes (the chi plane is ``band ==
+        n_bands``).
+    first_scale :
+        The first starlet scale in the significance map.
+
+    Returns
+    -------
+    flags :
+        ``1 << plane`` for each candidate, where
+        ``plane = (scale - first_scale) * (n_bands + 1) + band``.
+
+    Raises
+    ------
+    ValueError
+        Raised if there are more than 63 planes.
+    """
+    n_planes = int(candidates["scale"].max() - first_scale + 1) * (n_bands + 1) if len(candidates) else 0
+    if n_planes > 63:
+        raise ValueError(f"plane_flags supports at most 63 planes, got {n_planes}")
+    plane = (candidates["scale"] - first_scale) * (n_bands + 1) + candidates["band"]
+    return np.left_shift(np.int64(1), plane.astype(np.int64))
+
+
+def _collapse_positions(candidates: np.ndarray, n_bands: int, first_scale: int) -> np.ndarray:
+    """Collapse candidates to unique positions, filling their ``position``.
+
+    Parameters
+    ----------
+    candidates :
+        Structured array of candidates with dtype `CANDIDATE_DTYPE`. The
+        ``position`` field is filled in place.
+    n_bands :
+        The number of single-band planes.
+    first_scale :
+        The first starlet scale in the significance map.
+
+    Returns
+    -------
+    positions :
+        The unique positions with dtype `POSITION_DTYPE`, sorted by
+        ``(y, x)``. ``n_linked`` and ``peak`` are left for ``_assign_peaks``.
+
+    Notes
+    -----
+    Everything here is a grouped reduction over the candidates, done with
+    ``np.ufunc.at`` and one lexsort rather than a loop over positions, so
+    the cost is linear in the number of candidates.
+    """
+    yx = np.column_stack([candidates["y"], candidates["x"]])
+    unique_yx, inverse, counts = np.unique(yx, axis=0, return_inverse=True, return_counts=True)
+    inverse = np.asarray(inverse).ravel()
+    n = len(unique_yx)
+    candidates["position"] = inverse
+
+    positions = np.zeros(n, dtype=POSITION_DTYPE)
+    positions["y"] = unique_yx[:, 0]
+    positions["x"] = unique_yx[:, 1]
+    positions["n_candidates"] = counts
+    positions["peak"] = -1
+
+    band_flags = np.zeros(n, dtype=np.int64)
+    np.bitwise_or.at(band_flags, inverse, np.left_shift(np.int64(1), candidates["band"].astype(np.int64)))
+    scale_flags = np.zeros(n, dtype=np.int64)
+    np.bitwise_or.at(scale_flags, inverse, np.left_shift(np.int64(1), candidates["scale"].astype(np.int64)))
+    plane_flags = np.zeros(n, dtype=np.int64)
+    np.bitwise_or.at(plane_flags, inverse, _plane_flags(candidates, n_bands, first_scale))
+    positions["band_flags"] = band_flags
+    positions["scale_flags"] = scale_flags
+    positions["plane_flags"] = plane_flags
+
+    scale = np.full(n, np.iinfo(int).max, dtype=int)
+    np.minimum.at(scale, inverse, candidates["scale"])
+    positions["scale"] = scale
+    peak_sigma = np.full(n, -np.inf)
+    np.maximum.at(peak_sigma, inverse, candidates["flux"])
+    positions["peak_sigma"] = peak_sigma
+
+    # flux is the brightest candidate at the finest scale of each position:
+    # sort by (position, scale, -flux) and take the first row per position.
+    order = np.lexsort((-candidates["flux"], candidates["scale"], inverse))
+    sorted_inverse = inverse[order]
+    first = np.ones(len(order), dtype=bool)
+    first[1:] = sorted_inverse[1:] != sorted_inverse[:-1]
+    positions["flux"][sorted_inverse[first]] = candidates["flux"][order][first]
+    return positions
+
+
+def _link_radius(scale: int | np.ndarray, psf_fwhm: float) -> float | np.ndarray:
+    """Linking radius for a position at a given starlet scale.
+
+    Parameters
+    ----------
+    scale :
+        The absolute starlet scale of the position (scalar or array).
+    psf_fwhm :
+        The PSF FWHM in pixels, used as a floor at the finest scales.
+
+    Returns
+    -------
+    radius :
+        The radius in pixels, ``max(psf_fwhm, 2**scale)``.
+    """
+    return np.maximum(psf_fwhm, 2.0 ** np.asarray(scale, dtype=float))
+
+
+def _assign_peaks(
+    positions: np.ndarray,
+    psf_fwhm: float,
+    blend_policy: str = "nearest",
+) -> tuple[np.ndarray, np.ndarray]:
+    """Assign positions to peaks, filling their ``peak`` and ``n_linked``.
+
+    Parameters
+    ----------
+    positions :
+        The unique positions with dtype `POSITION_DTYPE`. ``peak`` and
+        ``n_linked`` are filled in place.
+    psf_fwhm :
+        The PSF FWHM in pixels, passed to ``_link_radius``.
+    blend_policy :
+        What to do with a position that could join two or more existing
+        peaks: ``"nearest"`` joins the one with the nearest seed, ``"drop"``
+        leaves it unassigned (``peak == -1``).
+
+    Returns
+    -------
+    seeds :
+        For each peak, the index of the position that seeded it. This is the
+        peak's finest-scale, brightest position and defines its location.
+    peak_of :
+        ``positions["peak"]``, for convenience.
+
+    Notes
+    -----
+    Two positions are *distinct* if they were both peaks in the same plane
+    ``(band, scale)`` (the plane's contrast-limited watershed already
+    established a significant saddle between them), i.e. if their
+    ``plane_flags`` share a bit. Positions are visited finest scale first,
+    brightest first within a scale, and each one joins the nearest existing
+    peak that lies within the linking radius and contains no position it is
+    distinct from; if there is none it seeds a new peak.
+
+    Because a position never joins a peak containing a position it is
+    distinct from, two distinct positions can never share a peak, however
+    many other positions either of them merges with. Together with the
+    watershed this gives the invariant that matters: a pair resolved as two
+    peaks in any plane is two peaks in the output.
+
+    ``n_linked`` counts the peaks a position was eligible to join. A value of
+    two or more means the position (typically a coarse-scale peak sitting
+    between two finer ones) is ambiguous between several sources, and its
+    assignment was decided by ``blend_policy``; downstream code can treat it
+    as a blend rather than a measurement of whichever peak it landed in.
+
+    The loop is sequential (each decision depends on the peaks already
+    seeded) and costs a few tens of microseconds per position in Python; if
+    it ever dominates it ports directly to C++ with the same structure.
+    """
+    n = len(positions)
+    peak_of = np.full(n, -1, dtype=int)
+    n_linked = np.zeros(n, dtype=int)
+    seeds: list[int] = []
+    if n == 0:
+        positions["peak"] = peak_of
+        positions["n_linked"] = n_linked
+        return np.array(seeds, dtype=int), peak_of
+    if blend_policy not in ("nearest", "drop"):
+        raise ValueError(f"blend_policy must be 'nearest' or 'drop', got {blend_policy!r}")
+
+    yx = np.column_stack([positions["y"], positions["x"]]).astype(float)
+    radii: np.ndarray = cast(np.ndarray, _link_radius(positions["scale"], psf_fwhm))
+    flags = positions["plane_flags"]
+    neighbors = cKDTree(yx).query_ball_point(yx, float(radii.max()))
+    order = np.lexsort((-positions["peak_sigma"], positions["scale"]))
+    is_seed = np.zeros(n, dtype=bool)
+    members: list[list[int]] = []
+
+    for i in order:
+        yx_i = yx[i]
+        radius = radii[i]
+        flag = flags[i]
+        # Eligible peaks, keyed by peak id, with squared distance to the seed.
+        eligible: dict[int, float] = {}
+        for k in neighbors[i]:
+            if not is_seed[k]:
+                continue
+            d = yx[k] - yx_i
+            d2 = d[0] ** 2 + d[1] ** 2
+            r = max(radius, radii[k])
+            if d2 > r**2:
+                continue
+            pk = peak_of[k]
+            if any(flag & flags[m] for m in members[pk]):
+                continue  # distinct from a member of this peak
+            eligible[pk] = d2
+        n_linked[i] = len(eligible)
+        if len(eligible) == 0:
+            peak_of[i] = len(members)
+            is_seed[i] = True
+            seeds.append(i)
+            members.append([i])
+        elif len(eligible) == 1 or blend_policy == "nearest":
+            pk = min(eligible, key=eligible.__getitem__)
+            peak_of[i] = pk
+            members[pk].append(i)
+        # else: "drop" with several eligible peaks; leave unassigned.
+
+    positions["peak"] = peak_of
+    positions["n_linked"] = n_linked
+    return np.array(seeds, dtype=int), peak_of
+
+
+def _build_detections(positions: np.ndarray, seeds: np.ndarray) -> np.ndarray:
+    """Reduce assigned positions to one detection record per peak.
+
+    Parameters
+    ----------
+    positions :
+        The positions with ``peak`` and ``n_linked`` filled by
+        ``_assign_peaks``.
+    seeds :
+        The seed position of each peak, from ``_assign_peaks``.
+
+    Returns
+    -------
+    peaks :
+        The detections with dtype `DETECTION_DTYPE`. The position, finest
+        scale and ``flux`` come from the seed; the flags and counts are
+        reductions over all of the peak's positions.
+    """
+    n_peaks = len(seeds)
+    peaks = np.zeros(n_peaks, dtype=DETECTION_DTYPE)
+    if n_peaks == 0:
+        return peaks
+    assigned = positions["peak"] >= 0
+    members = positions[assigned]
+    peak_of = members["peak"]
+
+    peaks["y"] = positions["y"][seeds]
+    peaks["x"] = positions["x"][seeds]
+    peaks["scale"] = positions["scale"][seeds]
+    peaks["flux"] = positions["flux"][seeds]
+
+    peak_sigma = np.full(n_peaks, -np.inf)
+    np.maximum.at(peak_sigma, peak_of, members["peak_sigma"])
+    peaks["peak_sigma"] = peak_sigma
+    band_flags = np.zeros(n_peaks, dtype=np.int64)
+    np.bitwise_or.at(band_flags, peak_of, members["band_flags"].astype(np.int64))
+    peaks["band_flags"] = band_flags
+    scale_flags = np.zeros(n_peaks, dtype=np.int64)
+    np.bitwise_or.at(scale_flags, peak_of, members["scale_flags"].astype(np.int64))
+    peaks["scale_flags"] = scale_flags
+    peaks["n_candidates"] = np.bincount(peak_of, weights=members["n_candidates"], minlength=n_peaks).astype(
+        int
+    )
+    peaks["n_positions"] = np.bincount(peak_of, minlength=n_peaks)
+    peaks["n_ambiguous"] = np.bincount(peak_of, weights=members["n_linked"] > 1, minlength=n_peaks).astype(
+        int
+    )
+    return peaks
+
+
+def _group_peaks(
+    candidates: np.ndarray,
+    n_bands: int,
+    first_scale: int,
+    psf_fwhm: float,
+    blend_policy: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Collapse candidates to positions and link positions into detections.
+
+    Parameters
+    ----------
+    candidates :
+        Structured array of candidates with dtype `CANDIDATE_DTYPE`. The
+        ``position`` field is filled in place.
+    n_bands :
+        The number of single-band planes.
+    first_scale :
+        The first starlet scale in the significance map.
+    psf_fwhm :
+        The PSF FWHM in pixels, passed to ``_link_radius``.
+    blend_policy :
+        Passed to ``_assign_peaks``.
+
+    Returns
+    -------
+    positions :
+        The unique positions with dtype `POSITION_DTYPE`.
+    peaks :
+        The detections with dtype `DETECTION_DTYPE`.
+    """
+    if len(candidates) == 0:
+        return np.empty(0, dtype=POSITION_DTYPE), np.empty(0, dtype=DETECTION_DTYPE)
+    positions = _collapse_positions(candidates, n_bands, first_scale)
+    seeds, _ = _assign_peaks(positions, psf_fwhm, blend_policy)
+    peaks = _build_detections(positions, seeds)
+    return positions, peaks
 
 
 def detect_peaks(
@@ -748,8 +1177,11 @@ def detect_peaks(
     min_area: int = 4,
     peak_thresh: float = 3,
     footprint_thresh: float = 2,
-) -> PeakCandidateResult:
-    """Detect peak candidates across bands and starlet scales.
+    psf_fwhm: float = 3.5,
+    kappa: float = 3.0,
+    blend_policy: str = "nearest",
+) -> PeakDetectionResult:
+    """Detect peaks across bands and starlet scales.
 
     Parameters
     ----------
@@ -766,18 +1198,27 @@ def detect_peaks(
     origin :
         The ``(y, x)`` location of the lower corner of the image.
     min_separation :
-        The minimum separation between peaks in pixels.
+        A hard floor on the separation between peaks within a plane, in
+        pixels; ``0`` disables it and relies on ``kappa`` alone.
     min_area :
         The minimum area of a footprint in pixels.
     peak_thresh :
         The peak detection threshold, in sigma.
     footprint_thresh :
         The footprint detection threshold, in sigma.
+    psf_fwhm :
+        The PSF FWHM in pixels, used as a floor on the linking radius.
+    kappa :
+        The minimum prominence in sigma of a peak above its saddle to a
+        brighter peak in the same plane; smaller bumps are culled.
+    blend_policy :
+        How to assign a position that could join several peaks; see
+        ``_assign_peaks``.
 
     Returns
     -------
     result :
-        The peak candidates and the intermediate detection products.
+        The detected peaks and the intermediate detection products.
     """
     if origin is None:
         origin = (0, 0)
@@ -794,10 +1235,15 @@ def detect_peaks(
         min_area,
         peak_thresh,
         footprint_thresh,
+        kappa,
         first_scale,
         origin,
     )
-    return PeakCandidateResult(
+    n_bands = significance_map.shape[1] - 1
+    positions, peaks = _group_peaks(candidates, n_bands, first_scale, psf_fwhm, blend_policy)
+    return PeakDetectionResult(
+        peaks=peaks,
+        positions=positions,
         candidates=candidates,
         significance_map=significance_map,
         starlets=starlets,
