@@ -29,6 +29,7 @@ from lsst.scarlet.lite.detect import (
     POSITION_DTYPE,
     _assign_peaks,
     _build_detection_starlets,
+    _build_footprints,
     _build_significance_map,
     _chi2_log_survival,
     _chi2_to_sigma,
@@ -557,7 +558,7 @@ class TestPeakDetection(ScarletTestCase):
             -((yy - chi_center[0]) ** 2 + (xx - chi_center[1]) ** 2) / (2 * 2.0**2)
         )
 
-        candidates = _find_peak_candidates(
+        candidates, footprint_mask = _find_peak_candidates(
             significance_map,
             min_separation=1,
             min_area=1,
@@ -566,6 +567,10 @@ class TestPeakDetection(ScarletTestCase):
             first_scale=1,
         )
         self.assertEqual(candidates.dtype, CANDIDATE_DTYPE)
+        # The mask is the union of both planes' footprints above
+        # footprint_thresh.
+        self.assertEqual(footprint_mask.shape, (ny, nx))
+        assert_array_equal(footprint_mask, np.any(significance_map[0] > 3, axis=0))
         # The empty middle band contributes nothing.
         self.assertEqual(np.sum(candidates["band"] == 1), 0)
         # Candidates are labeled with the offset starlet scale.
@@ -595,14 +600,14 @@ class TestPeakDetection(ScarletTestCase):
         significance_map[0, 0, 2] = profile
 
         # kappa=0 keeps both local maxima.
-        low = _find_peak_candidates(
+        low, _ = _find_peak_candidates(
             significance_map, min_separation=0, min_area=1, peak_thresh=1, footprint_thresh=0.5, kappa=0.0
         )
         self.assertEqual(np.sum(low["band"] == 0), 2)
 
         # kappa=3 culls the flank bump; it rises less than 3 sigma above the
         # saddle to the brighter peak.
-        high = _find_peak_candidates(
+        high, _ = _find_peak_candidates(
             significance_map, min_separation=0, min_area=1, peak_thresh=1, footprint_thresh=0.5, kappa=3.0
         )
         band0 = high[high["band"] == 0]
@@ -611,8 +616,90 @@ class TestPeakDetection(ScarletTestCase):
 
     def test_find_peak_candidates_empty(self):
         significance_map = np.zeros((2, 3, 32, 32), dtype=np.float32)
-        candidates = _find_peak_candidates(significance_map, peak_thresh=5, footprint_thresh=3)
+        candidates, footprint_mask = _find_peak_candidates(
+            significance_map, peak_thresh=5, footprint_thresh=3
+        )
         self.assertEqual(len(candidates), 0)
+        self.assertEqual(footprint_mask.shape, (32, 32))
+        self.assertFalse(footprint_mask.any())
+
+    def test_find_peak_candidates_mask_excludes_peakless(self):
+        # A significant blob with no pixel above peak_thresh yields no
+        # candidate and contributes nothing to the mask.
+        significance_map = np.zeros((1, 1, 20, 20), dtype=np.float32)
+        significance_map[0, 0, 5:9, 5:9] = 4.0
+        significance_map[0, 0, 12:16, 12:16] = 8.0
+        candidates, footprint_mask = _find_peak_candidates(
+            significance_map, min_area=1, peak_thresh=5, footprint_thresh=3
+        )
+        self.assertEqual(len(candidates), 1)
+        truth = np.zeros((20, 20), dtype=bool)
+        truth[12:16, 12:16] = True
+        assert_array_equal(footprint_mask, truth)
+
+    def _make_peaks(self, rows):
+        """Build detections from ``(y, x, peak_sigma)`` rows."""
+        peaks = np.zeros(len(rows), dtype=DETECTION_DTYPE)
+        for i, (y, x, peak_sigma) in enumerate(rows):
+            peaks[i]["y"] = y
+            peaks[i]["x"] = x
+            peaks[i]["peak_sigma"] = peak_sigma
+            peaks[i]["footprint"] = -1
+        return peaks
+
+    def test_build_footprints(self):
+        origin = (100, 200)
+        mask = np.zeros((20, 30), dtype=bool)
+        # Two components: one holding two peaks, one holding a single peak,
+        # and a third with no peak at all.
+        mask[2:6, 3:12] = True
+        mask[10:14, 20:25] = True
+        mask[15:18, 2:5] = True
+        peaks = self._make_peaks(
+            [
+                (100 + 3, 200 + 5, 6.0),
+                (100 + 11, 200 + 22, 9.0),
+                (100 + 4, 200 + 10, 7.5),
+            ]
+        )
+
+        footprints = _build_footprints(mask, peaks, origin)
+
+        # The peakless component is dropped.
+        self.assertEqual(len(footprints), 2)
+        # Every peak is placed in the footprint that contains it.
+        for row, peak in enumerate(peaks):
+            footprint = footprints[peak["footprint"]]
+            self.assertTrue(footprint.bbox.contains((peak["y"], peak["x"])))
+            self.assertTrue(footprint.data[peak["y"] - footprint.yx0[0], peak["x"] - footprint.yx0[1]])
+        self.assertEqual(peaks["footprint"][0], peaks["footprint"][2])
+        self.assertNotEqual(peaks["footprint"][0], peaks["footprint"][1])
+
+        # Peaks within a footprint are brightest first with the detection's
+        # peak_sigma as their flux.
+        pair = footprints[peaks["footprint"][0]]
+        self.assertEqual([(p.y, p.x) for p in pair.peaks], [(104, 210), (103, 205)])
+        assert_allclose([p.flux for p in pair.peaks], [7.5, 6.0])
+        single = footprints[peaks["footprint"][1]]
+        self.assertEqual([(p.y, p.x) for p in single.peaks], [(111, 222)])
+
+        # The footprint pixels are the component of the mask, in absolute
+        # coordinates.
+        self.assertBoxEqual(pair.bbox, Box((4, 9), origin=(102, 203)))
+        assert_array_equal(pair.data, mask[2:6, 3:12])
+        self.assertBoxEqual(single.bbox, Box((4, 5), origin=(110, 220)))
+
+    def test_build_footprints_empty(self):
+        mask = np.zeros((8, 8), dtype=bool)
+        mask[2:4, 2:4] = True
+        self.assertEqual(_build_footprints(mask, np.empty(0, dtype=DETECTION_DTYPE)), [])
+
+    def test_build_footprints_peak_outside_mask(self):
+        mask = np.zeros((8, 8), dtype=bool)
+        mask[2:4, 2:4] = True
+        peaks = self._make_peaks([(6, 6, 5.0)])
+        with self.assertRaises(RuntimeError):
+            _build_footprints(mask, peaks)
 
     def _make_candidates(self, rows):
         """Build a candidate array from ``(y, x, band, scale, flux)`` rows."""
@@ -749,6 +836,47 @@ class TestPeakDetection(ScarletTestCase):
         self.assertEqual(peak["band_flags"], expected_bands)
         self.assertNotEqual(peak["scale_flags"], 0)
 
+        # Each well-separated source gets its own footprint holding its peak.
+        self.assertEqual(len(result.footprints), len(self.centers))
+        assert_array_equal(np.sort(result.peaks["footprint"]), np.arange(len(self.centers)))
+        for peak in result.peaks:
+            footprint = result.footprints[peak["footprint"]]
+            self.assertEqual(len(footprint.peaks), 1)
+            self.assertEqual((footprint.peaks[0].y, footprint.peaks[0].x), (peak["y"], peak["x"]))
+            self.assertEqual(footprint.peaks[0].flux, peak["peak_sigma"])
+            self.assertTrue(footprint.data[peak["y"] - footprint.yx0[0], peak["x"] - footprint.yx0[1]])
+
+    def test_detect_peaks_footprints_offset_origin(self):
+        origin = (1000, 2000)
+        result = detect_peaks(
+            self.images, self.variance, scales=3, peak_thresh=5, footprint_thresh=3, origin=origin
+        )
+        reference = detect_peaks(self.images, self.variance, scales=3, peak_thresh=5, footprint_thresh=3)
+        self.assertEqual(len(result.footprints), len(reference.footprints))
+        for footprint, ref in zip(result.footprints, reference.footprints):
+            self.assertBoxEqual(footprint.bbox, ref.bbox + origin)
+            assert_array_equal(footprint.data, ref.data)
+            self.assertEqual(
+                [(p.y, p.x) for p in footprint.peaks],
+                [(p.y + origin[0], p.x + origin[1]) for p in ref.peaks],
+            )
+
+    def test_detect_peaks_blend_shares_footprint(self):
+        # Two sources close enough that their footprints touch but far
+        # enough apart to be resolved land in one footprint with two peaks.
+        rng = np.random.default_rng(7)
+        shape = (48, 48)
+        yy, xx = np.mgrid[0 : shape[0], 0 : shape[1]]
+        images = rng.standard_normal((self.n_bands,) + shape).astype(np.float32)
+        for cy, cx in [(24, 18), (24, 30)]:
+            images += 40.0 * np.exp(-((yy - cy) ** 2 + (xx - cx) ** 2) / (2 * 2.5**2)).astype(np.float32)
+        variance = np.ones_like(images)
+        result = detect_peaks(images, variance, scales=3, peak_thresh=5, footprint_thresh=3)
+        self.assertEqual(len(result.peaks), 2)
+        self.assertEqual(len(result.footprints), 1)
+        assert_array_equal(result.peaks["footprint"], 0)
+        self.assertEqual(len(result.footprints[0].peaks), 2)
+
     def test_detect_peaks_retraceable(self):
         result = detect_peaks(self.images, self.variance, scales=3, peak_thresh=5, footprint_thresh=3)
         # Every position is assigned to a peak in this clean blend.
@@ -771,5 +899,6 @@ class TestPeakDetection(ScarletTestCase):
         self.assertEqual(len(result.candidates), 0)
         self.assertEqual(len(result.positions), 0)
         self.assertEqual(len(result.peaks), 0)
+        self.assertEqual(result.footprints, [])
         self.assertEqual(result.peaks.dtype, DETECTION_DTYPE)
         self.assertEqual(result.positions.dtype, POSITION_DTYPE)

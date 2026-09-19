@@ -28,7 +28,7 @@ from typing import Sequence, cast
 
 import numpy as np
 from deprecated.sphinx import deprecated  # type: ignore
-from lsst.scarlet.lite.detect_pybind11 import Footprint, get_footprints  # type: ignore
+from lsst.scarlet.lite.detect_pybind11 import Footprint, Peak, get_footprints  # type: ignore
 from scipy import special
 from scipy.spatial import cKDTree
 
@@ -430,6 +430,7 @@ DETECTION_DTYPE = np.dtype(
         ("n_candidates", int),
         ("n_positions", int),
         ("n_ambiguous", int),
+        ("footprint", int),
     ]
 )
 
@@ -443,7 +444,13 @@ class PeakDetectionResult:
     peaks :
         Structured array of detections with dtype `DETECTION_DTYPE`, one row
         per source. Row ids link back to ``positions`` via
-        ``positions["peak"]``.
+        ``positions["peak"]``; ``footprint`` is the index into
+        ``footprints`` of the footprint containing the peak.
+    footprints :
+        The detected footprints, each holding the `Peak` objects of the
+        detections inside it, brightest first. Every peak lies in exactly
+        one footprint and every footprint holds at least one peak (see
+        ``_build_footprints``).
     positions :
         Structured array of unique candidate positions with dtype
         `POSITION_DTYPE`, the intermediate between candidates and peaks. Row
@@ -472,6 +479,7 @@ class PeakDetectionResult:
     """
 
     peaks: np.ndarray
+    footprints: list[Footprint]
     positions: np.ndarray
     candidates: np.ndarray
     significance_map: np.ndarray
@@ -799,7 +807,7 @@ def _find_peak_candidates(
     kappa: float = 3,
     first_scale: int = 1,
     origin: tuple[int, int] = (0, 0),
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     """Find peak candidates in each plane of a significance map.
 
     Parameters
@@ -834,8 +842,13 @@ def _find_peak_candidates(
     candidates :
         Structured array of candidates with dtype `CANDIDATE_DTYPE`. The
         ``flux`` field is the peak significance in sigma for every plane.
+    footprint_mask :
+        Boolean image with the spatial shape of ``significance_map`` that is
+        `True` in every pixel of any plane's footprint that has a peak.
     """
     y0, x0 = origin
+    height, width = significance_map.shape[-2:]
+    footprint_mask = np.zeros((height, width), dtype=bool)
     candidates = []
     for scale_index, scale_planes in enumerate(significance_map):
         scale = scale_index + first_scale
@@ -852,10 +865,12 @@ def _find_peak_candidates(
                 kappa,
             )
             for footprint in footprints:
+                bottom, top, left, right = footprint.bounds
+                footprint_mask[bottom - y0 : top - y0 + 1, left - x0 : right - x0 + 1] |= footprint.data
                 for peak in footprint.peaks:
                     # position is -1 until _collapse_positions fills it.
                     candidates.append((peak.y, peak.x, band, scale, peak.flux, peak.saddle, -1))
-    return np.array(candidates, dtype=CANDIDATE_DTYPE)
+    return np.array(candidates, dtype=CANDIDATE_DTYPE), footprint_mask
 
 
 def _plane_flags(candidates: np.ndarray, n_bands: int, first_scale: int) -> np.ndarray:
@@ -1128,6 +1143,85 @@ def _build_detections(positions: np.ndarray, seeds: np.ndarray) -> np.ndarray:
     return peaks
 
 
+def _build_footprints(
+    footprint_mask: np.ndarray,
+    peaks: np.ndarray,
+    origin: tuple[int, int] = (0, 0),
+) -> list[Footprint]:
+    """Split the footprint mask into footprints and place the peaks in them.
+
+    Parameters
+    ----------
+    footprint_mask :
+        The union of the per-plane footprints from ``_find_peak_candidates``.
+    peaks :
+        The detections with dtype `DETECTION_DTYPE`. The ``footprint`` field
+        is filled in place.
+    origin :
+        The ``(y, x)`` location of the lower corner of ``footprint_mask``.
+
+    Returns
+    -------
+    footprints :
+        The connected components of ``footprint_mask`` that contain at least
+        one peak, each holding a `Peak` per detection inside it, brightest
+        first. The `Peak` flux is the detection's ``peak_sigma``.
+
+    Raises
+    ------
+    RuntimeError
+        Raised if a peak lies outside every footprint. Every peak is seeded by
+        a candidate inside one of the per-plane footprints, so this indicates
+        a bug upstream.
+
+    Notes
+    -----
+    Per-plane footprints of the same source differ in extent (and may be
+    split or merged) from one plane to the next, so a footprint is identified
+    with a source only after the peaks are grouped: the mask is relabeled into
+    4-connected components and each peak is looked up in the component that
+    contains it. A component whose candidates were all linked to a peak
+    seeded in another component ends up with no peak and is dropped, so
+    ``footprints`` never holds an empty footprint.
+    """
+    y0, x0 = origin
+    if len(peaks) == 0:
+        return []
+    components = get_footprints(
+        footprint_mask.astype(np.float32),
+        min_separation=0,
+        min_area=1,
+        peak_thresh=0,
+        footprint_thresh=0.5,
+        find_peaks=False,
+        y0=y0,
+        x0=x0,
+    )
+    bbox = Box(footprint_mask.shape, origin=origin)
+    # Labels are the component index plus one, zero outside every footprint.
+    labels = footprints_to_image(components, bbox).data
+    component_of = labels[peaks["y"] - y0, peaks["x"] - x0] - 1
+    if np.any(component_of < 0):
+        raise RuntimeError("A detected peak lies outside every footprint")
+
+    # Brightest first within a footprint, matching get_footprints.
+    order = np.lexsort((-peaks["peak_sigma"], component_of))
+    footprints: list[Footprint] = []
+    footprint_of = np.empty(len(peaks), dtype=int)
+    last = -1
+    for row in order:
+        component = component_of[row]
+        if component != last:
+            footprints.append(components[component])
+            last = component
+        footprint_of[row] = len(footprints) - 1
+        footprints[-1].add_peak(
+            Peak(int(peaks["y"][row]), int(peaks["x"][row]), float(peaks["peak_sigma"][row]))
+        )
+    peaks["footprint"] = footprint_of
+    return footprints
+
+
 def _group_peaks(
     candidates: np.ndarray,
     n_bands: int,
@@ -1218,7 +1312,8 @@ def detect_peaks(
     Returns
     -------
     result :
-        The detected peaks and the intermediate detection products.
+        The detected peaks, their footprints, and the intermediate detection
+        products.
     """
     if origin is None:
         origin = (0, 0)
@@ -1229,7 +1324,7 @@ def detect_peaks(
         generation=generation,
     )
     significance_map = _build_significance_map(starlets, sigma, first_scale=first_scale)
-    candidates = _find_peak_candidates(
+    candidates, footprint_mask = _find_peak_candidates(
         significance_map,
         min_separation,
         min_area,
@@ -1241,8 +1336,10 @@ def detect_peaks(
     )
     n_bands = significance_map.shape[1] - 1
     positions, peaks = _group_peaks(candidates, n_bands, first_scale, psf_fwhm, blend_policy)
+    footprints = _build_footprints(footprint_mask, peaks, origin)
     return PeakDetectionResult(
         peaks=peaks,
+        footprints=footprints,
         positions=positions,
         candidates=candidates,
         significance_map=significance_map,
