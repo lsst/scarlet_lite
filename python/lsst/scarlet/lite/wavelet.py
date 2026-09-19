@@ -418,7 +418,9 @@ def get_multiband_multiresolution_support(
         (scales+1, bands, Ny, Nx) and ``sigma`` shaped (scales+1, bands).
     """
     _, bands, height, width = starlets.shape
-    per_band_sigma = np.ndim(sigma) > 0
+    # Broadcast a scalar sigma to one value per band so the loop always
+    # indexes a per-band array.
+    band_sigma = np.broadcast_to(np.asarray(sigma), (bands,))
 
     support = np.zeros(starlets.shape, dtype=int)
     sigma_out = np.zeros((len(starlets), bands), dtype=starlets.dtype)
@@ -426,7 +428,7 @@ def get_multiband_multiresolution_support(
         result = get_multiresolution_support(
             image=image[band],
             starlets=starlets[:, band],
-            sigma=sigma[band] if per_band_sigma else sigma,
+            sigma=band_sigma[band],
             sigma_scaling=sigma_scaling,
             epsilon=epsilon,
             max_iter=max_iter,

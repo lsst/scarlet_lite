@@ -214,10 +214,9 @@ def get_fft_shape(
             if use_max:
                 shape[n] = np.max([shape1[ax], shape2[ax]])
 
-    shape += padding
+    shape = np.asarray(shape, dtype=int) + padding
     # Use the next fastest shape in each dimension
-    shape = [fftpack.next_fast_len(s) for s in shape]
-    return tuple(shape)
+    return tuple(fftpack.next_fast_len(s) for s in shape)
 
 
 class Fourier:
