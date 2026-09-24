@@ -474,8 +474,8 @@ class PeakDetectionResult:
         The multiband starlet coefficients, with shape
         ``(scales + 1, n_bands, Ny, Nx)``.
     sigma :
-        The per-scale, per-band coefficient noise std, with shape
-        ``(scales + 1, n_bands)``.
+        The coefficient noise std, shaped to broadcast against ``starlets``.
+        See ``_build_detection_starlets`` for the two shapes it takes.
     """
 
     peaks: np.ndarray
@@ -527,6 +527,7 @@ def _build_detection_starlets(
     variance: np.ndarray,
     scales: int = 3,
     generation: int = 2,
+    variance_mode: str = "median",
 ) -> tuple[np.ndarray, np.ndarray]:
     """Transform a multiband image and estimate its per-scale noise.
 
@@ -540,6 +541,9 @@ def _build_detection_starlets(
         The maximum number of wavelet scales to use.
     generation :
         The generation of the starlet transform, either ``1`` or ``2``.
+    variance_mode :
+        How ``variance`` is reduced to a coefficient noise. ``"median"`` takes
+        one value per band, ``"pixel"`` keeps the variance plane per pixel.
 
     Returns
     -------
@@ -547,36 +551,51 @@ def _build_detection_starlets(
         The multiband starlet coefficients with shape
         ``(scales + 1, n_bands, Ny, Nx)``.
     sigma :
-        The coefficient noise std at each scale and band, with shape
-        ``(scales + 1, n_bands)``.
+        The coefficient noise std at each scale and band, shaped to broadcast
+        against ``starlets``: ``(scales + 1, n_bands, 1, 1)`` for
+        ``variance_mode="median"`` and ``(scales + 1, n_bands, Ny, Nx)`` for
+        ``variance_mode="pixel"``.
 
     Raises
     ------
     ValueError
-        Raised if ``images`` and ``variance`` differ in shape, or if
-        ``images`` is not 3D.
+        Raised if ``images`` and ``variance`` differ in shape, if ``images`` is
+        not 3D, or if ``variance_mode`` is not one of the two allowed values.
 
     Notes
     -----
-    The coefficient noise is propagated from a single variance per band,
-    ``sigma_{j,b} = sqrt(F_j * nanmedian(var_b))``, where ``F_j`` is the
-    per-scale factor from ``_starlet_scale_factors``. This treats the noise as
-    stationary within a band, which is accurate when the variance plane is
-    slowly varying and avoids convolving the variance with the full, dense,
-    per-scale kernels.
+    The coefficient noise is ``sigma_{j,b} = sqrt(F_j * var_b)``, where ``F_j``
+    is the per-scale factor from ``_starlet_scale_factors``.
+
+    With ``variance_mode="median"`` the variance is a single
+    ``nanmedian(var_b)`` per band, which treats the noise as stationary within
+    a band. With ``"pixel"`` the variance plane is used as it stands, which
+    follows a varying depth at the memory cost of a ``sigma`` that is as
+    large as ``starlets``.
+
+    Neither is the exact coefficient noise, which is ``var_b`` convolved with
+    the square of the effective kernel at each scale. Both approximate that by
+    the scalar ``F_j``, so ``"pixel"`` is the better estimate only where the
+    variance is smooth across a kernel, and the kernel doubles in width with
+    every scale.
     """
     if images.shape != variance.shape:
         raise ValueError("images and variance must have the same shape")
     if images.ndim != 3:
         raise ValueError("images and variance must be 3D (bands, Ny, Nx)")
+    if variance_mode not in ("median", "pixel"):
+        raise ValueError(f"variance_mode must be 'median' or 'pixel', not {variance_mode!r}")
 
     starlets = multiband_starlet_transform(images, scales=scales, generation=generation)
     # The transform caps the scale count at the image size, so read the
     # realized number of scales back off the coefficients.
     realized_scales = starlets.shape[0] - 1
     factors = _starlet_scale_factors(realized_scales, generation=generation)
-    band_variance = np.nanmedian(variance, axis=(1, 2))
-    sigma = np.sqrt(factors[:, None] * band_variance[None, :]).astype(starlets.dtype)
+    if variance_mode == "median":
+        band_variance = np.nanmedian(variance, axis=(1, 2))[:, None, None]
+    else:
+        band_variance = variance
+    sigma = np.sqrt(factors[:, None, None, None] * band_variance[None]).astype(starlets.dtype)
     return starlets, sigma
 
 
@@ -747,6 +766,35 @@ def _chi_to_sigma(chi: np.ndarray, n_bands: int) -> np.ndarray:
     return sigma.astype(chi.dtype, copy=False)
 
 
+def build_chi2_significance(
+    standardized: np.ndarray,
+) -> np.ndarray:
+    """Coadd standardized single-band planes into a map of Gaussian sigma.
+
+    Parameters
+    ----------
+    standardized :
+        The single-band planes with shape ``(n_bands, Ny, Nx)``, each
+        standardized to unit noise variance. These are starlet coefficients
+        divided by their per-scale noise std, or an image divided by the
+        square root of its variance.
+
+    Returns
+    -------
+    significance :
+        The coadd with shape ``(Ny, Nx)``, in units of Gaussian sigma.
+
+    Notes
+    -----
+    The standardized single-band planes are clipped at zero before computing
+    the chi coadd, to avoid negative contributions. This changes the noise
+    distribution of the coadd (see ``_chi2_to_sigma``), which is why the coadd
+    is mapped to sigma rather than used directly.
+    """
+    chi = np.sqrt(np.sum(np.clip(standardized, 0, None) ** 2, axis=0))
+    return _chi_to_sigma(chi, standardized.shape[0])
+
+
 def _build_significance_map(
     starlets: np.ndarray,
     sigma: np.ndarray,
@@ -760,8 +808,8 @@ def _build_significance_map(
         The multiband starlet coefficients with shape
         ``(scales + 1, n_bands, Ny, Nx)``.
     sigma :
-        The per-scale, per-band coefficient noise std with shape
-        ``(scales + 1, n_bands)``, from ``_build_detection_starlets``.
+        The coefficient noise std from ``_build_detection_starlets``, shaped
+        to broadcast against ``starlets``.
     first_scale :
         The first starlet scale to keep. Scales below this (the highest
         frequencies) and the final residual scale are dropped.
@@ -776,13 +824,6 @@ def _build_significance_map(
         ``sqrt(sum_b max(w_b, 0)**2)`` mapped to Gaussian sigma with
         ``_chi_to_sigma``, so every plane is on the same footing and a
         single threshold or contrast applies to all of them.
-
-    Notes
-    -----
-    We clip the standardized single-band coefficients at zero before computing
-    the chi coadd, to avoid negative contributions. This changes the noise
-    distribution of the coadd (see ``_chi2_to_sigma``), which is why the coadd
-    is mapped to sigma rather than used directly.
     """
     _, n_bands, height, width = starlets.shape
     scale_slice = slice(first_scale, -1)
@@ -791,10 +832,10 @@ def _build_significance_map(
     n_scales = coeffs.shape[0]
 
     significance_map = np.zeros((n_scales, n_bands + 1, height, width), dtype=np.float32)
-    standardized = coeffs / scale_sigma[..., None, None]
+    standardized = coeffs / scale_sigma
     significance_map[:, :n_bands] = standardized
-    chi = np.sqrt(np.sum(np.clip(standardized, 0, None) ** 2, axis=1))
-    significance_map[:, n_bands] = _chi_to_sigma(chi, n_bands)
+    for i in range(n_scales):
+        significance_map[i, n_bands] = build_chi2_significance(standardized[i])
     return significance_map
 
 
@@ -1274,6 +1315,7 @@ def detect_peaks(
     psf_fwhm: float = 3.5,
     kappa: float = 3.0,
     blend_policy: str = "nearest",
+    variance_mode: str = "median",
 ) -> PeakDetectionResult:
     """Detect peaks across bands and starlet scales.
 
@@ -1308,6 +1350,10 @@ def detect_peaks(
     blend_policy :
         How to assign a position that could join several peaks; see
         ``_assign_peaks``.
+    variance_mode :
+        How ``variance`` is reduced to a coefficient noise, either ``"median"``
+        for one value per band or ``"pixel"`` to follow the variance plane; see
+        ``_build_detection_starlets``.
 
     Returns
     -------
@@ -1322,6 +1368,7 @@ def detect_peaks(
         variance,
         scales=scales,
         generation=generation,
+        variance_mode=variance_mode,
     )
     significance_map = _build_significance_map(starlets, sigma, first_scale=first_scale)
     candidates, footprint_mask = _find_peak_candidates(

@@ -442,13 +442,31 @@ class TestPeakDetection(ScarletTestCase):
     def test_build_detection_starlets(self):
         starlets, sigma = _build_detection_starlets(self.images, self.variance, scales=3)
         self.assertEqual(starlets.shape, (4, self.n_bands) + self.shape)
-        self.assertEqual(sigma.shape, (4, self.n_bands))
+        self.assertEqual(sigma.shape, (4, self.n_bands, 1, 1))
 
         # sigma_{j,b} = sqrt(F_j * nanmedian(var_b)).
         factors = _starlet_scale_factors(3)
         band_var = np.nanmedian(self.variance, axis=(1, 2))
         expected = np.sqrt(factors[:, None] * band_var[None, :])
+        assert_allclose(sigma[..., 0, 0], expected, rtol=1e-4)
+
+    def test_build_detection_starlets_per_pixel_variance(self):
+        starlets, sigma = _build_detection_starlets(
+            self.images, self.variance, scales=3, variance_mode="pixel"
+        )
+        self.assertEqual(sigma.shape, (4, self.n_bands) + self.shape)
+
+        # sigma_{j,b}(x) = sqrt(F_j * var_b(x)), the same factors applied to
+        # the variance plane rather than to one value per band.
+        factors = _starlet_scale_factors(3)
+        expected = np.sqrt(factors[:, None, None, None] * self.variance[None])
         assert_allclose(sigma, expected, rtol=1e-4)
+
+        # A flat variance plane makes the two modes agree.
+        flat = np.full_like(self.variance, 4.0)
+        _, by_pixel = _build_detection_starlets(self.images, flat, scales=3, variance_mode="pixel")
+        _, by_median = _build_detection_starlets(self.images, flat, scales=3, variance_mode="median")
+        assert_allclose(by_pixel, np.broadcast_to(by_median, by_pixel.shape), rtol=1e-6)
 
     def test_build_detection_starlets_ignores_nan_variance(self):
         variance = self.variance.copy()
@@ -461,6 +479,8 @@ class TestPeakDetection(ScarletTestCase):
             _build_detection_starlets(self.images, self.variance[:, :10, :10])
         with self.assertRaises(ValueError):
             _build_detection_starlets(self.images[0], self.variance[0])
+        with self.assertRaises(ValueError):
+            _build_detection_starlets(self.images, self.variance, variance_mode="rms")
 
     def test_chi2_log_survival(self):
         c = np.array([0.5, 2.0, 8.0, 20.0])
@@ -531,13 +551,31 @@ class TestPeakDetection(ScarletTestCase):
         self.assertEqual(smap.dtype, np.float32)
 
         # The single-band planes are the standardized coefficients.
-        standardized = starlets[1:-1] / sigma[1:-1, :, None, None]
+        standardized = starlets[1:-1] / sigma[1:-1]
         assert_allclose(smap[:, : self.n_bands], standardized, rtol=1e-5)
 
         # The final plane is the clipped chi coadd mapped to sigma, so it is
         # on the same footing as the single-band planes.
         chi = np.sqrt(np.sum(np.clip(standardized, 0, None) ** 2, axis=1))
         assert_allclose(smap[:, self.n_bands], _chi_to_sigma(chi, self.n_bands), rtol=1e-5)
+
+    def test_build_significance_map_per_pixel_variance(self):
+        # A per-pixel noise divides the same coefficients, so the map keeps
+        # its shape and standardizes against the variance plane.
+        variance = self.variance.copy()
+        variance[:, :, :32] *= 4.0
+        starlets, sigma = _build_detection_starlets(self.images, variance, scales=3, variance_mode="pixel")
+        smap = _build_significance_map(starlets, sigma, first_scale=1)
+
+        self.assertEqual(smap.shape, (2, self.n_bands + 1) + self.shape)
+        standardized = starlets[1:-1] / sigma[1:-1]
+        assert_allclose(smap[:, : self.n_bands], standardized, rtol=1e-5)
+
+        # The deeper half is divided by a smaller noise, so it is not the same
+        # map the stationary noise would have given.
+        _, flat_sigma = _build_detection_starlets(self.images, variance, scales=3)
+        flat_map = _build_significance_map(starlets, flat_sigma, first_scale=1)
+        self.assertFalse(np.allclose(smap, flat_map))
 
     def test_find_peak_candidates(self):
         ny, nx = 40, 40
