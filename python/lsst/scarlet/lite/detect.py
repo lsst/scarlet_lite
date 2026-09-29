@@ -30,6 +30,7 @@ import numpy as np
 from deprecated.sphinx import deprecated  # type: ignore
 from lsst.scarlet.lite.detect_pybind11 import Footprint, Peak, get_footprints  # type: ignore
 from scipy import special
+from scipy.ndimage import binary_dilation
 from scipy.spatial import cKDTree
 
 from .bbox import Box, overlapped_slices
@@ -839,6 +840,36 @@ def _build_significance_map(
     return significance_map
 
 
+def _dilate_bad_mask(mask: np.ndarray, radius: float) -> np.ndarray:
+    """Grow a bad-pixel mask by a circular structuring element.
+
+    Parameters
+    ----------
+    mask :
+        A 2D boolean mask, `True` where a pixel is bad.
+    radius :
+        The dilation radius in pixels.
+
+    Returns
+    -------
+    dilated :
+        The dilated mask. ``mask`` is returned unchanged when ``radius`` is
+        not positive or no pixel is set.
+
+    Notes
+    -----
+    Starlet ringing around a bad region reaches beyond the flagged pixels, so
+    the peaks it seeds have to be suppressed over a slightly wider region than
+    the mask itself.
+    """
+    if radius <= 0 or not mask.any():
+        return mask
+    r = int(np.ceil(radius))
+    yy, xx = np.mgrid[-r : r + 1, -r : r + 1]
+    element = yy**2 + xx**2 <= radius**2
+    return binary_dilation(mask, structure=element)
+
+
 def _find_peak_candidates(
     significance_map: np.ndarray,
     min_separation: float = 0,
@@ -848,6 +879,8 @@ def _find_peak_candidates(
     kappa: float = 3,
     first_scale: int = 1,
     origin: tuple[int, int] = (0, 0),
+    bad_pixel_mask: np.ndarray | None = None,
+    dilation_radius: float = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Find peak candidates in each plane of a significance map.
 
@@ -877,6 +910,17 @@ def _find_peak_candidates(
         ``scale`` field of each candidate.
     origin :
         The ``(y, x)`` location of the lower corner of the image.
+    bad_pixel_mask :
+        Per-band boolean mask with shape ``(n_bands, Ny, Nx)``, `True` where a
+        band is bad. Peaks inside the dilated mask of their band are dropped;
+        the chi coadd plane (``band == n_bands``) uses the union across bands.
+        `None` disables the suppression.
+    dilation_radius :
+        The base radius in pixels by which ``bad_pixel_mask`` is grown before
+        it suppresses peaks, to catch the starlet ringing just outside a bad
+        region. The starlet kernel doubles in width with each scale, so the
+        radius applied at a plane is ``dilation_radius * 2 ** (scale -
+        first_scale)``.
 
     Returns
     -------
@@ -889,11 +933,23 @@ def _find_peak_candidates(
     """
     y0, x0 = origin
     height, width = significance_map.shape[-2:]
+    n_bands = significance_map.shape[1] - 1
     footprint_mask = np.zeros((height, width), dtype=bool)
+    # Dilated bad mask per (band, scale), filled lazily.
+    # The ring widens with scale, so each scale grows the mask by its own
+    # radius. The chi coadd plane is the union of all bands.
+    dilated_masks: dict[tuple[int, int], np.ndarray] = {}
     candidates = []
     for scale_index, scale_planes in enumerate(significance_map):
         scale = scale_index + first_scale
+        radius = dilation_radius * 2 ** (scale - first_scale)
         for band, plane in enumerate(scale_planes):
+            bad = None
+            if bad_pixel_mask is not None:
+                if (band, scale) not in dilated_masks:
+                    raw = bad_pixel_mask.any(axis=0) if band == n_bands else bad_pixel_mask[band]
+                    dilated_masks[(band, scale)] = _dilate_bad_mask(raw, radius)
+                bad = dilated_masks[(band, scale)]
             footprints = get_footprints(
                 plane,
                 min_separation,
@@ -909,6 +965,9 @@ def _find_peak_candidates(
                 bottom, top, left, right = footprint.bounds
                 footprint_mask[bottom - y0 : top - y0 + 1, left - x0 : right - x0 + 1] |= footprint.data
                 for peak in footprint.peaks:
+                    # Do not add peaks that fall on bad pixels.
+                    if bad is not None and bad[peak.y - y0, peak.x - x0]:
+                        continue
                     # position is -1 until _collapse_positions fills it.
                     candidates.append((peak.y, peak.x, band, scale, peak.flux, peak.saddle, -1))
     return np.array(candidates, dtype=CANDIDATE_DTYPE), footprint_mask
@@ -1316,6 +1375,8 @@ def detect_peaks(
     kappa: float = 3.0,
     blend_policy: str = "nearest",
     variance_mode: str = "median",
+    bad_pixel_mask: np.ndarray | None = None,
+    dilation_radius: float = 0,
 ) -> PeakDetectionResult:
     """Detect peaks across bands and starlet scales.
 
@@ -1354,15 +1415,35 @@ def detect_peaks(
         How ``variance`` is reduced to a coefficient noise, either ``"median"``
         for one value per band or ``"pixel"`` to follow the variance plane; see
         ``_build_detection_starlets``.
+    bad_pixel_mask :
+        Per-band boolean mask with the same shape as ``images``, `True` for
+        pixels that are bad in that band. Candidate peaks that fall within
+        ``dilation_radius`` of a bad pixel in a given band are suppressed
+        in that band only. This allows eg. saturated sources in one band to
+        be detected in other, clean, bands.
+        `None` disables the suppression.
+    dilation_radius :
+        The base radius in pixels by which ``bad_pixel_mask`` is grown before
+        it suppresses peaks, to catch the starlet ringing just outside a bad
+        region. The radius doubles with each starlet scale, since the kernel
+        does; see ``_find_peak_candidates``.
 
     Returns
     -------
     result :
         The detected peaks, their footprints, and the intermediate detection
         products.
+
+    Raises
+    ------
+    ValueError
+        Raised if ``bad_pixel_mask`` is given and does not match the shape of
+        ``images``.
     """
     if origin is None:
         origin = (0, 0)
+    if bad_pixel_mask is not None and bad_pixel_mask.shape != images.shape:
+        raise ValueError("bad_pixel_mask must have the same shape as images")
     starlets, sigma = _build_detection_starlets(
         images,
         variance,
@@ -1380,6 +1461,8 @@ def detect_peaks(
         kappa,
         first_scale,
         origin,
+        bad_pixel_mask,
+        dilation_radius,
     )
     n_bands = significance_map.shape[1] - 1
     positions, peaks = _group_peaks(candidates, n_bands, first_scale, psf_fwhm, blend_policy)

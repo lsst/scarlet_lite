@@ -35,6 +35,7 @@ from lsst.scarlet.lite.detect import (
     _chi2_to_sigma,
     _chi_to_sigma,
     _collapse_positions,
+    _dilate_bad_mask,
     _find_peak_candidates,
     _link_radius,
     _plane_flags,
@@ -940,3 +941,129 @@ class TestPeakDetection(ScarletTestCase):
         self.assertEqual(result.footprints, [])
         self.assertEqual(result.peaks.dtype, DETECTION_DTYPE)
         self.assertEqual(result.positions.dtype, POSITION_DTYPE)
+
+    def test_dilate_bad_mask(self):
+        mask = np.zeros((21, 21), dtype=bool)
+        mask[10, 10] = True
+
+        # A single pixel grows to the disk of the given radius.
+        dilated = _dilate_bad_mask(mask, 3.0)
+        yy, xx = np.mgrid[0:21, 0:21]
+        expected = (yy - 10) ** 2 + (xx - 10) ** 2 <= 3.0**2
+        assert_array_equal(dilated, expected)
+
+        # A non-positive radius and an empty mask are both no-ops.
+        assert_array_equal(_dilate_bad_mask(mask, 0.0), mask)
+        empty = np.zeros((5, 5), dtype=bool)
+        assert_array_equal(_dilate_bad_mask(empty, 3.0), empty)
+
+    def test_find_peak_candidates_bad_pixel_mask(self):
+        ny, nx = 40, 40
+        n_bands = 2
+        significance_map = np.zeros((1, n_bands + 1, ny, nx), dtype=np.float32)
+        yy, xx = np.mgrid[0:ny, 0:nx]
+        # The same 10-sigma bump in both single-band planes and the chi plane.
+        center = (25, 12)
+        bump = 10.0 * np.exp(-((yy - center[0]) ** 2 + (xx - center[1]) ** 2) / (2 * 2.0**2))
+        significance_map[0, 0] = bump
+        significance_map[0, 1] = bump
+        significance_map[0, n_bands] = bump
+
+        # Band 0 is bad at the peak; band 1 is clean.
+        bad = np.zeros((n_bands, ny, nx), dtype=bool)
+        bad[0, center[0], center[1]] = True
+
+        candidates, _ = _find_peak_candidates(
+            significance_map,
+            min_separation=1,
+            min_area=1,
+            peak_thresh=5,
+            footprint_thresh=3,
+            first_scale=1,
+            bad_pixel_mask=bad,
+            dilation_radius=2.0,
+        )
+        # The candidate is dropped in the bad band, kept in the clean band.
+        self.assertEqual(np.sum(candidates["band"] == 0), 0)
+        self.assertEqual(np.sum(candidates["band"] == 1), 1)
+        # The chi plane takes the union of the bands, so it is dropped too.
+        self.assertEqual(np.sum(candidates["band"] == n_bands), 0)
+
+    def test_find_peak_candidates_dilation_radius(self):
+        ny, nx = 40, 40
+        n_bands = 1
+        significance_map = np.zeros((1, n_bands + 1, ny, nx), dtype=np.float32)
+        yy, xx = np.mgrid[0:ny, 0:nx]
+        center = (20, 20)
+        significance_map[0, 0] = 10.0 * np.exp(
+            -((yy - center[0]) ** 2 + (xx - center[1]) ** 2) / (2 * 2.0**2)
+        )
+        # A bad pixel five pixels from the peak.
+        bad = np.zeros((n_bands, ny, nx), dtype=bool)
+        bad[0, center[0], center[1] - 5] = True
+
+        kw = dict(min_separation=1, min_area=1, peak_thresh=5, footprint_thresh=3, first_scale=1)
+        # A radius short of the peak leaves it; one that reaches it drops it.
+        near, _ = _find_peak_candidates(significance_map, bad_pixel_mask=bad, dilation_radius=2.0, **kw)
+        far, _ = _find_peak_candidates(significance_map, bad_pixel_mask=bad, dilation_radius=5.0, **kw)
+        self.assertEqual(np.sum(near["band"] == 0), 1)
+        self.assertEqual(np.sum(far["band"] == 0), 0)
+
+    def test_find_peak_candidates_dilation_grows_with_scale(self):
+        # The same peak and bad pixel in two scales. The bad pixel is beyond
+        # the base radius but within its doubling at the next scale, so the
+        # peak survives at the finer scale and is suppressed at the coarser.
+        ny, nx = 40, 40
+        n_bands = 1
+        significance_map = np.zeros((2, n_bands + 1, ny, nx), dtype=np.float32)
+        yy, xx = np.mgrid[0:ny, 0:nx]
+        center = (20, 20)
+        bump = 10.0 * np.exp(-((yy - center[0]) ** 2 + (xx - center[1]) ** 2) / (2 * 2.0**2))
+        significance_map[0, 0] = bump
+        significance_map[1, 0] = bump
+        # Six pixels away: outside a base radius of 4, inside its double of 8.
+        bad = np.zeros((n_bands, ny, nx), dtype=bool)
+        bad[0, center[0], center[1] - 6] = True
+
+        candidates, _ = _find_peak_candidates(
+            significance_map,
+            min_separation=1,
+            min_area=1,
+            peak_thresh=5,
+            footprint_thresh=3,
+            first_scale=1,
+            bad_pixel_mask=bad,
+            dilation_radius=4.0,
+        )
+        band0 = candidates[candidates["band"] == 0]
+        assert_array_equal(np.sort(band0["scale"]), [1])
+
+    def test_detect_peaks_bad_pixel_mask_keeps_clean_band(self):
+        # Mark the first source bad in every band but one; it stays detected,
+        # seeded by the clean band, and the others are unaffected.
+        bad = np.zeros_like(self.images, dtype=bool)
+        cy, cx = self.centers[0]
+        bad[1:, cy - 3 : cy + 4, cx - 3 : cx + 4] = True
+
+        result = detect_peaks(
+            self.images,
+            self.variance,
+            scales=3,
+            peak_thresh=5,
+            footprint_thresh=3,
+            bad_pixel_mask=bad,
+            dilation_radius=3.0,
+        )
+        self.assertEqual(len(result.peaks), len(self.centers))
+        matched = [p for p in result.peaks if abs(p["y"] - cy) <= 1 and abs(p["x"] - cx) <= 1]
+        self.assertEqual(len(matched), 1)
+        # Only the clean band and no chi plane seed the suppressed source.
+        self.assertEqual(matched[0]["band_flags"], 1 << 0)
+
+    def test_detect_peaks_bad_pixel_mask_validation(self):
+        with self.assertRaisesRegex(ValueError, "same shape as images"):
+            detect_peaks(
+                self.images,
+                self.variance,
+                bad_pixel_mask=np.zeros(self.shape, dtype=bool),
+            )
