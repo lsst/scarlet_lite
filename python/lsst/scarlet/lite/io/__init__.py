@@ -6,5 +6,6 @@ from .cube_component import *
 from .factorized_component import *
 from .hierarchical_blend import *
 from .model_data import *
+from .psf import *
 from .source import *
 from .source_base import *
