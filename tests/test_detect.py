@@ -24,9 +24,37 @@ import os
 import numpy as np
 from lsst.scarlet.lite import Box, Image
 from lsst.scarlet.lite.detect import (
+    CANDIDATE_DTYPE,
+    COMPONENT_DTYPE,
+    COUNT_COVERS_MAX,
+    DETECTION_DTYPE,
+    PAIR_DTYPE,
+    POSITION_DTYPE,
+    SIGMA_TO_FWHM,
+    _build_detection_starlets,
+    _build_footprints,
+    _build_pairs,
+    _build_significance_map,
+    _chi2_log_survival,
+    _chi2_to_sigma,
+    _chi_to_sigma,
+    _clique_cover,
+    _collapse_positions,
+    _dilate_bad_mask,
+    _find_peak_candidates,
+    _group_peaks,
+    _link_fractions,
+    _link_radius,
+    _locate_peaks,
+    _max_shared_plane,
+    _plane_flags,
+    _starlet_kernel_fwhm,
+    _starlet_scale_factors,
+    _unambiguous_members,
     bbox_to_bounds,
     bounds_to_bbox,
     detect_footprints,
+    detect_peaks,
     footprints_to_image,
     get_detect_wavelets,
     get_wavelets,
@@ -39,7 +67,9 @@ from lsst.scarlet.lite.detect_pybind11 import (
     get_footprints,
 )
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
-from numpy.testing import assert_array_equal
+from lsst.scarlet.lite.wavelet import starlet_transform
+from numpy.testing import assert_allclose, assert_array_equal
+from scipy import stats
 from utils import ScarletTestCase
 
 
@@ -196,42 +226,50 @@ class TestDetect(ScarletTestCase):
     def test_detect_footprints(self):
         # This method doesn't test for accurracy, since
         # there is no variance, so we set it to ones.
+        # detect_footprints is deprecated in favor of detect_peaks;
+        # the calls assert the FutureWarning while still covering the
+        # legacy behavior.
         variance = np.ones(self.image.shape, dtype=self.image.dtype)
 
-        footprints = detect_footprints(
-            self.image.data[None, :, :],
-            variance[None, :, :],
-            scales=1,
-            generation=2,
-            origin=(0, 0),
-            min_separation=1,
-            min_area=4,
-            peak_thresh=1e-15,
-            footprint_thresh=1e-15,
-            find_peaks=True,
-            remove_high_freq=False,
-            min_pixel_detect=1,
-        )
+        with self.assertWarns(FutureWarning):
+            footprints = detect_footprints(
+                self.image.data[None, :, :],
+                variance[None, :, :],
+                scales=1,
+                generation=2,
+                origin=(0, 0),
+                min_separation=1,
+                min_area=4,
+                peak_thresh=1e-15,
+                footprint_thresh=1e-15,
+                find_peaks=True,
+                remove_high_freq=False,
+                min_pixel_detect=1,
+            )
 
         self.assertEqual(len(footprints), 3)
         peaks = [peak for footprint in footprints for peak in footprint.peaks]
         self._check_peaks(peaks)
 
-        footprints = detect_footprints(
-            self.image.data[None, :, :],
-            variance[None, :, :],
-            scales=1,
-            generation=1,
-            min_separation=1,
-            min_area=4,
-            peak_thresh=1e-15,
-            footprint_thresh=1e-15,
-            find_peaks=True,
-            remove_high_freq=True,
-            min_pixel_detect=1,
-        )
+        with self.assertWarns(FutureWarning):
+            footprints = detect_footprints(
+                self.image.data[None, :, :],
+                variance[None, :, :],
+                scales=1,
+                generation=1,
+                min_separation=1,
+                min_area=4,
+                peak_thresh=1e-15,
+                footprint_thresh=1e-15,
+                find_peaks=True,
+                remove_high_freq=True,
+                min_pixel_detect=1,
+            )
 
-        self.assertEqual(len(footprints), 2)
+        # Three footprints: the two source blends plus the flat 0.5 patch at
+        # [30:32, 40]. The watershed seeds a peak on the patch's plateau, so
+        # the footprint is kept rather than dropped for having no peak.
+        self.assertEqual(len(footprints), 3)
         peaks = [peak for footprint in footprints for peak in footprint.peaks]
         self._check_peaks(peaks)
 
@@ -245,20 +283,21 @@ class TestDetect(ScarletTestCase):
 
         # Single-band: with min_pixel_detect=2 every pixel fails the
         # "at least 2 bands above 0" check, so nothing survives.
-        footprints = detect_footprints(
-            self.image.data[None, :, :],
-            variance[None, :, :],
-            scales=1,
-            generation=2,
-            origin=(0, 0),
-            min_separation=1,
-            min_area=4,
-            peak_thresh=1e-15,
-            footprint_thresh=1e-15,
-            find_peaks=True,
-            remove_high_freq=False,
-            min_pixel_detect=2,
-        )
+        with self.assertWarns(FutureWarning):
+            footprints = detect_footprints(
+                self.image.data[None, :, :],
+                variance[None, :, :],
+                scales=1,
+                generation=2,
+                origin=(0, 0),
+                min_separation=1,
+                min_area=4,
+                peak_thresh=1e-15,
+                footprint_thresh=1e-15,
+                find_peaks=True,
+                remove_high_freq=False,
+                min_pixel_detect=2,
+            )
         self.assertEqual(len(footprints), 0)
 
         # Two-band: band 0 only contains sources 0+1, band 1 only
@@ -271,38 +310,40 @@ class TestDetect(ScarletTestCase):
         b1 = (full + band1).data
         images = np.stack([b0, b1])
         variance2 = np.ones(images.shape, dtype=images.dtype)
-        footprints = detect_footprints(
-            images,
-            variance2,
-            scales=1,
-            generation=2,
-            origin=(0, 0),
-            min_separation=1,
-            min_area=4,
-            peak_thresh=1e-15,
-            footprint_thresh=1e-15,
-            find_peaks=True,
-            remove_high_freq=False,
-            min_pixel_detect=2,
-        )
+        with self.assertWarns(FutureWarning):
+            footprints = detect_footprints(
+                images,
+                variance2,
+                scales=1,
+                generation=2,
+                origin=(0, 0),
+                min_separation=1,
+                min_area=4,
+                peak_thresh=1e-15,
+                footprint_thresh=1e-15,
+                find_peaks=True,
+                remove_high_freq=False,
+                min_pixel_detect=2,
+            )
         self.assertEqual(len(footprints), 0)
 
         # Sanity: with min_pixel_detect=1 the same multi-band input
         # produces the union of both bands' footprints.
-        footprints = detect_footprints(
-            images,
-            variance2,
-            scales=1,
-            generation=2,
-            origin=(0, 0),
-            min_separation=1,
-            min_area=4,
-            peak_thresh=1e-15,
-            footprint_thresh=1e-15,
-            find_peaks=True,
-            remove_high_freq=False,
-            min_pixel_detect=1,
-        )
+        with self.assertWarns(FutureWarning):
+            footprints = detect_footprints(
+                images,
+                variance2,
+                scales=1,
+                generation=2,
+                origin=(0, 0),
+                min_separation=1,
+                min_area=4,
+                peak_thresh=1e-15,
+                footprint_thresh=1e-15,
+                find_peaks=True,
+                remove_high_freq=False,
+                min_pixel_detect=1,
+            )
         self.assertGreater(len(footprints), 0)
 
     def test_bounds_to_bbox(self):
@@ -357,7 +398,8 @@ class TestDetect(ScarletTestCase):
     def test_get_wavelets(self):
         images = self.hsc_data["images"]
         variance = self.hsc_data["variance"]
-        wavelets = get_wavelets(images, variance)
+        with self.assertWarns(FutureWarning):
+            wavelets = get_wavelets(images, variance)
 
         self.assertTupleEqual(wavelets.shape, (5, 5, 58, 48))
         self.assertEqual(wavelets.dtype, np.float32)
@@ -365,6 +407,993 @@ class TestDetect(ScarletTestCase):
     def test_get_detect_wavelets(self):
         images = self.hsc_data["images"]
         variance = self.hsc_data["variance"]
-        wavelets = get_detect_wavelets(images, variance)
+        with self.assertWarns(FutureWarning):
+            wavelets = get_detect_wavelets(images, variance)
 
         self.assertTupleEqual(wavelets.shape, (4, 58, 48))
+
+
+class TestPeakDetection(ScarletTestCase):
+    def setUp(self):
+        # Three isotropic Gaussian sources present in every band on top of
+        # per-band white noise. The bands have different noise levels so the
+        # per-band standardization is actually exercised.
+        rng = np.random.default_rng(42)
+        self.n_bands = 3
+        self.shape = (64, 64)
+        self.centers = [(20, 15), (40, 45), (12, 50)]
+        band_std = np.array([1.5, 2.0, 3.0], dtype=np.float32)
+
+        yy, xx = np.mgrid[0 : self.shape[0], 0 : self.shape[1]]
+        images = rng.standard_normal((self.n_bands,) + self.shape) * band_std[:, None, None]
+        for cy, cx in self.centers:
+            bump = np.exp(-((yy - cy) ** 2 + (xx - cx) ** 2) / (2 * 2.5**2))
+            images += 40.0 * bump
+        self.images = images.astype(np.float32)
+        self.variance = np.tile((band_std**2)[:, None, None], (1,) + self.shape)
+        self.band_std = band_std
+
+    def test_starlet_scale_factors(self):
+        factors = _starlet_scale_factors(3, generation=2)
+        self.assertEqual(factors.shape, (4,))
+        self.assertTrue(np.all(factors > 0))
+        # Coarser scales spread the kernel wider, so each successive
+        # sum(K_j**2) is smaller.
+        self.assertTrue(np.all(np.diff(factors) < 0))
+
+        # White noise of variance ``v`` produces coefficients of variance
+        # ``F_j * v`` at scale ``j``; this is the whole reason the factors
+        # exist. Measure it on the interior to avoid boundary effects.
+        rng = np.random.default_rng(0)
+        v = 4.0
+        noise = rng.standard_normal((512, 512)) * np.sqrt(v)
+        coeffs = starlet_transform(noise, scales=3, generation=2)
+        measured = np.array([c[50:-50, 50:-50].var() for c in coeffs])
+        assert_allclose(measured, factors * v, rtol=0.05)
+
+    def test_build_detection_starlets(self):
+        starlets, sigma = _build_detection_starlets(self.images, self.variance, scales=3)
+        self.assertEqual(starlets.shape, (4, self.n_bands) + self.shape)
+        self.assertEqual(sigma.shape, (4, self.n_bands, 1, 1))
+
+        # sigma_{j,b} = sqrt(F_j * nanmedian(var_b)).
+        factors = _starlet_scale_factors(3)
+        band_var = np.nanmedian(self.variance, axis=(1, 2))
+        expected = np.sqrt(factors[:, None] * band_var[None, :])
+        assert_allclose(sigma[..., 0, 0], expected, rtol=1e-4)
+
+    def test_build_detection_starlets_per_pixel_variance(self):
+        starlets, sigma = _build_detection_starlets(
+            self.images, self.variance, scales=3, variance_mode="pixel"
+        )
+        self.assertEqual(sigma.shape, (4, self.n_bands) + self.shape)
+
+        # sigma_{j,b}(x) = sqrt(F_j * var_b(x)), the same factors applied to
+        # the variance plane rather than to one value per band.
+        factors = _starlet_scale_factors(3)
+        expected = np.sqrt(factors[:, None, None, None] * self.variance[None])
+        assert_allclose(sigma, expected, rtol=1e-4)
+
+        # A flat variance plane makes the two modes agree.
+        flat = np.full_like(self.variance, 4.0)
+        _, by_pixel = _build_detection_starlets(self.images, flat, scales=3, variance_mode="pixel")
+        _, by_median = _build_detection_starlets(self.images, flat, scales=3, variance_mode="median")
+        assert_allclose(by_pixel, np.broadcast_to(by_median, by_pixel.shape), rtol=1e-6)
+
+    def test_build_detection_starlets_ignores_nan_variance(self):
+        variance = self.variance.copy()
+        variance[:, :10, :10] = np.nan
+        _, sigma = _build_detection_starlets(self.images, variance, scales=3)
+        self.assertFalse(np.any(np.isnan(sigma)))
+
+    def test_build_detection_starlets_validation(self):
+        with self.assertRaises(ValueError):
+            _build_detection_starlets(self.images, self.variance[:, :10, :10])
+        with self.assertRaises(ValueError):
+            _build_detection_starlets(self.images[0], self.variance[0])
+        with self.assertRaises(ValueError):
+            _build_detection_starlets(self.images, self.variance, variance_mode="rms")
+
+    def test_chi2_log_survival(self):
+        c = np.array([0.5, 2.0, 8.0, 20.0])
+        # For one band the coadd is zero half the time and a chi^2_1 deviate
+        # otherwise, so the survival function is 0.5 * chi2_1.
+        assert_allclose(np.exp(_chi2_log_survival(c, 1)), 0.5 * stats.chi2.sf(c, 1))
+        # Two bands: binomial mixture of chi^2_1 and chi^2_2.
+        expected = 0.5 * stats.chi2.sf(c, 1) + 0.25 * stats.chi2.sf(c, 2)
+        assert_allclose(np.exp(_chi2_log_survival(c, 2)), expected)
+
+        # At zero the survival equals the probability that at least one band
+        # is positive, 1 - 2**-n.
+        for n in (1, 2, 3, 6):
+            self.assertAlmostEqual(float(np.exp(_chi2_log_survival(0.0, n))), 1 - 2.0**-n)
+
+        # Strictly decreasing, and finite in log space where the survival
+        # function itself has underflowed to zero.
+        grid = np.linspace(0, 30, 200)
+        self.assertTrue(np.all(np.diff(_chi2_log_survival(grid, 3)) < 0))
+        self.assertTrue(np.isfinite(float(_chi2_log_survival(1e6, 3))))
+
+    def test_chi2_log_survival_matches_simulation(self):
+        rng = np.random.default_rng(1)
+        n = 3
+        y = rng.standard_normal((2_000_000, n))
+        coadd = np.sum(np.clip(y, 0, None) ** 2, axis=1)
+        for thr in (2.0, 8.0, 12.0):
+            empirical = np.mean(coadd > thr)
+            assert_allclose(empirical, float(np.exp(_chi2_log_survival(thr, n))), rtol=0.06)
+
+    def test_chi2_to_sigma(self):
+        n = 3
+        c = np.array([1.0, 5.0, 20.0])
+        assert_allclose(_chi2_to_sigma(c, n), stats.norm.isf(np.exp(_chi2_log_survival(c, n))))
+        # Works on a scalar as well as an array.
+        self.assertAlmostEqual(float(_chi2_to_sigma(5.0, n)), float(_chi2_to_sigma(c, n)[1]))
+        # Monotonically increasing.
+        grid = np.linspace(0.1, 50, 100)
+        self.assertTrue(np.all(np.diff(_chi2_to_sigma(grid, n)) > 0))
+        # A bright core keeps climbing rather than saturating: the log-space
+        # mapping stays finite and monotonic however bright the pixel.
+        bright = float(_chi2_to_sigma(1e6, n))
+        self.assertTrue(np.isfinite(bright))
+        self.assertGreater(bright, 900.0)
+
+    def test_chi_to_sigma(self):
+        n = 3
+        chi = np.array([0.0, 1.0, 3.0, 10.0, 80.0], dtype=np.float32)
+        # The lookup table reproduces the exact chi**2 -> sigma mapping, in
+        # both the dense (< 64) and the geometric (> 64) regimes.
+        assert_allclose(_chi_to_sigma(chi, n), _chi2_to_sigma(chi.astype(float) ** 2, n), atol=1e-4)
+        # The dtype of the input is preserved.
+        self.assertEqual(_chi_to_sigma(chi, n).dtype, np.float32)
+        # NaN in, NaN out; finite pixels are untouched.
+        chi_nan = chi.copy()
+        chi_nan[2] = np.nan
+        out = _chi_to_sigma(chi_nan, n)
+        self.assertTrue(np.isnan(out[2]))
+        self.assertFalse(np.any(np.isnan(out[[0, 1, 3, 4]])))
+
+    def test_build_significance_map(self):
+        starlets, sigma = _build_detection_starlets(self.images, self.variance, scales=3)
+        smap = _build_significance_map(starlets, sigma, first_scale=1)
+
+        # The finest ``first_scale`` scales and the coarse residual are
+        # dropped, and a chi coadd plane is appended to the bands.
+        self.assertEqual(smap.shape, (2, self.n_bands + 1) + self.shape)
+        self.assertEqual(smap.dtype, np.float32)
+
+        # The single-band planes are the standardized coefficients.
+        standardized = starlets[1:-1] / sigma[1:-1]
+        assert_allclose(smap[:, : self.n_bands], standardized, rtol=1e-5)
+
+        # The final plane is the clipped chi coadd mapped to sigma, so it is
+        # on the same footing as the single-band planes.
+        chi = np.sqrt(np.sum(np.clip(standardized, 0, None) ** 2, axis=1))
+        assert_allclose(smap[:, self.n_bands], _chi_to_sigma(chi, self.n_bands), rtol=1e-5)
+
+    def test_build_significance_map_per_pixel_variance(self):
+        # A per-pixel noise divides the same coefficients, so the map keeps
+        # its shape and standardizes against the variance plane.
+        variance = self.variance.copy()
+        variance[:, :, :32] *= 4.0
+        starlets, sigma = _build_detection_starlets(self.images, variance, scales=3, variance_mode="pixel")
+        smap = _build_significance_map(starlets, sigma, first_scale=1)
+
+        self.assertEqual(smap.shape, (2, self.n_bands + 1) + self.shape)
+        standardized = starlets[1:-1] / sigma[1:-1]
+        assert_allclose(smap[:, : self.n_bands], standardized, rtol=1e-5)
+
+        # The deeper half is divided by a smaller noise, so it is not the same
+        # map the stationary noise would have given.
+        _, flat_sigma = _build_detection_starlets(self.images, variance, scales=3)
+        flat_map = _build_significance_map(starlets, flat_sigma, first_scale=1)
+        self.assertFalse(np.allclose(smap, flat_map))
+
+    def test_find_peak_candidates(self):
+        ny, nx = 40, 40
+        n_bands = 2
+        # Every plane of a significance map is already in sigma, so a bump
+        # is read back at its own amplitude.
+        significance_map = np.zeros((1, n_bands + 1, ny, nx), dtype=np.float32)
+        yy, xx = np.mgrid[0:ny, 0:nx]
+
+        # A 10-sigma bump in band 0.
+        band0_center = (25, 12)
+        significance_map[0, 0] = 10.0 * np.exp(
+            -((yy - band0_center[0]) ** 2 + (xx - band0_center[1]) ** 2) / (2 * 2.0**2)
+        )
+        # A 9-sigma bump in the chi plane.
+        chi_center = (8, 30)
+        significance_map[0, n_bands] = 9.0 * np.exp(
+            -((yy - chi_center[0]) ** 2 + (xx - chi_center[1]) ** 2) / (2 * 2.0**2)
+        )
+
+        candidates, footprint_mask = _find_peak_candidates(
+            significance_map,
+            min_separation=1,
+            min_area=1,
+            peak_thresh=5,
+            footprint_thresh=3,
+            first_scale=1,
+        )
+        self.assertEqual(candidates.dtype, CANDIDATE_DTYPE)
+        # The mask is the union of both planes' footprints above
+        # footprint_thresh.
+        self.assertEqual(footprint_mask.shape, (ny, nx))
+        assert_array_equal(footprint_mask, np.any(significance_map[0] > 3, axis=0))
+        # The empty middle band contributes nothing.
+        self.assertEqual(np.sum(candidates["band"] == 1), 0)
+        # Candidates are labeled with the offset starlet scale.
+        assert_array_equal(np.unique(candidates["scale"]), [1])
+
+        band0 = candidates[candidates["band"] == 0]
+        self.assertEqual(len(band0), 1)
+        self.assertEqual((int(band0["y"][0]), int(band0["x"][0])), band0_center)
+        self.assertAlmostEqual(float(band0["flux"][0]), 10.0, places=4)
+        # A single peak in a footprint never joins a brighter basin, so its
+        # saddle is NaN.
+        self.assertTrue(np.isnan(band0["saddle"][0]))
+
+        chi = candidates[candidates["band"] == n_bands]
+        self.assertEqual(len(chi), 1)
+        self.assertEqual((int(chi["y"][0]), int(chi["x"][0])), chi_center)
+        self.assertAlmostEqual(float(chi["flux"][0]), 9.0, places=3)
+
+    def test_find_peak_candidates_kappa_culls_flank(self):
+        # A bright bump with a low-prominence bump on its flank, in one plane.
+        ny, nx = 5, 40
+        x = np.arange(nx)
+        profile = 10.0 * np.exp(-((x - 8) ** 2) / (2 * 2.0**2)) + 4.0 * np.exp(
+            -((x - 14) ** 2) / (2 * 2.0**2)
+        )
+        significance_map = np.zeros((1, 2, ny, nx), dtype=np.float32)
+        significance_map[0, 0, 2] = profile
+
+        # kappa=0 keeps both local maxima.
+        low, _ = _find_peak_candidates(
+            significance_map, min_separation=0, min_area=1, peak_thresh=1, footprint_thresh=0.5, kappa=0.0
+        )
+        self.assertEqual(np.sum(low["band"] == 0), 2)
+
+        # kappa=3 culls the flank bump; it rises less than 3 sigma above the
+        # saddle to the brighter peak.
+        high, _ = _find_peak_candidates(
+            significance_map, min_separation=0, min_area=1, peak_thresh=1, footprint_thresh=0.5, kappa=3.0
+        )
+        band0 = high[high["band"] == 0]
+        self.assertEqual(len(band0), 1)
+        self.assertEqual(int(band0["x"][0]), 8)
+
+    def test_find_peak_candidates_empty(self):
+        significance_map = np.zeros((2, 3, 32, 32), dtype=np.float32)
+        candidates, footprint_mask = _find_peak_candidates(
+            significance_map, peak_thresh=5, footprint_thresh=3
+        )
+        self.assertEqual(len(candidates), 0)
+        self.assertEqual(footprint_mask.shape, (32, 32))
+        self.assertFalse(footprint_mask.any())
+
+    def test_find_peak_candidates_mask_excludes_peakless(self):
+        # A significant blob with no pixel above peak_thresh yields no
+        # candidate and contributes nothing to the mask.
+        significance_map = np.zeros((1, 1, 20, 20), dtype=np.float32)
+        significance_map[0, 0, 5:9, 5:9] = 4.0
+        significance_map[0, 0, 12:16, 12:16] = 8.0
+        candidates, footprint_mask = _find_peak_candidates(
+            significance_map, min_area=1, peak_thresh=5, footprint_thresh=3
+        )
+        self.assertEqual(len(candidates), 1)
+        truth = np.zeros((20, 20), dtype=bool)
+        truth[12:16, 12:16] = True
+        assert_array_equal(footprint_mask, truth)
+
+    def _make_peaks(self, rows):
+        """Build detections from ``(y, x, peak_sigma)`` rows."""
+        peaks = np.zeros(len(rows), dtype=DETECTION_DTYPE)
+        for i, (y, x, peak_sigma) in enumerate(rows):
+            peaks[i]["y"] = y
+            peaks[i]["x"] = x
+            peaks[i]["peak_sigma"] = peak_sigma
+            peaks[i]["footprint"] = -1
+        return peaks
+
+    def test_build_footprints(self):
+        origin = (100, 200)
+        mask = np.zeros((20, 30), dtype=bool)
+        # Two components: one holding two peaks, one holding a single peak,
+        # and a third with no peak at all.
+        mask[2:6, 3:12] = True
+        mask[10:14, 20:25] = True
+        mask[15:18, 2:5] = True
+        peaks = self._make_peaks(
+            [
+                (100 + 3, 200 + 5, 6.0),
+                (100 + 11, 200 + 22, 9.0),
+                (100 + 4, 200 + 10, 7.5),
+            ]
+        )
+
+        footprints = _build_footprints(mask, peaks, origin)
+
+        # The peakless component is dropped.
+        self.assertEqual(len(footprints), 2)
+        # Every peak is placed in the footprint that contains it.
+        for row, peak in enumerate(peaks):
+            footprint = footprints[peak["footprint"]]
+            self.assertTrue(footprint.bbox.contains((peak["y"], peak["x"])))
+            self.assertTrue(footprint.data[peak["y"] - footprint.yx0[0], peak["x"] - footprint.yx0[1]])
+        self.assertEqual(peaks["footprint"][0], peaks["footprint"][2])
+        self.assertNotEqual(peaks["footprint"][0], peaks["footprint"][1])
+
+        # Peaks within a footprint are brightest first with the detection's
+        # peak_sigma as their flux.
+        pair = footprints[peaks["footprint"][0]]
+        self.assertEqual([(p.y, p.x) for p in pair.peaks], [(104, 210), (103, 205)])
+        assert_allclose([p.flux for p in pair.peaks], [7.5, 6.0])
+        single = footprints[peaks["footprint"][1]]
+        self.assertEqual([(p.y, p.x) for p in single.peaks], [(111, 222)])
+
+        # The footprint pixels are the component of the mask, in absolute
+        # coordinates.
+        self.assertBoxEqual(pair.bbox, Box((4, 9), origin=(102, 203)))
+        assert_array_equal(pair.data, mask[2:6, 3:12])
+        self.assertBoxEqual(single.bbox, Box((4, 5), origin=(110, 220)))
+
+    def test_build_footprints_empty(self):
+        mask = np.zeros((8, 8), dtype=bool)
+        mask[2:4, 2:4] = True
+        self.assertEqual(_build_footprints(mask, np.empty(0, dtype=DETECTION_DTYPE)), [])
+
+    def test_build_footprints_peak_outside_mask(self):
+        mask = np.zeros((8, 8), dtype=bool)
+        mask[2:4, 2:4] = True
+        peaks = self._make_peaks([(6, 6, 5.0)])
+        with self.assertRaises(RuntimeError):
+            _build_footprints(mask, peaks)
+
+    def _make_candidates(self, rows):
+        """Build a candidate array from ``(y, x, band, scale, flux)`` rows."""
+        candidates = np.zeros(len(rows), dtype=CANDIDATE_DTYPE)
+        for i, (y, x, band, scale, flux) in enumerate(rows):
+            candidates[i] = (y, x, band, scale, flux, np.nan, -1)
+        return candidates
+
+    def _make_positions(self, rows):
+        """Build positions from ``(y, x, scale, peak_sigma, plane_flags)``."""
+        positions = np.zeros(len(rows), dtype=POSITION_DTYPE)
+        for i, (y, x, scale, peak_sigma, plane_flags) in enumerate(rows):
+            positions[i]["y"] = y
+            positions[i]["x"] = x
+            positions[i]["scale"] = scale
+            positions[i]["peak_sigma"] = peak_sigma
+            positions[i]["flux"] = peak_sigma
+            positions[i]["plane_flags"] = plane_flags
+            positions[i]["peak"] = -1
+        return positions
+
+    def test_link_radius(self):
+        # The PSF FWHM floors the radius at fine scales.
+        self.assertEqual(_link_radius(1, 3.5), 3.5)
+        # The 2**scale term dominates at coarse scales.
+        self.assertEqual(_link_radius(3, 3.5), 8.0)
+        # Vectorized over an array of scales.
+        assert_array_equal(_link_radius(np.array([1, 3]), 3.5), [3.5, 8.0])
+
+    def test_plane_flags(self):
+        # plane = (scale - first_scale) * (n_bands + 1) + band, so band 0 at
+        # first_scale is plane 0, the chi plane (band 3) is plane 3, and band 0
+        # at the next scale is plane 4.
+        candidates = self._make_candidates(
+            [
+                (0, 0, 0, 1, 1.0),
+                (0, 0, 3, 1, 1.0),
+                (0, 0, 0, 2, 1.0),
+            ]
+        )
+        flags = _plane_flags(candidates, n_bands=3, first_scale=1)
+        assert_array_equal(flags, [1 << 0, 1 << 3, 1 << 4])
+
+        # More than 63 planes cannot fit in an int64 bitmask.
+        too_many = self._make_candidates([(0, 0, 0, 20, 1.0)])
+        with self.assertRaisesRegex(ValueError, "at most 63 planes"):
+            _plane_flags(too_many, n_bands=3, first_scale=1)
+
+    def test_collapse_positions(self):
+        # Two candidates at the same pixel in different bands and scales
+        # collapse to one position; a third at another pixel stays separate.
+        candidates = self._make_candidates(
+            [
+                (10, 10, 0, 1, 8.0),
+                (10, 10, 2, 2, 5.0),
+                (10, 14, 1, 1, 6.0),
+            ]
+        )
+        positions = _collapse_positions(candidates, n_bands=3, first_scale=1)
+        self.assertEqual(positions.dtype, POSITION_DTYPE)
+        self.assertEqual(len(positions), 2)
+
+        merged = positions[(positions["y"] == 10) & (positions["x"] == 10)][0]
+        self.assertEqual(merged["band_flags"], (1 << 0) | (1 << 2))
+        self.assertEqual(merged["scale_flags"], (1 << 1) | (1 << 2))
+        self.assertEqual(merged["n_candidates"], 2)
+        # The finest scale wins the position flux; peak_sigma is the brightest.
+        self.assertEqual(merged["scale"], 1)
+        self.assertAlmostEqual(float(merged["flux"]), 8.0)
+        self.assertAlmostEqual(float(merged["peak_sigma"]), 8.0)
+        # ``position`` is filled in place, sending the two co-located
+        # candidates to one position and the third to another.
+        self.assertEqual(candidates["position"][0], candidates["position"][1])
+        self.assertNotEqual(candidates["position"][0], candidates["position"][2])
+
+    def test_build_pairs(self):
+        positions = self._make_positions(
+            [
+                (10, 10, 1, 8.0, 0b1),
+                # Shares a plane with the first: within reach but not linked.
+                (10, 12, 1, 7.0, 0b1),
+                # Shares no plane with the first: linked.
+                (12, 10, 1, 7.0, 0b10),
+                # Beyond every link radius: no pair at all.
+                (40, 40, 1, 7.0, 0b10),
+            ]
+        )
+        pairs = _build_pairs(positions, psf_fwhm=3.5, radius_rule="min")
+        self.assertEqual(pairs.dtype, PAIR_DTYPE)
+        assert_array_equal(pairs["i"], [0, 0, 1])
+        assert_array_equal(pairs["j"], [1, 2, 2])
+        assert_allclose(pairs["distance"], [2, 2, np.sqrt(8)])
+        assert_array_equal(pairs["shares_plane"], [True, False, False])
+        assert_array_equal(pairs["linked"], [False, True, True])
+
+        # A fine position (radius 2) and a coarse one (radius 8) five pixels
+        # apart link only under the max rule.
+        positions = self._make_positions([(10, 10, 1, 8.0, 0b1), (10, 15, 3, 7.0, 0b10)])
+        for rule, linked in (("min", False), ("max", True)):
+            pairs = _build_pairs(positions, psf_fwhm=1.0, radius_rule=rule)
+            self.assertEqual(len(pairs), 1)
+            self.assertFalse(pairs["within_min"][0])
+            self.assertTrue(pairs["within_max"][0])
+            self.assertEqual(pairs["linked"][0], linked)
+
+        self.assertEqual(len(_build_pairs(positions[:1], psf_fwhm=1.0, radius_rule="min")), 0)
+
+    @staticmethod
+    def _cover(n, edges, **kwargs):
+        edges = np.array(edges, dtype=int).reshape(-1, 2)
+        return _clique_cover(np.zeros(n, dtype=np.int64), edges, **kwargs)
+
+    def test_clique_cover_clique(self):
+        edges = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
+        group, component, components = self._cover(4, edges, count_covers=True)
+        assert_array_equal(group, 0)
+        assert_array_equal(component, 0)
+        self.assertEqual(components.dtype, COMPONENT_DTYPE)
+        self.assertEqual(len(components), 1)
+        self.assertEqual(components["k"][0], 1)
+        self.assertFalse(components["search_ran"][0])
+        self.assertEqual(components["n_min_covers"][0], 1)
+
+    def test_clique_cover_chain(self):
+        # A-B-C needs two cliques, and B could belong to either.
+        edges = np.array([(0, 1), (1, 2)])
+        group, _, components = self._cover(3, edges, count_covers=True)
+        self.assertEqual(components["k"][0], 2)
+        self.assertEqual(components["n_min_covers"][0], 2)
+        self.assertNotEqual(group[0], group[2])
+
+        n_linked, ambiguous, max_fraction, max_group = _link_fractions(group, edges, 2)
+        assert_array_equal(ambiguous, [False, True, False])
+        assert_array_equal(n_linked, [1, 2, 1])
+        # The end that shares B's clique has no other clique to link to; the
+        # other end is adjacent to half of B's clique.
+        lone = 0 if group[0] != group[1] else 2
+        paired = 2 - lone
+        self.assertEqual(max_fraction[lone], 0.5)
+        self.assertEqual(max_group[lone], group[1])
+        self.assertEqual(max_fraction[paired], 0)
+        self.assertEqual(max_group[paired], -1)
+        self.assertEqual(max_fraction[1], 1)
+        self.assertEqual(max_group[1], group[lone])
+
+    def test_clique_cover_components(self):
+        # A triangle and a separate edge, plus an isolated node.
+        edges = [(0, 1), (1, 2), (0, 2), (3, 5)]
+        group, component, components = self._cover(6, edges)
+        assert_array_equal(component, [0, 0, 0, 1, 2, 1])
+        assert_array_equal(components["n_nodes"], [3, 2, 1])
+        assert_array_equal(components["k"], 1)
+        # Peaks are numbered in the order of their first position.
+        assert_array_equal(group, [0, 0, 0, 1, 2, 1])
+
+    def test_clique_cover_ring(self):
+        # A five-node ring: a greedy independent set gives 2, but no two
+        # edges cover five nodes, so three cliques are needed.
+        edges = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)]
+        group, _, components = self._cover(5, edges, count_covers=True)
+        row = components[0]
+        self.assertEqual(row["lower_bound"], 2)
+        self.assertEqual(row["upper_bound"], 3)
+        self.assertEqual(row["k"], 3)
+        self.assertTrue(row["search_ran"])
+        self.assertFalse(row["cap_hit"])
+        self.assertGreater(row["n_visited"], 0)
+        # One node is alone and the rest pair up around the ring.
+        self.assertEqual(row["n_min_covers"], 5)
+        self.assertEqual(sorted(np.bincount(group)), [1, 2, 2])
+
+    def test_clique_cover_cap(self):
+        edges = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)]
+        group, _, components = self._cover(5, edges, search_cap=1, count_covers=True)
+        row = components[0]
+        self.assertTrue(row["cap_hit"])
+        self.assertEqual(row["n_visited"], 1)
+        # The greedy cover is kept, and no covers are counted.
+        self.assertEqual(row["k"], row["upper_bound"])
+        self.assertEqual(len(np.unique(group)), row["upper_bound"])
+        self.assertEqual(row["n_min_covers"], -1)
+
+    def test_clique_cover_plane_bound(self):
+        # Three positions that share a plane bound the cover from below.
+        flags = np.array([0b1, 0b1, 0b11, 0b100], dtype=np.int64)
+        component = np.array([0, 0, 0, 1])
+        assert_array_equal(_max_shared_plane(flags, component, 2), [3, 1])
+
+    @staticmethod
+    def _brute_force_cover(n, adjacent):
+        """Return the minimum clique cover size and how many reach it."""
+        best = [n + 1, 0]
+
+        def partitions(node, blocks):
+            if node == n:
+                yield blocks
+                return
+            for block in blocks:
+                block.append(node)
+                yield from partitions(node + 1, blocks)
+                block.pop()
+            blocks.append([node])
+            yield from partitions(node + 1, blocks)
+            blocks.pop()
+
+        for blocks in partitions(0, []):
+            if all(adjacent[u, v] for block in blocks for u in block for v in block if u < v):
+                if len(blocks) < best[0]:
+                    best = [len(blocks), 1]
+                elif len(blocks) == best[0]:
+                    best[1] += 1
+        return best
+
+    def test_clique_cover_brute_force(self):
+        rng = np.random.default_rng(52721)
+        searched = 0
+        for _ in range(300):
+            n = int(rng.integers(1, 9))
+            adjacent = np.triu(rng.random((n, n)) < rng.uniform(0.2, 0.9), 1)
+            edges = np.argwhere(adjacent)
+            adjacent = adjacent | adjacent.T
+            group, component, components = self._cover(n, edges, count_covers=True)
+
+            k, n_covers = self._brute_force_cover(n, adjacent)
+            self.assertEqual(components["k"].sum(), k)
+            self.assertEqual(len(np.unique(group)), k)
+            # Every group is a clique within one component.
+            for g in np.unique(group):
+                members = np.flatnonzero(group == g)
+                self.assertTrue(all(adjacent[u, v] for u in members for v in members if u < v))
+                self.assertEqual(len(np.unique(component[members])), 1)
+            # Covers multiply across components, and each count stops at the
+            # cap.
+            counted = np.prod(components["n_min_covers"])
+            if np.any(components["n_min_covers"] == COUNT_COVERS_MAX):
+                self.assertGreaterEqual(n_covers, counted)
+            else:
+                self.assertEqual(counted, n_covers)
+            searched += int(np.sum(components["search_ran"] & (components["k"] < components["upper_bound"])))
+        # Some graphs must need the exact search to beat the greedy cover.
+        self.assertGreater(searched, 0)
+
+    def _locate(self, rows, n_bands, psf_fwhm, ambiguous=None):
+        """Locate one peak made of every position of ``rows``."""
+        candidates = self._make_candidates(rows)
+        positions = _collapse_positions(candidates, n_bands=n_bands, first_scale=1)
+        positions["peak"] = 0
+        if ambiguous is not None:
+            positions["ambiguous"] = ambiguous
+        use, fallback = _unambiguous_members(positions, 1)
+        location = _locate_peaks(positions, candidates, use, 1, np.array(psf_fwhm))
+        return (int(positions["y"][location[0]]), int(positions["x"][location[0]])), bool(fallback[0])
+
+    def test_locate_peaks_median(self):
+        # Every candidate counts, so the two at (10, 14) pull the median to it.
+        rows = [(10, 10, 0, 1, 9.0), (10, 14, 0, 2, 5.0), (10, 14, 1, 2, 5.0), (11, 13, 1, 1, 50.0)]
+        self.assertEqual(self._locate(rows, 2, [1.0, 1.0]), ((10, 14), False))
+
+    def test_locate_peaks_tie_breaks(self):
+        # The median x is 11, one pixel from both positions.
+        # Finest scale wins.
+        rows = [(10, 10, 0, 2, 50.0), (10, 12, 0, 1, 5.0)]
+        self.assertEqual(self._locate(rows, 2, [1.0, 1.0])[0], (10, 12))
+        # Then the smallest PSF FWHM among the finest-scale bands.
+        rows = [(10, 10, 1, 1, 5.0), (10, 12, 0, 1, 50.0)]
+        self.assertEqual(self._locate(rows, 2, [2.0, 1.0])[0], (10, 10))
+        # The chi^2 plane (band 2 here) ranks after every band.
+        rows = [(10, 10, 2, 1, 50.0), (10, 12, 1, 1, 5.0)]
+        self.assertEqual(self._locate(rows, 2, [1.0, 9.0])[0], (10, 12))
+        # Then the position index.
+        rows = [(10, 12, 1, 1, 50.0), (10, 10, 0, 1, 5.0)]
+        self.assertEqual(self._locate(rows, 2, [1.0, 1.0])[0], (10, 10))
+
+    def test_locate_peaks_ambiguous(self):
+        # The ambiguous position is ignored for the median and the choice.
+        rows = [(10, 10, 0, 1, 5.0), (10, 13, 0, 2, 50.0), (10, 13, 1, 2, 50.0), (10, 13, 2, 2, 50.0)]
+        self.assertEqual(self._locate(rows, 2, [1.0, 1.0], ambiguous=[False, True]), ((10, 10), False))
+        # With every position ambiguous they are all used and the peak flagged.
+        self.assertEqual(self._locate(rows, 2, [1.0, 1.0], ambiguous=[True, True]), ((10, 13), True))
+
+    def test_starlet_kernel_fwhm(self):
+        # The smoothing before scale j matches a delta through the transform.
+        size = 129
+        delta = np.zeros((size, size))
+        delta[size // 2, size // 2] = 1
+        offset = np.arange(size) - size // 2
+        for scale in (1, 2, 3):
+            profile = starlet_transform(delta, scales=scale)[-1].sum(axis=0)
+            variance = np.sum(profile * offset**2) / np.sum(profile)
+            fwhm = _starlet_kernel_fwhm(0.0, scale)
+            self.assertAlmostEqual(fwhm / SIGMA_TO_FWHM, np.sqrt(variance))
+        self.assertAlmostEqual(_starlet_kernel_fwhm(3.0, 0), 3.0)
+
+    def _group(self, rows, n_bands, psf_fwhm, **kwargs):
+        candidates = self._make_candidates(rows)
+        return candidates, *_group_peaks(candidates, n_bands, 1, np.array(psf_fwhm, dtype=float), **kwargs)
+
+    def test_group_peaks_absorbs_coarse_midpoint(self):
+        # Two sources resolved in the fine planes, 6 pixels apart, with a
+        # bright coarse-scale blend detection between them. The midpoint links
+        # to both, so it is absorbed by one and flagged, and never becomes a
+        # peak of its own.
+        rows = [
+            (10, 10, 0, 1, 10.0),
+            (10, 10, 1, 1, 9.0),
+            (10, 16, 0, 1, 8.0),
+            (10, 16, 1, 1, 7.0),
+            (10, 13, 0, 2, 50.0),
+        ]
+        _, positions, peaks, pairs, components = self._group(rows, 2, [3.5, 3.5])
+        self.assertEqual(len(peaks), 2)
+        assert_array_equal(peaks["y"], 10)
+        assert_array_equal(peaks["x"], [10, 16])
+        midpoint = positions[positions["x"] == 13][0]
+        self.assertTrue(midpoint["ambiguous"])
+        self.assertEqual(midpoint["max_linked_fraction"], 1)
+        assert_array_equal(peaks["n_positions"].sum(), 3)
+        assert_array_equal(peaks["n_ambiguous"].sum(), 1)
+        # The midpoint is counted but does not set the peak's significance.
+        assert_allclose(peaks["peak_sigma"], [10.0, 8.0])
+        self.assertEqual(peaks["n_candidates"].sum(), len(rows))
+        self.assertEqual(len(components), 1)
+        self.assertEqual(components["k"][0], 2)
+        assert_allclose(peaks["nearest_distance"], 6)
+
+    def test_group_peaks_order_independent(self):
+        rng = np.random.default_rng(3)
+        rows = [
+            (int(y), int(x), int(band), int(scale), float(flux))
+            for y, x, band, scale, flux in zip(
+                rng.integers(0, 30, 80),
+                rng.integers(0, 30, 80),
+                rng.integers(0, 3, 80),
+                rng.integers(1, 3, 80),
+                rng.uniform(5, 50, 80),
+            )
+        ]
+        # A plane holds at most one candidate per pixel.
+        rows = list({row[:4]: row for row in rows}.values())
+        _, positions, peaks, pairs, components = self._group(rows, 2, [2.0, 3.0], count_covers=True)
+        shuffled = [rows[i] for i in rng.permutation(len(rows))]
+        _, positions2, peaks2, pairs2, components2 = self._group(shuffled, 2, [2.0, 3.0], count_covers=True)
+        self.assertEqual(peaks.tobytes(), peaks2.tobytes())
+        self.assertEqual(positions.tobytes(), positions2.tobytes())
+        self.assertEqual(pairs.tobytes(), pairs2.tobytes())
+        self.assertEqual(components.tobytes(), components2.tobytes())
+
+    def test_group_peaks_search_cap_flags_peaks(self):
+        # A pentagon of positions, one band each, linked only to its two
+        # neighbors.
+        rows = [
+            (8, 0, 0, 1, 10.0),
+            (2, 7, 1, 1, 10.0),
+            (-6, 5, 2, 1, 10.0),
+            (-6, -4, 3, 1, 10.0),
+            (2, -7, 4, 1, 10.0),
+        ]
+        rows = [(y + 20, x + 20, band, scale, flux) for y, x, band, scale, flux in rows]
+        _, _, peaks, pairs, components = self._group(rows, 5, [10.0] * 5)
+        self.assertEqual(int(pairs["linked"].sum()), 5)
+        self.assertEqual(len(peaks), 3)
+        self.assertFalse(peaks["search_capped"].any())
+
+        _, _, peaks, _, components = self._group(rows, 5, [10.0] * 5, search_cap=1)
+        self.assertEqual(len(peaks), 3)
+        self.assertTrue(components["cap_hit"][0])
+        self.assertTrue(peaks["search_capped"].all())
+
+    def test_group_peaks_errors(self):
+        rows = [(10, 10, 0, 1, 10.0), (10, 10, 0, 2, 20.0), (10, 11, 1, 1, 10.0)]
+        psf_fwhm = [2.0, 3.0]
+        _, positions, peaks, _, _ = self._group(rows, 2, psf_fwhm)
+        self.assertEqual(len(peaks), 1)
+        peak = peaks[0]
+        self.assertEqual((peak["y"], peak["x"]), (10, 10))
+
+        def sigma(band, scale, flux):
+            return _starlet_kernel_fwhm(psf_fwhm[band], scale) / (SIGMA_TO_FWHM * flux)
+
+        # Band 0 contributes its better scale only; the bands are combined by
+        # inverse variance.
+        band0 = min(sigma(0, 1, 10.0), sigma(0, 2, 20.0))
+        stat = (band0**-2 + sigma(1, 1, 10.0) ** -2) ** -0.5
+        self.assertAlmostEqual(peak["stat_err_x"], stat)
+        self.assertAlmostEqual(peak["stat_err_y"], stat)
+        # Moments about the peak, one entry per candidate.
+        self.assertAlmostEqual(peak["moment_xx"], 1 / 3)
+        self.assertEqual(peak["moment_yy"], 0)
+        self.assertEqual(peak["moment_xy"], 0)
+        self.assertEqual(peak["scatter_x"], 0)
+        self.assertEqual(peak["scatter_y"], 0)
+        self.assertAlmostEqual(peak["err_x"], max(stat, 1 / np.sqrt(12)))
+        self.assertEqual(peak["nearest_distance"], np.inf)
+
+        # Two candidates are too few for a robust scatter, which leaves the
+        # provisional error to the other terms.
+        _, _, peaks, _, _ = self._group(rows[:2], 2, psf_fwhm)
+        self.assertTrue(np.isnan(peaks["scatter_x"][0]))
+        self.assertAlmostEqual(peaks["err_x"][0], max(peaks["stat_err_x"][0], 1 / np.sqrt(12)))
+
+        # A peak seen only in the chi^2 plane falls back to it, with the widest
+        # band's PSF.
+        _, _, peaks, _, _ = self._group([(10, 10, 2, 1, 10.0)], 2, psf_fwhm)
+        self.assertAlmostEqual(peaks["stat_err_x"][0], sigma(1, 1, 10.0))
+        assert_allclose(peaks["nearest_distance_fwhm"], np.inf)
+
+    def test_group_peaks_nearest_distance_fwhm(self):
+        rows = [(10, 10, 0, 1, 10.0), (10, 10, 1, 1, 10.0), (10, 30, 1, 1, 10.0)]
+        _, _, peaks, _, _ = self._group(rows, 2, [2.0, 4.0])
+        assert_allclose(peaks["nearest_distance"], [20, 20])
+        # The smallest member PSF sets the unit.
+        assert_allclose(peaks["nearest_distance_fwhm"], [10, 5])
+
+    def test_detect_peaks_groups_sources(self):
+        result = detect_peaks(self.images, self.variance, scales=3, peak_thresh=5, footprint_thresh=3)
+        self.assertEqual(result.peaks.dtype, DETECTION_DTYPE)
+        self.assertEqual(result.positions.dtype, POSITION_DTYPE)
+
+        # Every injected source is recovered exactly once, within a pixel.
+        self.assertEqual(len(result.peaks), len(self.centers))
+        for cy, cx in self.centers:
+            matched = [p for p in result.peaks if abs(p["y"] - cy) <= 1 and abs(p["x"] - cx) <= 1]
+            self.assertEqual(len(matched), 1)
+
+        # The many per-band, per-scale candidates collapse into each source.
+        peak = result.peaks[0]
+        self.assertGreater(peak["n_candidates"], 1)
+        self.assertGreaterEqual(peak["peak_sigma"], peak["flux"])
+        # These bright sources are seen in all 3 bands and the chi coadd.
+        expected_bands = (1 << self.n_bands + 1) - 1
+        self.assertEqual(peak["band_flags"], expected_bands)
+        self.assertNotEqual(peak["scale_flags"], 0)
+
+        # Each well-separated source gets its own footprint holding its peak.
+        self.assertEqual(len(result.footprints), len(self.centers))
+        assert_array_equal(np.sort(result.peaks["footprint"]), np.arange(len(self.centers)))
+        for peak in result.peaks:
+            footprint = result.footprints[peak["footprint"]]
+            self.assertEqual(len(footprint.peaks), 1)
+            self.assertEqual((footprint.peaks[0].y, footprint.peaks[0].x), (peak["y"], peak["x"]))
+            self.assertEqual(footprint.peaks[0].flux, peak["peak_sigma"])
+            self.assertTrue(footprint.data[peak["y"] - footprint.yx0[0], peak["x"] - footprint.yx0[1]])
+
+    def test_detect_peaks_footprints_offset_origin(self):
+        origin = (1000, 2000)
+        result = detect_peaks(
+            self.images, self.variance, scales=3, peak_thresh=5, footprint_thresh=3, origin=origin
+        )
+        reference = detect_peaks(self.images, self.variance, scales=3, peak_thresh=5, footprint_thresh=3)
+        self.assertEqual(len(result.footprints), len(reference.footprints))
+        for footprint, ref in zip(result.footprints, reference.footprints):
+            self.assertBoxEqual(footprint.bbox, ref.bbox + origin)
+            assert_array_equal(footprint.data, ref.data)
+            self.assertEqual(
+                [(p.y, p.x) for p in footprint.peaks],
+                [(p.y + origin[0], p.x + origin[1]) for p in ref.peaks],
+            )
+
+    def test_detect_peaks_blend_shares_footprint(self):
+        # Two sources close enough that their footprints touch but far
+        # enough apart to be resolved land in one footprint with two peaks.
+        rng = np.random.default_rng(7)
+        shape = (48, 48)
+        yy, xx = np.mgrid[0 : shape[0], 0 : shape[1]]
+        images = rng.standard_normal((self.n_bands,) + shape).astype(np.float32)
+        for cy, cx in [(24, 18), (24, 30)]:
+            images += 40.0 * np.exp(-((yy - cy) ** 2 + (xx - cx) ** 2) / (2 * 2.5**2)).astype(np.float32)
+        variance = np.ones_like(images)
+        result = detect_peaks(images, variance, scales=3, peak_thresh=5, footprint_thresh=3)
+        self.assertEqual(len(result.peaks), 2)
+        self.assertEqual(len(result.footprints), 1)
+        assert_array_equal(result.peaks["footprint"], 0)
+        self.assertEqual(len(result.footprints[0].peaks), 2)
+
+    def test_detect_peaks_retraceable(self):
+        result = detect_peaks(self.images, self.variance, scales=3, peak_thresh=5, footprint_thresh=3)
+        # Every position is assigned to a peak in this clean blend.
+        assert_array_equal(result.candidates["position"] >= 0, True)
+        for peak_id, peak in enumerate(result.peaks):
+            member_positions = np.nonzero(result.positions["peak"] == peak_id)[0]
+            self.assertEqual(len(member_positions), peak["n_positions"])
+
+            member_candidates = np.concatenate(
+                [np.nonzero(result.candidates["position"] == pid)[0] for pid in member_positions]
+            )
+            self.assertEqual(len(member_candidates), peak["n_candidates"])
+
+    def test_detect_peaks_graph_products(self):
+        psf_fwhm = [3.0, 3.5, 4.0]
+        result = detect_peaks(
+            self.images, self.variance, scales=3, peak_thresh=5, footprint_thresh=3, psf_fwhm=psf_fwhm
+        )
+        self.assertEqual(result.pairs.dtype, PAIR_DTYPE)
+        self.assertEqual(result.components.dtype, COMPONENT_DTYPE)
+        self.assertEqual(result.components["n_nodes"].sum(), len(result.positions))
+        self.assertEqual(result.components["k"].sum(), len(result.peaks))
+        self.assertEqual(result.positions["component"].max() + 1, len(result.components))
+        self.assertEqual(result.metadata["psf_fwhm"], psf_fwhm)
+        self.assertEqual(result.metadata["radius_rule"], "min")
+        self.assertEqual(result.metadata["link_radius_scales"], [1, 2])
+        assert_allclose(result.metadata["link_radius"], [4.0, 4.0])
+        self.assertAlmostEqual(result.metadata["min_separation"], 3.0 * 0.84932)
+
+    def test_detect_peaks_validation(self):
+        with self.assertRaisesRegex(ValueError, "one value per band"):
+            detect_peaks(self.images, self.variance, psf_fwhm=[3.0, 3.0])
+        with self.assertRaisesRegex(ValueError, "radius_rule"):
+            detect_peaks(self.images, self.variance, radius_rule="mean")
+
+    def test_detect_peaks_empty(self):
+        # A pure-noise floor with a threshold nothing clears yields no peaks
+        # but still well-formed tables.
+        images = np.zeros((self.n_bands,) + self.shape, dtype=np.float32)
+        variance = np.ones_like(images)
+        result = detect_peaks(images, variance, scales=3, peak_thresh=5, footprint_thresh=3)
+        self.assertEqual(len(result.candidates), 0)
+        self.assertEqual(len(result.positions), 0)
+        self.assertEqual(len(result.peaks), 0)
+        self.assertEqual(result.footprints, [])
+        self.assertEqual(result.peaks.dtype, DETECTION_DTYPE)
+        self.assertEqual(result.positions.dtype, POSITION_DTYPE)
+
+    def test_dilate_bad_mask(self):
+        mask = np.zeros((21, 21), dtype=bool)
+        mask[10, 10] = True
+
+        # A single pixel grows to the disk of the given radius.
+        dilated = _dilate_bad_mask(mask, 3.0)
+        yy, xx = np.mgrid[0:21, 0:21]
+        expected = (yy - 10) ** 2 + (xx - 10) ** 2 <= 3.0**2
+        assert_array_equal(dilated, expected)
+
+        # A non-positive radius and an empty mask are both no-ops.
+        assert_array_equal(_dilate_bad_mask(mask, 0.0), mask)
+        empty = np.zeros((5, 5), dtype=bool)
+        assert_array_equal(_dilate_bad_mask(empty, 3.0), empty)
+
+    def test_find_peak_candidates_bad_pixel_mask(self):
+        ny, nx = 40, 40
+        n_bands = 2
+        significance_map = np.zeros((1, n_bands + 1, ny, nx), dtype=np.float32)
+        yy, xx = np.mgrid[0:ny, 0:nx]
+        # The same 10-sigma bump in both single-band planes and the chi plane.
+        center = (25, 12)
+        bump = 10.0 * np.exp(-((yy - center[0]) ** 2 + (xx - center[1]) ** 2) / (2 * 2.0**2))
+        significance_map[0, 0] = bump
+        significance_map[0, 1] = bump
+        significance_map[0, n_bands] = bump
+
+        # Band 0 is bad at the peak; band 1 is clean.
+        bad = np.zeros((n_bands, ny, nx), dtype=bool)
+        bad[0, center[0], center[1]] = True
+
+        candidates, _ = _find_peak_candidates(
+            significance_map,
+            min_separation=1,
+            min_area=1,
+            peak_thresh=5,
+            footprint_thresh=3,
+            first_scale=1,
+            bad_pixel_mask=bad,
+            dilation_radius=2.0,
+        )
+        # The candidate is dropped in the bad band, kept in the clean band.
+        self.assertEqual(np.sum(candidates["band"] == 0), 0)
+        self.assertEqual(np.sum(candidates["band"] == 1), 1)
+        # The chi plane takes the union of the bands, so it is dropped too.
+        self.assertEqual(np.sum(candidates["band"] == n_bands), 0)
+
+    def test_find_peak_candidates_dilation_radius(self):
+        ny, nx = 40, 40
+        n_bands = 1
+        significance_map = np.zeros((1, n_bands + 1, ny, nx), dtype=np.float32)
+        yy, xx = np.mgrid[0:ny, 0:nx]
+        center = (20, 20)
+        significance_map[0, 0] = 10.0 * np.exp(
+            -((yy - center[0]) ** 2 + (xx - center[1]) ** 2) / (2 * 2.0**2)
+        )
+        # A bad pixel five pixels from the peak.
+        bad = np.zeros((n_bands, ny, nx), dtype=bool)
+        bad[0, center[0], center[1] - 5] = True
+
+        kw = dict(min_separation=1, min_area=1, peak_thresh=5, footprint_thresh=3, first_scale=1)
+        # A radius short of the peak leaves it; one that reaches it drops it.
+        near, _ = _find_peak_candidates(significance_map, bad_pixel_mask=bad, dilation_radius=2.0, **kw)
+        far, _ = _find_peak_candidates(significance_map, bad_pixel_mask=bad, dilation_radius=5.0, **kw)
+        self.assertEqual(np.sum(near["band"] == 0), 1)
+        self.assertEqual(np.sum(far["band"] == 0), 0)
+
+    def test_find_peak_candidates_dilation_grows_with_scale(self):
+        # The same peak and bad pixel in two scales. The bad pixel is beyond
+        # the base radius but within its doubling at the next scale, so the
+        # peak survives at the finer scale and is suppressed at the coarser.
+        ny, nx = 40, 40
+        n_bands = 1
+        significance_map = np.zeros((2, n_bands + 1, ny, nx), dtype=np.float32)
+        yy, xx = np.mgrid[0:ny, 0:nx]
+        center = (20, 20)
+        bump = 10.0 * np.exp(-((yy - center[0]) ** 2 + (xx - center[1]) ** 2) / (2 * 2.0**2))
+        significance_map[0, 0] = bump
+        significance_map[1, 0] = bump
+        # Six pixels away: outside a base radius of 4, inside its double of 8.
+        bad = np.zeros((n_bands, ny, nx), dtype=bool)
+        bad[0, center[0], center[1] - 6] = True
+
+        candidates, _ = _find_peak_candidates(
+            significance_map,
+            min_separation=1,
+            min_area=1,
+            peak_thresh=5,
+            footprint_thresh=3,
+            first_scale=1,
+            bad_pixel_mask=bad,
+            dilation_radius=4.0,
+        )
+        band0 = candidates[candidates["band"] == 0]
+        assert_array_equal(np.sort(band0["scale"]), [1])
+
+    def test_detect_peaks_bad_pixel_mask_keeps_clean_band(self):
+        # Mark the first source bad in every band but one; it stays detected,
+        # seeded by the clean band, and the others are unaffected.
+        bad = np.zeros_like(self.images, dtype=bool)
+        cy, cx = self.centers[0]
+        bad[1:, cy - 3 : cy + 4, cx - 3 : cx + 4] = True
+
+        result = detect_peaks(
+            self.images,
+            self.variance,
+            scales=3,
+            peak_thresh=5,
+            footprint_thresh=3,
+            bad_pixel_mask=bad,
+            dilation_radius=3.0,
+        )
+        self.assertEqual(len(result.peaks), len(self.centers))
+        matched = [p for p in result.peaks if abs(p["y"] - cy) <= 1 and abs(p["x"] - cx) <= 1]
+        self.assertEqual(len(matched), 1)
+        # Only the clean band and no chi plane seed the suppressed source.
+        self.assertEqual(matched[0]["band_flags"], 1 << 0)
+
+    def test_detect_peaks_bad_pixel_mask_validation(self):
+        with self.assertRaisesRegex(ValueError, "same shape as images"):
+            detect_peaks(
+                self.images,
+                self.variance,
+                bad_pixel_mask=np.zeros(self.shape, dtype=bool),
+            )

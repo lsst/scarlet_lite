@@ -106,8 +106,8 @@ class ScarletSourceData(ScarletSourceBaseData):
 
     @staticmethod
     @deprecated(
-        reason="from_source is deprecated and will be removed in a future release.",
-        version="v30.0",
+        reason="from_source is deprecated and will be removed after v31.0.",
+        version="v31.0",
         category=FutureWarning,
     )
     def from_source(source: Source) -> ScarletSourceData:

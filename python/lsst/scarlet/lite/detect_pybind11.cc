@@ -4,6 +4,7 @@
 #include <pybind11/eigen.h>
 #include <math.h>
 #include <algorithm>
+#include <limits>
 #include <stack>
 #include <queue>
 #include <vector>
@@ -129,14 +130,19 @@ MatrixB get_connected_multipeak(
 
 
 /// A Peak in a Footprint
-/// This class is meant to keep track of both the position and
-/// flux at the location of a maximum in a Footprint
+/// This class keeps track of the position and flux at the location of a
+/// local maximum in a Footprint, together with the `saddle`: the highest
+/// level at which the peak's basin connects to the basin of a brighter peak
+/// (NaN for the brightest peak in a footprint, which never joins a brighter
+/// basin). `flux - saddle` is the peak's prominence, the quantity that
+/// `kappa` thresholds in `get_peaks`.
 class Peak {
 public:
-    Peak(int y, int x, double flux){
+    Peak(int y, int x, double flux, double saddle=std::numeric_limits<double>::quiet_NaN()){
         _y = y;
         _x = x;
         _flux = flux;
+        _saddle = saddle;
     }
 
     int getY(){
@@ -151,11 +157,16 @@ public:
         return _flux;
     }
 
+    double getSaddle(){
+        return _saddle;
+    }
+
 
 private:
     int _y;
     int _x;
     double _flux;
+    double _saddle;
 };
 
 
@@ -165,83 +176,212 @@ bool sortBrightness(Peak a, Peak b){
 }
 
 
-// Get a list of peaks found in an image.
-// To make ut easier to cull peaks that are too close together
-// and ensure that every footprint has at least one peak,
-// this algorithm is meant to be run on a single footprint
-// created by `get_connected_pixels`.
+/// Find the root of a union-find tree with path compression.
+inline int union_find(std::vector<int>& parent, int i){
+    int root = i;
+    while (parent[root] != root) {
+        root = parent[root];
+    }
+    while (parent[i] != root) {
+        int next = parent[i];
+        parent[i] = root;
+        i = next;
+    }
+    return root;
+}
+
+
+/**
+ * Find the peaks in a masked image with a contrast-limited watershed.
+ *
+ * Pixels inside `mask` are visited in decreasing order of value. A pixel
+ * with no visited 8-neighbor is a strict local maximum and seeds a new basin
+ * (and a peak, if it is at least `peak_thresh`). Otherwise it joins the
+ * basins of its visited neighbors. When a pixel connects two basins for the
+ * first time, its value is the saddle level between them: the basin with the
+ * lower maximum is absorbed into the other, and its peak is culled if its
+ * prominence above that saddle, `flux - saddle`, is less than `kappa`. Because
+ * pixels are processed in decreasing order every later saddle is lower, so a
+ * peak that survives its first test survives all of them and each peak is
+ * tested exactly once.
+ *
+ * With `kappa <= 0` nothing is culled and the result is the set of strict
+ * 8-connected local maxima above `peak_thresh`.
+ *
+ * The cost is O(N log N) in the number of masked pixels, independent of the
+ * number of peaks.
+ */
 template <typename M>
-std::vector<Peak> get_peaks(
-    M& image,
+std::vector<Peak> watershed_peaks(
+    const M& image,
+    const MatrixB& mask,
     const double min_separation,
     const double peak_thresh,
+    const double kappa,
     const int y0,
     const int x0
 ){
     const int height = image.rows();
     const int width = image.cols();
+    const int n = height * width;
 
+    // Collect the masked pixels and sort them by decreasing value. Ties are
+    // broken by pixel index so the result is deterministic; the first pixel of
+    // a plateau becomes the seed and the rest join it (no plateau pixel other
+    // than the first can be a peak).
+    std::vector<std::pair<double, int>> pixels;
+    pixels.reserve(mask.count());
+    for (int i = 0; i < height; ++i) {
+        for (int j = 0; j < width; ++j) {
+            if (mask(i, j)) {
+                pixels.emplace_back(static_cast<double>(image(i, j)), i * width + j);
+            }
+        }
+    }
     std::vector<Peak> peaks;
+    if (pixels.empty()) {
+        return peaks;
+    }
+    std::sort(pixels.begin(), pixels.end(), [](const std::pair<double, int>& a, const std::pair<double, int>& b) {
+        return a.first > b.first || (a.first == b.first && a.second < b.second);
+    });
 
-    for(int i=0; i<height; i++){
-        for(int j=0; j<width; j++){
-            if(image(i, j) < peak_thresh){
-                continue;
-            }
-            if(i > 0 && image(i, j) <= image(i-1, j)){
-                continue;
-            }
-            if(i < height-1 && image(i,j) <= image(i+1, j)){
-                continue;
-            }
-            if(j > 0 && image(i, j) <= image(i, j-1)){
-                continue;
-            }
-            if(j < width-1 && image(i,j) <= image(i, j+1)){
-                continue;
-            }
+    // Union-find over pixels. parent == -1 marks an unvisited pixel.
+    std::vector<int> parent(n, -1);
+    // For each root, the pixel index of the basin's maximum.
+    std::vector<int> comp_max(n, -1);
+    // For each pixel, the index into `candidates` of the peak it seeded, or -1.
+    std::vector<int> peak_id(n, -1);
 
-            if(i > 0 && j > 0 && image(i, j) <= image(i-1, j-1)){
-                continue;
-            }
-            if(i < height-1 && j < width-1 && image(i,j) <= image(i+1, j+1)){
-                continue;
-            }
-            if(i < height-1 && j > 0 && image(i, j) <= image(i+1, j-1)){
-                continue;
-            }
-            if(i > 0 && j < width-1 && image(i,j) <= image(i-1, j+1)){
-                continue;
-            }
+    struct Candidate {
+        int pixel;
+        double flux;
+        double saddle;
+        bool culled;
+    };
+    std::vector<Candidate> candidates;
 
-            peaks.push_back(Peak(i+y0, j+x0, static_cast<double>(image(i, j))));
+    auto value = [&](int idx) { return static_cast<double>(image(idx / width, idx % width)); };
+
+    // Merge the basins rooted at idx_a and idx_b at saddle level pixel_value; returns the new root.
+    auto merge = [&](int idx_a, int idx_b, double pixel_value) {
+        const double value_a = value(comp_max[idx_a]);
+        const double value_b = value(comp_max[idx_b]);
+        int hi = idx_a, lo = idx_b;
+        if (value_b > value_a) {
+            hi = idx_b;
+            lo = idx_a;
+        }
+        const int pk = peak_id[comp_max[lo]];
+        if (pk >= 0) {
+            Candidate& c = candidates[pk];
+            c.saddle = pixel_value;
+            if (c.flux - pixel_value < kappa) {
+                c.culled = true;
+            }
+        }
+        parent[lo] = hi;
+        return hi;
+    };
+
+    const int di[8] = {-1, -1, -1, 0, 0, 1, 1, 1};
+    const int dj[8] = {-1, 0, 1, -1, 1, -1, 0, 1};
+
+    for (const auto& pv : pixels) {
+        const double pixel_value = pv.first;
+        const int pixel_index = pv.second;
+        const int i = pixel_index / width;
+        const int j = pixel_index % width;
+
+        int root = -1;
+        for (int k = 0; k < 8; ++k) {
+            const int ni = i + di[k];
+            const int nj = j + dj[k];
+            if (ni < 0 || ni >= height || nj < 0 || nj >= width) {
+                continue;
+            }
+            const int neighbor_index = ni * width + nj;
+            if (parent[neighbor_index] < 0) {
+                continue;  // unvisited, i.e. lower than pixel_index (or masked out)
+            }
+            const int root_index = union_find(parent, neighbor_index);
+            if (root < 0) {
+                // First visited neighbor: pixel_index joins its basin.
+                parent[pixel_index] = root_index;
+                root = root_index;
+            } else if (root_index != root) {
+                root = merge(root, root_index, pixel_value);
+            }
+        }
+        if (root < 0) {
+            // Strict local maximum: seed a new basin.
+            parent[pixel_index] = pixel_index;
+            comp_max[pixel_index] = pixel_index;
+            if (pixel_value >= peak_thresh) {
+                peak_id[pixel_index] = static_cast<int>(candidates.size());
+                candidates.push_back({pixel_index, pixel_value, std::numeric_limits<double>::quiet_NaN(), false});
+            }
         }
     }
 
-    if(peaks.empty()){
+    for (const Candidate& c : candidates) {
+        if (!c.culled) {
+            peaks.push_back(Peak(c.pixel / width + y0, c.pixel % width + x0, c.flux, c.saddle));
+        }
+    }
+    if (peaks.empty()) {
         return peaks;
     }
 
     /// Sort the peaks in the footprint so that the brightest are first
-    std::sort (peaks.begin(), peaks.end(), sortBrightness);
+    std::sort(peaks.begin(), peaks.end(), sortBrightness);
 
-    // Remove peaks within min_separation
-    double min_separation2 = min_separation * min_separation;
-    for (size_t i = 0; i < peaks.size() - 1; ++i) {
-        for (size_t j = i + 1; j < peaks.size();) {
-            Peak *p1 = &peaks[i];
-            Peak *p2 = &peaks[j];
-            double dy = p1->getY() - p2->getY();
-            double dx = p1->getX() - p2->getX();
-            double separation2 = dy*dy + dx*dx;
-            if (separation2 < min_separation2) {
-                peaks.erase(peaks.begin() + j);
-            } else {
-                ++j;
+    // Remove peaks within min_separation of a brighter peak. This is a hard
+    // floor on top of the contrast test and is skipped when min_separation <= 0.
+    if (min_separation > 0) {
+        double min_separation2 = min_separation * min_separation;
+        for (size_t i = 0; i < peaks.size() - 1; ++i) {
+            for (size_t j = i + 1; j < peaks.size();) {
+                Peak *p1 = &peaks[i];
+                Peak *p2 = &peaks[j];
+                double dy = p1->getY() - p2->getY();
+                double dx = p1->getX() - p2->getX();
+                double separation2 = dy*dy + dx*dx;
+                if (separation2 < min_separation2) {
+                    peaks.erase(peaks.begin() + j);
+                } else {
+                    ++j;
+                }
             }
         }
     }
     return peaks;
+}
+
+
+// Get a list of peaks found in an image.
+// This is meant to be run on a single footprint created by
+// `get_connected_pixels`. Only pixels above `footprint_thresh` take part in
+// the watershed; with the default (-inf) every pixel does.
+template <typename M>
+std::vector<Peak> get_peaks(
+    const M& image,
+    const double min_separation,
+    const double peak_thresh,
+    const int y0,
+    const int x0,
+    const double kappa=0.0,
+    const double footprint_thresh=-std::numeric_limits<double>::infinity()
+){
+    const int height = image.rows();
+    const int width = image.cols();
+    MatrixB mask(height, width);
+    for (int i = 0; i < height; ++i) {
+        for (int j = 0; j < width; ++j) {
+            mask(i, j) = static_cast<double>(image(i, j)) > footprint_thresh;
+        }
+    }
+    return watershed_peaks(image, mask, min_separation, peak_thresh, kappa, y0, x0);
 }
 
 
@@ -274,23 +414,6 @@ private:
 };
 
 
-template <typename M>
-void maskImage(
-    py::EigenDRef<M> image,
-    py::EigenDRef<MatrixB> footprint
-){
-    const int height = image.rows();
-    const int width = image.cols();
-
-    for(int i=0; i<height; i++){
-        for(int j=0; j<width; j++){
-            if(!footprint(i,j)){
-                image(i,j) = 0;
-            }
-        }
-    }
-}
-
 /**
  * Get all footprints in an image
  *
@@ -302,6 +425,9 @@ void maskImage(
  * @param find_peaks: If True, find peaks in each footprint
  * @param y0: The y-coordinate of the top-left corner of the image
  * @param x0: The x-coordinate of the top-left corner of the image
+ * @param kappa: The minimum prominence of a peak above the saddle to a
+ *   brighter peak in the same footprint. Peaks with smaller prominence are
+ *   culled; 0 keeps every local maximum.
  *
  * @return: A list of Footprints
  */
@@ -314,7 +440,8 @@ std::vector<Footprint> get_footprints(
     const double footprint_thresh,
     const bool find_peaks=true,
     const int y0=0,
-    const int x0=0
+    const int x0=0,
+    const double kappa=0.0
 ){
     const int height = image.rows();
     const int width = image.cols();
@@ -333,14 +460,17 @@ std::vector<Footprint> get_footprints(
                 MatrixB subFootprint = footprint.block(bounds[0], bounds[2], subHeight, subWidth);
                 int area = subFootprint.count();
                 if(area >= min_area){
-                    M patch = image.block(bounds[0], bounds[2], subHeight, subWidth);
-                    maskImage<M>(patch, subFootprint);
                     std::vector<Peak> _peaks;
                     if(find_peaks){
-                        _peaks = get_peaks(
+                        // The watershed only visits masked pixels, so the
+                        // patch does not need to be zeroed outside the footprint.
+                        M patch = image.block(bounds[0], bounds[2], subHeight, subWidth);
+                        _peaks = watershed_peaks(
                             patch,
+                            subFootprint,
                             min_separation,
                             peak_thresh,
+                            kappa,
                             bounds[0] + y0,
                             bounds[2] + x0
                         );
@@ -383,18 +513,22 @@ PYBIND11_MODULE(detect_pybind11, mod) {
           "Trim pixels not conencted to a center from a list of centers");
 
   mod.def("get_peaks", &get_peaks<MatrixF>,
-          "Get a list of peaks in a footprint created by get_connected_pixels");
+          "Get a list of peaks in a footprint with a contrast-limited watershed",
+          "image"_a, "min_separation"_a, "peak_thresh"_a, "y0"_a, "x0"_a,
+          "kappa"_a=0.0, "footprint_thresh"_a=-std::numeric_limits<double>::infinity());
   mod.def("get_peaks", &get_peaks<MatrixD>,
-          "Get a list of peaks in a footprint created by get_connected_pixels");
+          "Get a list of peaks in a footprint with a contrast-limited watershed",
+          "image"_a, "min_separation"_a, "peak_thresh"_a, "y0"_a, "x0"_a,
+          "kappa"_a=0.0, "footprint_thresh"_a=-std::numeric_limits<double>::infinity());
 
   mod.def("get_footprints", &get_footprints<MatrixF, float>,
           "Create a list of all of the footprints in an image, with their peaks",
           "image"_a, "min_separation"_a, "min_area"_a, "peak_thresh"_a, "footprint_thresh"_a,
-          "find_peaks"_a=true, "y0"_a=0, "x0"_a=0);
+          "find_peaks"_a=true, "y0"_a=0, "x0"_a=0, "kappa"_a=0.0);
   mod.def("get_footprints", &get_footprints<MatrixD, double>,
           "Create a list of all of the footprints in an image, with their peaks",
           "image"_a, "min_separation"_a, "min_area"_a, "peak_thresh"_a, "footprint_thresh"_a,
-          "find_peaks"_a=true, "y0"_a=0, "x0"_a=0);
+          "find_peaks"_a=true, "y0"_a=0, "x0"_a=0, "kappa"_a=0.0);
 
   py::class_<Footprint>(mod, "Footprint")
         .def(py::init<MatrixB, std::vector<Peak>, Bounds>(),
@@ -405,9 +539,10 @@ PYBIND11_MODULE(detect_pybind11, mod) {
         .def("add_peak", &Footprint::addPeak);
 
   py::class_<Peak>(mod, "Peak")
-        .def(py::init<int, int, double>(),
-            "y"_a, "x"_a, "flux"_a)
+        .def(py::init<int, int, double, double>(),
+            "y"_a, "x"_a, "flux"_a, "saddle"_a=std::numeric_limits<double>::quiet_NaN())
         .def_property_readonly("y", &Peak::getY)
         .def_property_readonly("x", &Peak::getX)
-        .def_property_readonly("flux", &Peak::getFlux);
+        .def_property_readonly("flux", &Peak::getFlux)
+        .def_property_readonly("saddle", &Peak::getSaddle);
 }

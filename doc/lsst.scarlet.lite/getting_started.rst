@@ -110,18 +110,10 @@ Creating an initial model for each component is a non-trivial task for a number 
 1. The models exist in a partially deconvolved space. This means that if the component morphologies are initialized using the observed images, convolution by the difference kernel will cause all of the initial models to be "puffy."
 2. There is no analytic way to initialize the bulge and disk components of a two component source. This means that some approximation or iterative proceedure must be used to initialize the bulge and disk.
 
-The scarlet developers attempted several different initialization schemes over the years, and certainly there is a lot of theoretical space we have yet to explore, but scarlet lite has implemented two of the most useful (and fastest) methods that we've found so far.
-An important note is that for factorized components, initializing the morphology is the most important and difficult algorithmic challenge, as a least squares algorithm can be (and is) used to fit the initial spectra once a set of morphology templates is generated (see :ref:`lsst.scarlet.lite-fit-spectra`).
+For factorized components, initializing the morphology is the most important and difficult algorithmic challenge, as a least squares algorithm can be (and is) used to fit the initial spectra once a set of morphology templates is generated (see :ref:`lsst.scarlet.lite-fit-spectra`).
 
-In general the chi^2 initializaation appears to work better with the Adaprox optimizer, which usually gives the best overall fit.
-However, the wavelet initialization tends to work better with the PGM optmizer, and also generally starts with more compact sources.
-So there is benefit to using the wavelet initialization in crowded fields, or fields with heavy blending like galaxy clusters.
-
-Chi^2 Initialization
-^^^^^^^^^^^^^^^^^^^^
-
-The idea behind the chi^2 initialization algorithm is that it initializes the morphologies on the chi^2 (variance weighted single band) coadd, referred to in the remainder of this section as the *detection image*.
-For detection, chi^2 coadds have been shown to be optimal for multiband point source detection (see `Szalay et. al 1998 <https://arxiv.org/abs/astro-ph/9811086/>`_)
+:py:class:`~lsst.scarlet.lite.initialization.FactorizedInitialization` initializes the morphologies on a detection image, by default the chi^2 (variance weighted single band) coadd.
+For detection, chi^2 coadds have been shown to be optimal for multiband point source detection (see `Szalay et. al 1998 <https://arxiv.org/abs/astro-ph/9811086/>`_).
 Initializing the morphologies this way is almost trivial when each source has a single component, in which case sources are initialized by making the detection image symmetric about the center of the source by taking the minimum of each pixel and its symmetric counterpart, similar to the SDSS deblender.
 This helps prevent the source from growing too large and swallowing too much flux from neighbors.
 Next a monotonicity operator is used to smooth over non-monotonic regions that are usually due to neighboring sources.
@@ -129,7 +121,7 @@ For sources with low signal to noise, there are not a sufficient number of pixel
 For sources with sufficiently large signal to noise, two separate components are initialized by specifying the fraction of the overall flux to attribute to the disk.
 The "bulge" component contains all of the flux above the disk threshold, and the "disk" component contains all of the flux below it.
 
-To initialize a set of sources using chi^2 initialization simply use
+To initialize a set of sources use
 
 >>> # Initialize the monotonicity operator.
 >>> # This is only done once and effectively creates a lookup table that all of the monotonic components use.
@@ -137,23 +129,10 @@ To initialize a set of sources using chi^2 initialization simply use
 >>> # If a source is larger, the operator will be modified to the new value.
 >>> monotonicity = scl.operators.Monotonicity((51, 51))
 >>> # Initialize the sources
->>> chi2init = scl.initialization.FactorizedChi2Initialization(observation, centers, monotonicity=monotonicity)
->>> sources = chi2init.sources
+>>> initialization = scl.initialization.FactorizedInitialization(observation, centers, monotonicity=monotonicity)
+>>> sources = initialization.sources
 
-Wavelet Initialization
-^^^^^^^^^^^^^^^^^^^^^^
-
-The idea behind wavelet initialization is that much of the flux at lower scales in the image is due to the PSF, so using only the higher frequency scales prevents much of the observed PSF from getting into the initial source models.
-The other key difference is that the bulge and disk are initialized with the detection image wavelets at different scales, where the high frequency wavelets are used for the bulge and the lower frequency wavelets are used for the disk.
-To initialize sources using wavelet coefficients use
-
->>> # Initialize the sources
->>> wavelet_init = scl.initialization.FactorizedWaveletInitialization(
-...     observation,
-...     centers,
-...     monotonicity=monotonicity
-... )
->>> wavelet_sources = wavelet_init.sources
+To initialize on a different detection image, for example one built from wavelet coefficients, pass it as the ``detect`` argument.
 
 .. _lsst.scarlet.lite-fit-model:
 
