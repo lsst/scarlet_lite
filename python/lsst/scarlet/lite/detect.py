@@ -31,6 +31,8 @@ from deprecated.sphinx import deprecated  # type: ignore
 from lsst.scarlet.lite.detect_pybind11 import Footprint, Peak, get_footprints  # type: ignore
 from scipy import special
 from scipy.ndimage import binary_dilation
+from scipy.sparse import csr_array
+from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 
 from .bbox import Box, overlapped_slices
@@ -415,6 +417,10 @@ POSITION_DTYPE = np.dtype(
         ("n_candidates", int),
         ("n_linked", int),
         ("peak", int),
+        ("component", int),
+        ("ambiguous", bool),
+        ("max_linked_fraction", float),
+        ("max_linked_peak", int),
     ]
 )
 
@@ -432,8 +438,62 @@ DETECTION_DTYPE = np.dtype(
         ("n_positions", int),
         ("n_ambiguous", int),
         ("footprint", int),
+        ("location_fallback", bool),
+        ("search_capped", bool),
+        ("nearest_distance", float),
+        ("nearest_distance_fwhm", float),
+        ("stat_err_y", float),
+        ("stat_err_x", float),
+        ("moment_yy", float),
+        ("moment_xx", float),
+        ("moment_xy", float),
+        ("scatter_y", float),
+        ("scatter_x", float),
+        ("err_y", float),
+        ("err_x", float),
     ]
 )
+
+# Record type for a pair of positions within the largest link radius, linked
+# or not.
+PAIR_DTYPE = np.dtype(
+    [
+        ("i", int),
+        ("j", int),
+        ("distance", float),
+        ("linked", bool),
+        ("shares_plane", bool),
+        ("within_min", bool),
+        ("within_max", bool),
+    ]
+)
+
+# Record type for a connected component of the position graph.
+COMPONENT_DTYPE = np.dtype(
+    [
+        ("n_nodes", int),
+        ("lower_bound", int),
+        ("upper_bound", int),
+        ("k", int),
+        ("search_ran", bool),
+        ("n_visited", int),
+        ("cap_hit", bool),
+        ("n_min_covers", int),
+    ]
+)
+
+# The PAIR_DTYPE field that decides whether a pair is close enough to link,
+# for each value of ``radius_rule``.
+RADIUS_RULES = {"min": "within_min", "max": "within_max"}
+
+# Minimum covers are only counted for components this small, and at most this
+# many of them.
+COUNT_COVERS_MAX_NODES = 12
+COUNT_COVERS_MAX = 100
+SEARCH_CAP = 100_000
+
+SIGMA_TO_FWHM = 2 * np.sqrt(2 * np.log(2))
+MAD_TO_SIGMA = 1.4826
 
 
 @dataclass
@@ -446,7 +506,8 @@ class PeakDetectionResult:
         Structured array of detections with dtype `DETECTION_DTYPE`, one row
         per source. Row ids link back to ``positions`` via
         ``positions["peak"]``; ``footprint`` is the index into
-        ``footprints`` of the footprint containing the peak.
+        ``footprints`` of the footprint containing the peak. The location,
+        flags and errors are described in ``_build_detections``.
     footprints :
         The detected footprints, each holding the `Peak` objects of the
         detections inside it, brightest first. Every peak lies in exactly
@@ -457,9 +518,10 @@ class PeakDetectionResult:
         `POSITION_DTYPE`, the intermediate between candidates and peaks. Row
         ids link back to ``candidates`` via ``candidates["position"]``.
         ``plane_flags`` is a bitmask of the planes (band, scale) the position
-        was a distinct peak in; ``n_linked`` is the number of peaks the
-        position could have joined (see ``_assign_peaks``), and ``peak`` is
-        -1 for a position that was not assigned to any peak.
+        was a distinct peak in. ``peak`` and ``component`` index ``peaks``
+        and ``components``; ``n_linked``, ``ambiguous`` and the
+        ``max_linked_*`` fields describe the links to other peaks (see
+        ``_link_fractions``).
     candidates :
         Structured array of peak candidates with dtype `CANDIDATE_DTYPE`.
         The same source is expected to appear multiple times, once per band
@@ -477,6 +539,16 @@ class PeakDetectionResult:
     sigma :
         The coefficient noise std, shaped to broadcast against ``starlets``.
         See ``_build_detection_starlets`` for the two shapes it takes.
+    pairs :
+        Structured array of position pairs with dtype `PAIR_DTYPE`. ``i`` and
+        ``j`` index ``positions``.
+    components :
+        Structured array of the connected components of the position graph
+        with dtype `COMPONENT_DTYPE` (see ``_clique_cover``).
+    metadata :
+        The settings the peaks were grouped with: the per-band
+        ``psf_fwhm``, the ``link_radius`` at each of ``link_radius_scales``,
+        ``min_separation``, ``radius_rule`` and ``search_cap``.
     """
 
     peaks: np.ndarray
@@ -486,6 +558,9 @@ class PeakDetectionResult:
     significance_map: np.ndarray
     starlets: np.ndarray
     sigma: np.ndarray
+    pairs: np.ndarray
+    components: np.ndarray
+    metadata: dict
 
 
 def _starlet_scale_factors(scales: int, generation: int = 2) -> np.ndarray:
@@ -904,7 +979,7 @@ def _find_peak_candidates(
         least ``kappa`` above the saddle connecting it to any brighter peak
         in its footprint, otherwise it is a bump on that peak's flank and is
         culled. This is what makes two candidates in the same plane distinct
-        sources (see ``_assign_peaks``).
+        sources (see ``_build_pairs``).
     first_scale :
         The first starlet scale in ``significance_map``, used to label the
         ``scale`` field of each candidate.
@@ -1021,7 +1096,7 @@ def _collapse_positions(candidates: np.ndarray, n_bands: int, first_scale: int) 
     -------
     positions :
         The unique positions with dtype `POSITION_DTYPE`, sorted by
-        ``(y, x)``. ``n_linked`` and ``peak`` are left for ``_assign_peaks``.
+        ``(y, x)``. The grouping fields are left for ``_group_peaks``.
 
     Notes
     -----
@@ -1086,160 +1161,843 @@ def _link_radius(scale: int | np.ndarray, psf_fwhm: float) -> float | np.ndarray
     return np.maximum(psf_fwhm, 2.0 ** np.asarray(scale, dtype=float))
 
 
-def _assign_peaks(
-    positions: np.ndarray,
-    psf_fwhm: float,
-    blend_policy: str = "nearest",
-) -> tuple[np.ndarray, np.ndarray]:
-    """Assign positions to peaks, filling their ``peak`` and ``n_linked``.
+def _starlet_kernel_fwhm(psf_fwhm: float | np.ndarray, scale: int | np.ndarray) -> float | np.ndarray:
+    """Effective FWHM of a point source at a starlet scale.
 
     Parameters
     ----------
-    positions :
-        The unique positions with dtype `POSITION_DTYPE`. ``peak`` and
-        ``n_linked`` are filled in place.
     psf_fwhm :
-        The PSF FWHM in pixels, passed to ``_link_radius``.
-    blend_policy :
-        What to do with a position that could join two or more existing
-        peaks: ``"nearest"`` joins the one with the nearest seed, ``"drop"``
-        leaves it unassigned (``peak == -1``).
+        The PSF FWHM in pixels (scalar or array).
+    scale :
+        The absolute starlet scale (scalar or array).
 
     Returns
     -------
-    seeds :
-        For each peak, the index of the position that seeded it. This is the
-        peak's finest-scale, brightest position and defines its location.
-    peak_of :
-        ``positions["peak"]``, for convenience.
+    fwhm :
+        The FWHM in pixels of the PSF convolved with the smoothing kernel that
+        precedes ``scale``.
 
     Notes
     -----
-    Two positions are *distinct* if they were both peaks in the same plane
-    ``(band, scale)`` (the plane's contrast-limited watershed already
-    established a significant saddle between them), i.e. if their
-    ``plane_flags`` share a bit. Positions are visited finest scale first,
-    brightest first within a scale, and each one joins the nearest existing
-    peak that lies within the linking radius and contains no position it is
-    distinct from; if there is none it seeds a new peak.
-
-    Because a position never joins a peak containing a position it is
-    distinct from, two distinct positions can never share a peak, however
-    many other positions either of them merges with. Together with the
-    watershed this gives the invariant that matters: a pair resolved as two
-    peaks in any plane is two peaks in the output.
-
-    ``n_linked`` counts the peaks a position was eligible to join. A value of
-    two or more means the position (typically a coarse-scale peak sitting
-    between two finer ones) is ambiguous between several sources, and its
-    assignment was decided by ``blend_policy``; downstream code can treat it
-    as a blend rather than a measurement of whichever peak it landed in.
-
-    The loop is sequential (each decision depends on the peaks already
-    seeded) and costs a few tens of microseconds per position in Python; if
-    it ever dominates it ports directly to C++ with the same structure.
+    Scale ``j`` is the difference between the image smoothed ``j`` times and
+    its further smoothing. Pass ``i`` of the B3 spline has a variance of
+    ``4**i`` per axis, so the smoothing before scale ``j`` has a variance of
+    ``(4**j - 1) / 3``. Both kernels are treated as Gaussians and added in
+    quadrature.
     """
-    n = len(positions)
-    peak_of = np.full(n, -1, dtype=int)
-    n_linked = np.zeros(n, dtype=int)
-    seeds: list[int] = []
-    if n == 0:
-        positions["peak"] = peak_of
-        positions["n_linked"] = n_linked
-        return np.array(seeds, dtype=int), peak_of
-    if blend_policy not in ("nearest", "drop"):
-        raise ValueError(f"blend_policy must be 'nearest' or 'drop', got {blend_policy!r}")
-
-    yx = np.column_stack([positions["y"], positions["x"]]).astype(float)
-    radii: np.ndarray = cast(np.ndarray, _link_radius(positions["scale"], psf_fwhm))
-    flags = positions["plane_flags"]
-    neighbors = cKDTree(yx).query_ball_point(yx, float(radii.max()))
-    order = np.lexsort((-positions["peak_sigma"], positions["scale"]))
-    is_seed = np.zeros(n, dtype=bool)
-    members: list[list[int]] = []
-
-    for i in order:
-        yx_i = yx[i]
-        radius = radii[i]
-        flag = flags[i]
-        # Eligible peaks, keyed by peak id, with squared distance to the seed.
-        eligible: dict[int, float] = {}
-        for k in neighbors[i]:
-            if not is_seed[k]:
-                continue
-            d = yx[k] - yx_i
-            d2 = d[0] ** 2 + d[1] ** 2
-            r = max(radius, radii[k])
-            if d2 > r**2:
-                continue
-            pk = peak_of[k]
-            if any(flag & flags[m] for m in members[pk]):
-                continue  # distinct from a member of this peak
-            eligible[pk] = d2
-        n_linked[i] = len(eligible)
-        if len(eligible) == 0:
-            peak_of[i] = len(members)
-            is_seed[i] = True
-            seeds.append(i)
-            members.append([i])
-        elif len(eligible) == 1 or blend_policy == "nearest":
-            pk = min(eligible, key=eligible.__getitem__)
-            peak_of[i] = pk
-            members[pk].append(i)
-        # else: "drop" with several eligible peaks; leave unassigned.
-
-    positions["peak"] = peak_of
-    positions["n_linked"] = n_linked
-    return np.array(seeds, dtype=int), peak_of
+    kernel_variance = (4.0 ** np.asarray(scale, dtype=float) - 1) / 3
+    return np.sqrt(np.asarray(psf_fwhm, dtype=float) ** 2 + SIGMA_TO_FWHM**2 * kernel_variance)
 
 
-def _build_detections(positions: np.ndarray, seeds: np.ndarray) -> np.ndarray:
-    """Reduce assigned positions to one detection record per peak.
+def _build_pairs(positions: np.ndarray, psf_fwhm: float, radius_rule: str) -> np.ndarray:
+    """Find every pair of positions within the largest link radius.
 
     Parameters
     ----------
     positions :
-        The positions with ``peak`` and ``n_linked`` filled by
-        ``_assign_peaks``.
-    seeds :
-        The seed position of each peak, from ``_assign_peaks``.
+        The unique positions with dtype `POSITION_DTYPE`.
+    psf_fwhm :
+        The PSF FWHM in pixels, passed to ``_link_radius``.
+    radius_rule :
+        Which link radius of a pair bounds its separation, a key of
+        `RADIUS_RULES`.
+
+    Returns
+    -------
+    pairs :
+        The pairs with dtype `PAIR_DTYPE`, sorted by ``(i, j)`` with
+        ``i < j``.
+
+    Notes
+    -----
+    Two positions are linked if they are within the link radius and share no
+    plane (starlet scale and band). Positions that were both peaks in one
+    plane were separated by that plane's contrast-limited watershed,
+    so they are distinct sources however close they are.
+    """
+    if len(positions) < 2:
+        return np.zeros(0, dtype=PAIR_DTYPE)
+    yx = np.column_stack([positions["y"], positions["x"]]).astype(float)
+    radii = cast(np.ndarray, _link_radius(positions["scale"], psf_fwhm))
+    ij = cKDTree(yx).query_pairs(float(radii.max()), output_type="ndarray")
+    ij = ij[np.lexsort((ij[:, 1], ij[:, 0]))]
+    i, j = ij[:, 0], ij[:, 1]
+    flags = positions["plane_flags"]
+
+    pairs = np.zeros(len(ij), dtype=PAIR_DTYPE)
+    pairs["i"] = i
+    pairs["j"] = j
+    pairs["distance"] = np.hypot(yx[i, 0] - yx[j, 0], yx[i, 1] - yx[j, 1])
+    pairs["shares_plane"] = (flags[i] & flags[j]) != 0
+    pairs["within_min"] = pairs["distance"] <= np.minimum(radii[i], radii[j])
+    pairs["within_max"] = pairs["distance"] <= np.maximum(radii[i], radii[j])
+    pairs["linked"] = pairs[RADIUS_RULES[radius_rule]] & ~pairs["shares_plane"]
+    return pairs
+
+
+def _full_cliques(neighbors: list[int], clique: list[int], sizes: list[int]) -> list[int]:
+    """Cliques that a node is adjacent to every member of, in ascending order.
+
+    Parameters
+    ----------
+    neighbors :
+        The neighbors of the node.
+    clique :
+        The clique of every node, ``-1`` if unassigned.
+    sizes :
+        The number of members of each clique.
+
+    Returns
+    -------
+    cliques :
+        The cliques the node could join.
+    """
+    counts: dict[int, int] = {}
+    for u in neighbors:
+        g = clique[u]
+        if g >= 0:
+            counts[g] = counts.get(g, 0) + 1
+    return sorted(g for g, count in counts.items() if count == sizes[g])
+
+
+def _greedy_independent_set(adjacency: list[list[int]], order: list[int]) -> int:
+    """Size of a greedy independent set, visiting nodes in ``order``.
+
+    Parameters
+    ----------
+    adjacency :
+        The neighbors of each node.
+    order :
+        The order in which nodes are offered to the set.
+
+    Returns
+    -------
+    size :
+        The number of nodes in the set.
+
+    Notes
+    -----
+    Two adjacent nodes (positions) can never be in the same clique (peak),
+    so the size of any independent set is a lower bound on the number of
+    cliques.
+    """
+    chosen = [False] * len(adjacency)
+    for v in order:
+        if not any(chosen[u] for u in adjacency[v]):
+            chosen[v] = True
+    return sum(chosen)
+
+
+def _greedy_cover(adjacency: list[list[int]], order: list[int]) -> list[int]:
+    """Cover a graph with cliques greedily, visiting nodes in ``order``.
+
+    Parameters
+    ----------
+    adjacency :
+        The neighbors of each node.
+    order :
+        The order in which nodes are assigned.
+
+    Returns
+    -------
+    clique :
+        The clique of each node. Each node joins the first clique it is
+        adjacent to every member of, or opens a new one.
+    """
+    clique = [-1] * len(adjacency)
+    sizes: list[int] = []
+    for v in order:
+        eligible = _full_cliques(adjacency[v], clique, sizes)
+        if eligible:
+            clique[v] = eligible[0]
+            sizes[eligible[0]] += 1
+        else:
+            clique[v] = len(sizes)
+            sizes.append(1)
+    return clique
+
+
+def _search_covers(
+    adjacency: list[list[int]],
+    order: list[int],
+    max_cliques: int,
+    max_visits: float,
+    max_covers: int,
+) -> tuple[list[list[int]], int, bool]:
+    """Search for covers of a graph by at most ``k`` cliques.
+
+    Parameters
+    ----------
+    adjacency :
+        The neighbors of each node.
+    order :
+        The order in which nodes are assigned.
+    max_cliques :
+        The maximum number of cliques.
+    max_visits :
+        Stop after visiting this many nodes.
+    max_covers :
+        Stop after finding this many covers.
+
+    Returns
+    -------
+    covers :
+        The clique of each node, for each cover found.
+    n_visited :
+        The number of nodes visited.
+    cap_hit :
+        `True` if the search stopped at ``max_visits`` before finishing.
+
+    Notes
+    -----
+    A depth-first search that assigns the nodes in ``order``: each node may
+    join any clique it is adjacent to every member of, or open a new one
+    while fewer than ``max_cliques`` exist. Cliques are numbered in the order
+    they are opened, so every partition is reached by exactly one path.
+    The stack is explicit because components can be far deeper than the
+    recursion limit.
+    """
+    n = len(order)
+    clique = [-1] * n
+    sizes: list[int] = []
+    covers: list[list[int]] = []
+
+    def options(v: int) -> list[int]:
+        eligible = _full_cliques(adjacency[v], clique, sizes)
+        if len(sizes) < max_cliques:
+            eligible.append(len(sizes))
+        # Options are popped from the end, so the oldest clique is tried first.
+        return eligible[::-1]
+
+    def unassign(v: int) -> None:
+        g = clique[v]
+        clique[v] = -1
+        sizes[g] -= 1
+        if sizes[g] == 0:
+            # Only the newest clique can empty, since later ones were opened
+            # deeper in the search and have already been unwound.
+            sizes.pop()
+
+    stack = [options(order[0])]
+    n_visited = 1
+    while stack:
+        depth = len(stack) - 1
+        if not stack[-1]:
+            stack.pop()
+            if depth > 0:
+                unassign(order[depth - 1])
+            continue
+        v = order[depth]
+        g = stack[-1].pop()
+        if g == len(sizes):
+            sizes.append(1)
+        else:
+            sizes[g] += 1
+        clique[v] = g
+        if depth + 1 == n:
+            covers.append(clique.copy())
+            if len(covers) >= max_covers:
+                return covers, n_visited, False
+            unassign(v)
+            continue
+        if n_visited >= max_visits:
+            return covers, n_visited, True
+        n_visited += 1
+        stack.append(options(order[depth + 1]))
+    return covers, n_visited, False
+
+
+def _cover_component(
+    adjacency: list[list[int]],
+    plane_bound: int,
+    search_cap: int,
+    count_covers: bool,
+) -> tuple[list[int], dict[str, int | bool]]:
+    """Find a minimum clique cover of one connected component.
+
+    Parameters
+    ----------
+    adjacency :
+        The neighbors of each node.
+    plane_bound :
+        The largest number of nodes that share a plane. They are pairwise
+        unlinked, so this is a lower bound on the cover.
+    search_cap :
+        The number of nodes the exact search may visit, summed over every
+        ``k`` it tries.
+    count_covers :
+        Count the distinct minimum covers of a small component.
+        This is a diagnostic that should always be ``False`` in production.
+
+    Returns
+    -------
+    clique :
+        The clique of each node.
+    stats :
+        The values of the `COMPONENT_DTYPE` fields.
+
+    Notes
+    -----
+    Finding the true clique cover is an NP-hard problem, so this function uses
+    a combination of greedy heuristics and exact search within a limited search
+    cap to find a minimum cover for small components.
+    """
+    n = len(adjacency)
+    order = sorted(range(n), key=lambda v: (len(adjacency[v]), v))
+    # The independent set is a lower bound on the number of cliques,
+    # as no two nodes in an independent set can be in the same clique.
+    # However, it is dependent on the order of nodes considered and is
+    # not guaranteed to be the maximum.
+    # It's a cheap way to get a lower bound that might be higher than the
+    # number of components.
+    lower = max(_greedy_independent_set(adjacency, order), plane_bound)
+
+    # Estimate the upper bound on the number of cliques using a greedy cover.
+    clique = _greedy_cover(adjacency, order)
+    upper = max(clique) + 1
+    max_cliques = upper
+    n_visited = 0
+    cap_hit = False
+    for trial in range(lower, upper):
+        if n_visited >= search_cap:
+            cap_hit = True
+            break
+        # Try an exact search for a minimum clique cover
+        covers, visited, cap_hit = _search_covers(adjacency, order, trial, search_cap - n_visited, 1)
+        n_visited += visited
+        if covers:
+            # A valid cover was found, so update the clique and the maximum
+            # number of cliques.
+            clique = covers[0]
+            max_cliques = trial
+            break
+        if cap_hit:
+            break
+    n_min_covers = -1
+    if count_covers and n <= COUNT_COVERS_MAX_NODES and not cap_hit:
+
+        covers, _, _ = _search_covers(adjacency, order, max_cliques, np.inf, COUNT_COVERS_MAX)
+        n_min_covers = len(covers)
+    stats: dict[str, int | bool] = {
+        "lower_bound": lower,
+        "upper_bound": upper,
+        "k": max_cliques,
+        "search_ran": lower < upper,
+        "n_visited": n_visited,
+        "cap_hit": cap_hit,
+        "n_min_covers": n_min_covers,
+    }
+    return clique, stats
+
+
+def _max_shared_plane(plane_flags: np.ndarray, component: np.ndarray, n_components: int) -> np.ndarray:
+    """Largest number of positions in each component that share a plane.
+
+    Parameters
+    ----------
+    plane_flags :
+        The plane bitmask of each position.
+    component :
+        The component of each position.
+    n_components :
+        The number of components.
+
+    Returns
+    -------
+    count :
+        The count for each component.
+    """
+    flags = plane_flags.astype(np.int64)
+    count = np.zeros(n_components, dtype=int)
+    n_bits = int(flags.max()).bit_length() if len(flags) else 0
+    for bit in range(n_bits):
+        has_plane = ((flags >> bit) & 1).astype(bool)
+        count = np.maximum(count, np.bincount(component[has_plane], minlength=n_components))
+    return count
+
+
+def _clique_cover(
+    plane_flags: np.ndarray,
+    edges: np.ndarray,
+    search_cap: int = 100_000,
+    count_covers: bool = False,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Partition the position graph into a minimum number of cliques.
+
+    Parameters
+    ----------
+    plane_flags :
+        The plane bitmask of each position, used for a lower bound.
+    edges :
+        The linked pairs, with shape ``(n_edges, 2)``.
+    search_cap :
+        The number of nodes the exact search may visit in a component.
+    count_covers :
+        Count the distinct minimum covers of components with at most
+        `COUNT_COVERS_MAX_NODES` nodes, up to `COUNT_COVERS_MAX`.
+
+    Returns
+    -------
+    clique :
+        The clique (peak) of each position. Cliques are numbered in the
+        order of their first member.
+    component :
+        The connected component of each position, numbered in the
+        order of their first member. A component is a set of linked positions
+        that is split into one or more peaks (cliques).
+    components :
+        One row per component with dtype `COMPONENT_DTYPE`.
+
+    Notes
+    -----
+    A missing edge is evidence of two sources, so every peak is a clique and
+    the number of peaks is the size of the minimum clique cover. Each
+    connected component is covered on its own. A complete component is a
+    single clique. Otherwise nodes are visited fewest neighbors first (ties by
+    index) to build a greedy cover, an upper bound, and a greedy independent
+    set, which together with ``plane_flags`` gives a lower bound. When the
+    bounds differ, ``_search_covers`` tries each ``k`` from the lower bound
+    up. If it hits ``search_cap`` the greedy cover is kept and ``cap_hit`` is
+    set.
+    """
+    n = len(plane_flags)
+    i, j = edges[:, 0], edges[:, 1]
+    # The adjacency array needs both directions for each edge, meaning we need
+    # i, j and j, i. We do this by concatenating them and switching the
+    # order.
+    # The format of a CSR array has three attributes:
+    # - `data`: the non-zero values of the array. In this case all True.
+    # - `indices`: the column indices of the non-zero elements. These are in
+    #   the same order as the `data` array, arranged row by row, and by
+    #   increasing column within each row (after `sort_indices`).
+    # - `indptr`: points to the start of each row in the `indices` and `data`
+    #   arrays. It has one entry per position plus a final entry marking the
+    #   end of the last row, so the neighbors of position ``v`` are
+    #   ``indices[indptr[v]:indptr[v + 1]]``. A row with no non-zero
+    #   elements has ``indptr[v] == indptr[v + 1]``.
+    adjacency = csr_array(
+        (np.ones(2 * len(edges), dtype=bool), (np.concatenate([i, j]), np.concatenate([j, i]))),
+        shape=(n, n),
+    )
+    adjacency.sort_indices()
+    indptr, indices = adjacency.indptr, adjacency.indices
+
+    # Split the graph into components.
+    # Each component is at a minimum a single peak.
+    n_components, component = connected_components(adjacency, directed=False)
+    # Count the number of nodes and edges in each component.
+    sizes = np.bincount(component, minlength=n_components)
+    n_edges = np.bincount(component[i], minlength=n_components)
+    # The largest number of positions in each component that share a single
+    # (scale, band) plane. Positions in the same plane are always distinct,
+    # so this gives us a lower bound on the number of peaks (cliques) in the
+    # component.
+    plane_bound = _max_shared_plane(plane_flags, component, n_components)
+
+    components = np.zeros(n_components, dtype=COMPONENT_DTYPE)
+    components["n_nodes"] = sizes
+    complete = n_edges == sizes * (sizes - 1) // 2
+    components["lower_bound"] = 1
+    components["upper_bound"] = 1
+    # Number of cliques (peaks) that each component is divided into.
+    components["k"] = 1
+    components["n_min_covers"] = -1
+    if count_covers:
+        components["n_min_covers"][complete & (sizes <= COUNT_COVERS_MAX_NODES)] = 1
+
+    # Nodes (positions) grouped by component, in index order within each one.
+    by_component = np.argsort(component, kind="stable")
+    # Starts gives the starting index of each component in the sorted array
+    # of nodes, so component `c`'s nodes are
+    # `by_component[starts[c] : starts[c + 1]]`.
+    starts = np.concatenate([[0], np.cumsum(sizes)])
+    local = np.empty(n, dtype=int)
+    # The local index of each node (candidate) within its component.
+    local[by_component] = np.arange(n) - starts[component[by_component]]
+    # The local clique index of each node within its component.
+    local_clique = np.zeros(n, dtype=int)
+    for c in np.flatnonzero(~complete):
+        nodes = by_component[starts[c] : starts[c + 1]]
+        # The local indices of the neighbors of each node
+        # These are the other positions that can potentially be merged
+        # with the node.
+        neighbors = [local[indices[indptr[v] : indptr[v + 1]]].tolist() for v in nodes]
+        # Subdivide the component into cliques (peaks), where each clique is
+        # a set of nodes all connected to each other.
+        component_clique, stats = _cover_component(neighbors, int(plane_bound[c]), search_cap, count_covers)
+        local_clique[nodes] = component_clique
+        for name, value in stats.items():
+            components[name][c] = value
+
+    # The starting offset of each component's cliques in the raw numbering,
+    # where cliques are numbered component by component.
+    offsets = np.cumsum(components["k"]) - components["k"]
+    # A unique but not yet ordered clique label for each position
+    raw_position_cliques = offsets[component] + local_clique
+    n_cliques = int(components["k"].sum())
+    # Determine the first occurrence of each clique in the global ordering.
+    first = np.full(n_cliques, n, dtype=int)
+    np.minimum.at(first, raw_position_cliques, np.arange(n))
+    # The global index of each clique, determined by the first occurrence
+    # of any of its nodes.
+    global_clique = np.empty(n_cliques, dtype=int)
+    global_clique[np.argsort(first)] = np.arange(n_cliques)
+    # The clique that each position (node) belongs to.
+    clique = global_clique[raw_position_cliques]
+    return clique, component, components
+
+
+def _link_fractions(
+    clique: np.ndarray, edges: np.ndarray, n_cliques: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Measure how strongly each position links to the other cliques.
+
+    Parameters
+    ----------
+    clique :
+        The clique of each position.
+    edges :
+        The linked pairs, with shape ``(n_edges, 2)``.
+    n_cliques :
+        The number of cliques.
+
+    Returns
+    -------
+    n_linked :
+        The number of cliques the position is adjacent to every member of,
+        counting its own.
+    ambiguous :
+        `True` where ``n_linked > 1``: the position could move to another
+        clique without breaking it.
+    max_fraction :
+        The largest fraction of another clique's members the position is
+        adjacent to, ``0`` if none.
+    max_clique :
+        The clique of ``max_fraction`` (the lowest id on a tie), ``-1`` if
+        none.
+    """
+    n = len(clique)
+    n_linked = np.ones(n, dtype=int)
+    max_fraction = np.zeros(n)
+    max_clique = np.full(n, -1, dtype=int)
+    # Edges are not directed and only stored once.
+    # We concatenate to give us both directions.
+    # Note that positions with multiple edges will appear multiple times.
+    node = np.concatenate([edges[:, 0], edges[:, 1]]).astype(np.int64)
+    # We swap the edge order in the concatenate, so each node is paired
+    # with its linked partner. `other` is the clique of the partner node,
+    # which tells us which cliques each node's partners belong to.
+    other = clique[np.concatenate([edges[:, 1], edges[:, 0]])]
+    # If the node and its partner are in the same clique,
+    # the link carries no information so we ignore those.
+    keep = other != clique[node]
+    # Pack each (position, foreign clique) pair into one integer.
+    # This works because other < n_cliques.
+    # np.unique counts how many members of that clique the position is
+    # linked to.
+    key, count = np.unique(node[keep] * n_cliques + other[keep], return_counts=True)
+    if len(key) == 0:
+        # This happens if each component has only a single clique (peak)
+        # or if there are no edges at all.
+        return n_linked, n_linked > 1, max_fraction, max_clique
+    # Unpack the position and its partner's clique from the key.
+    node, other = np.divmod(key, n_cliques)
+    # The number of members in the partner's clique of each pair.
+    size = np.bincount(clique, minlength=n_cliques)[other]
+    fraction = count / size
+    # A position linked to every member of a foreign clique could join
+    # that clique.
+    n_linked += np.bincount(node[count == size], minlength=n)
+
+    # lexsort uses its last key first: group by position, then descending
+    # fraction, then the lowest clique id on a tie.
+    order = np.lexsort((other, -fraction, node))
+    # The first row of each position's run is its strongest foreign clique.
+    first = np.ones(len(order), dtype=bool)
+    first[1:] = node[order[1:]] != node[order[:-1]]
+    best = order[first]
+    # Positions with no foreign links are absent from node and keep the
+    # defaults.
+    max_fraction[node[best]] = fraction[best]
+    max_clique[node[best]] = other[best]
+    return n_linked, n_linked > 1, max_fraction, max_clique
+
+
+def _clique_median(values: np.ndarray, cliques: np.ndarray, n_cliques: int) -> np.ndarray:
+    """Median of ``values`` within each clique.
+
+    Parameters
+    ----------
+    values :
+        The values.
+    cliques :
+        The clique of each value.
+    n_cliques :
+        The number of cliques.
+
+    Returns
+    -------
+    median :
+        The median of each clique, NaN for an empty clique.
+    """
+    # Sort by clique first, then by value, so the values of each clique
+    # form one contiguous sorted run.
+    ordered = values[np.lexsort((values, cliques))].astype(float)
+    counts = np.bincount(cliques, minlength=n_cliques)
+    # The offset in `ordered` where each clique's run begins.
+    starts = np.cumsum(counts) - counts
+    median = np.full(n_cliques, np.nan)
+    has = counts > 0
+    # The two middle elements of each run. For an odd count they are the
+    # same element, so averaging them is the usual median either way.
+    lower = starts[has] + (counts[has] - 1) // 2
+    upper = starts[has] + counts[has] // 2
+    median[has] = 0.5 * (ordered[lower] + ordered[upper])
+    return median
+
+
+def _unambiguous_members(positions: np.ndarray, n_peaks: int) -> tuple[np.ndarray, np.ndarray]:
+    """Select the positions that describe each peak.
+
+    Parameters
+    ----------
+    positions :
+        The positions with ``peak`` and ``ambiguous`` filled.
+    n_peaks :
+        The number of peaks.
+
+    Returns
+    -------
+    use :
+        `True` for the unambiguous positions, and for every position of a
+        peak that has none.
+    fallback :
+        `True` for each peak that has no unambiguous position.
+    """
+    peak = positions["peak"]
+    clear = ~positions["ambiguous"]
+    # Peaks that have no clear positions get a fallback.
+    fallback = np.bincount(peak[clear], minlength=n_peaks) == 0
+    return clear | fallback[peak], fallback
+
+
+def _locate_peaks(
+    positions: np.ndarray,
+    candidates: np.ndarray,
+    use: np.ndarray,
+    n_peaks: int,
+    psf_fwhm: np.ndarray,
+) -> np.ndarray:
+    """Choose the position that locates each peak.
+
+    Parameters
+    ----------
+    positions :
+        The positions with ``peak`` filled.
+    candidates :
+        The candidates with ``position`` filled.
+    use :
+        The positions a peak may be located at, from
+        ``_unambiguous_members``.
+    n_peaks :
+        The number of peaks.
+    psf_fwhm :
+        The PSF FWHM of each single band, in pixels.
+
+    Returns
+    -------
+    location :
+        The index of the chosen position for each peak.
+
+    Notes
+    -----
+    The chosen position is the one closest to the median ``x`` and ``y`` of
+    the peak's candidates, so a position counts once per candidate. Ties go to
+    the finest scale, then the smallest PSF FWHM among the bands of the
+    position's finest-scale candidates (the chi^2 plane ranks last), then the
+    lowest position index.
+    """
+    position_of = candidates["position"]
+    # Work at the candidate level so a position detected in several planes
+    # pulls the median toward itself once per plane.
+    in_use = use[position_of]
+    candidate_peak = positions["peak"][position_of[in_use]]
+    median_y = _clique_median(candidates["y"][in_use], candidate_peak, n_peaks)
+    median_x = _clique_median(candidates["x"][in_use], candidate_peak, n_peaks)
+
+    # A position's scale is the finest of its candidates, so this selects the
+    # candidates at that scale.
+    finest = candidates["scale"] == positions["scale"][position_of]
+    # Map a candidate's band to its PSF FWHM. The chi^2 plane is band index
+    # n_bands and maps to inf, so it ranks after every single band.
+    band_rank = np.append(psf_fwhm, np.inf)
+    # The smallest PSF FWHM among the finest-scale candidates of each
+    # position.
+    finest_fwhm = np.full(len(positions), np.inf)
+    np.minimum.at(finest_fwhm, position_of[finest], band_rank[candidates["band"][finest]])
+
+    index = np.flatnonzero(use)
+    peak = positions["peak"][index]
+    # The medians are multiples of 0.5, so distances that tie compare equal.
+    distance2 = (positions["y"][index] - median_y[peak]) ** 2 + (positions["x"][index] - median_x[peak]) ** 2
+    # lexsort uses its last key first: group by peak, then the tie breakers
+    # in the order listed in the Notes.
+    order = np.lexsort((index, finest_fwhm[index], positions["scale"][index], distance2, peak))
+    # The first row of each peak's run is its chosen position. Every peak
+    # has at least one row because _unambiguous_members never leaves a peak
+    # without a usable position.
+    sorted_peak = peak[order]
+    first = np.ones(len(order), dtype=bool)
+    first[1:] = sorted_peak[1:] != sorted_peak[:-1]
+    location = np.empty(n_peaks, dtype=int)
+    location[sorted_peak[first]] = index[order][first]
+    return location
+
+
+def _fill_position_errors(
+    peaks: np.ndarray,
+    positions: np.ndarray,
+    candidates: np.ndarray,
+    use: np.ndarray,
+    psf_fwhm: np.ndarray,
+) -> None:
+    """Fill the position error fields of each peak.
+
+    Parameters
+    ----------
+    peaks :
+        The detections with ``y`` and ``x`` set. The error fields are filled
+        in place.
+    positions :
+        The positions with ``peak`` filled.
+    candidates :
+        The candidates with ``position`` filled.
+    use :
+        The positions that describe each peak, from ``_unambiguous_members``.
+    psf_fwhm :
+        The PSF FWHM of each single band, in pixels.
+
+    Notes
+    -----
+    Every term is computed over the candidates of the ``use`` positions. The
+    statistical error of a candidate is its effective width from
+    ``_starlet_kernel_fwhm`` over ``2.355 * significance``. Scales within a
+    band are not independent, so each band contributes its best candidate and
+    the bands are combined by inverse variance. The chi^2 plane is a
+    combination of the bands and is used only for a peak with no single-band
+    candidate. The provisional error is the largest of the statistical error,
+    the robust scatter, and the ``1 / sqrt(12)`` quantization floor.
+    """
+    n_peaks = len(peaks)
+    n_bands = len(psf_fwhm)
+    position_of = candidates["position"]
+    keep = use[position_of]
+    peak = positions["peak"][position_of[keep]]
+    band = candidates["band"][keep]
+    scale = candidates["scale"][keep]
+    y = candidates["y"][keep].astype(float)
+    x = candidates["x"][keep].astype(float)
+    # The chi^2 plane takes the widest band's PSF.
+    plane_fwhm = np.append(psf_fwhm, psf_fwhm.max())
+
+    width = _starlet_kernel_fwhm(plane_fwhm[band], scale)
+    sigma = width / (SIGMA_TO_FWHM * candidates["flux"][keep])
+    best = np.full((n_peaks, n_bands + 1), np.inf)
+    np.minimum.at(best, (peak, band), sigma)
+    inverse_variance = np.sum(best[:, :n_bands] ** -2.0, axis=1)
+    stat = best[:, n_bands].copy()
+    has_band = inverse_variance > 0
+    stat[has_band] = inverse_variance[has_band] ** -0.5
+    peaks["stat_err_y"] = stat
+    peaks["stat_err_x"] = stat
+
+    count = np.bincount(peak, minlength=n_peaks)
+    dy = y - peaks["y"][peak]
+    dx = x - peaks["x"][peak]
+    peaks["moment_yy"] = np.bincount(peak, weights=dy * dy, minlength=n_peaks) / count
+    peaks["moment_xx"] = np.bincount(peak, weights=dx * dx, minlength=n_peaks) / count
+    peaks["moment_xy"] = np.bincount(peak, weights=dx * dy, minlength=n_peaks) / count
+
+    for axis, values in (("y", y), ("x", x)):
+        median = _clique_median(values, peak, n_peaks)
+        scatter = MAD_TO_SIGMA * _clique_median(np.abs(values - median[peak]), peak, n_peaks)
+        scatter[count < 3] = np.nan
+        peaks[f"scatter_{axis}"] = scatter
+        # fmax ignores the NaN scatter of a peak with too few candidates.
+        peaks[f"err_{axis}"] = np.fmax(np.fmax(stat, scatter), 1 / np.sqrt(12))
+
+    nearest = np.full(n_peaks, np.inf)
+    if n_peaks > 1:
+        yx = np.column_stack([peaks["y"], peaks["x"]]).astype(float)
+        nearest = cKDTree(yx).query(yx, k=2)[0][:, 1]
+    min_fwhm = np.full(n_peaks, np.inf)
+    np.minimum.at(min_fwhm, peak, plane_fwhm[band])
+    peaks["nearest_distance"] = nearest
+    peaks["nearest_distance_fwhm"] = nearest / min_fwhm
+
+
+def _build_detections(
+    positions: np.ndarray,
+    candidates: np.ndarray,
+    components: np.ndarray,
+    psf_fwhm: np.ndarray,
+) -> np.ndarray:
+    """Reduce grouped positions to one detection record per peak.
+
+    Parameters
+    ----------
+    positions :
+        The positions with the grouping fields filled by ``_group_peaks``.
+    candidates :
+        The candidates with ``position`` filled.
+    components :
+        The components from ``_clique_cover``.
+    psf_fwhm :
+        The PSF FWHM of each single band, in pixels.
 
     Returns
     -------
     peaks :
-        The detections with dtype `DETECTION_DTYPE`. The position, finest
-        scale and ``flux`` come from the seed; the flags and counts are
-        reductions over all of the peak's positions.
+        The detections with dtype `DETECTION_DTYPE`. The location and
+        ``flux`` come from the position chosen by ``_locate_peaks``;
+        ``scale``, ``peak_sigma`` and the flags are reductions over the
+        unambiguous positions (all positions for a peak with none), while the
+        counts include every position.
     """
-    n_peaks = len(seeds)
+    n_peaks = int(positions["peak"].max()) + 1 if len(positions) else 0
     peaks = np.zeros(n_peaks, dtype=DETECTION_DTYPE)
     if n_peaks == 0:
         return peaks
-    assigned = positions["peak"] >= 0
-    members = positions[assigned]
-    peak_of = members["peak"]
+    peak_of = positions["peak"]
+    # To determine the location of a peak we only use positions that are
+    # unambiguously contained in its clique.
+    use, fallback = _unambiguous_members(positions, n_peaks)
+    location = _locate_peaks(positions, candidates, use, n_peaks, psf_fwhm)
+    members = positions[use]
+    member_peak = peak_of[use]
 
-    peaks["y"] = positions["y"][seeds]
-    peaks["x"] = positions["x"][seeds]
-    peaks["scale"] = positions["scale"][seeds]
-    peaks["flux"] = positions["flux"][seeds]
-
+    peaks["y"] = positions["y"][location]
+    peaks["x"] = positions["x"][location]
+    peaks["flux"] = positions["flux"][location]
+    scale = np.full(n_peaks, np.iinfo(int).max, dtype=int)
+    np.minimum.at(scale, member_peak, members["scale"])
+    peaks["scale"] = scale
     peak_sigma = np.full(n_peaks, -np.inf)
-    np.maximum.at(peak_sigma, peak_of, members["peak_sigma"])
+    np.maximum.at(peak_sigma, member_peak, members["peak_sigma"])
     peaks["peak_sigma"] = peak_sigma
     band_flags = np.zeros(n_peaks, dtype=np.int64)
-    np.bitwise_or.at(band_flags, peak_of, members["band_flags"].astype(np.int64))
+    np.bitwise_or.at(band_flags, member_peak, members["band_flags"].astype(np.int64))
     peaks["band_flags"] = band_flags
     scale_flags = np.zeros(n_peaks, dtype=np.int64)
-    np.bitwise_or.at(scale_flags, peak_of, members["scale_flags"].astype(np.int64))
+    np.bitwise_or.at(scale_flags, member_peak, members["scale_flags"].astype(np.int64))
     peaks["scale_flags"] = scale_flags
-    peaks["n_candidates"] = np.bincount(peak_of, weights=members["n_candidates"], minlength=n_peaks).astype(
-        int
-    )
+
+    peaks["n_candidates"] = np.bincount(peak_of, weights=positions["n_candidates"], minlength=n_peaks)
     peaks["n_positions"] = np.bincount(peak_of, minlength=n_peaks)
-    peaks["n_ambiguous"] = np.bincount(peak_of, weights=members["n_linked"] > 1, minlength=n_peaks).astype(
-        int
-    )
+    peaks["n_ambiguous"] = np.bincount(peak_of, weights=positions["ambiguous"], minlength=n_peaks)
+    peaks["location_fallback"] = fallback
+    peaks["search_capped"] = components["cap_hit"][positions["component"][location]]
+    _fill_position_errors(peaks, positions, candidates, use, psf_fwhm)
     return peaks
 
 
@@ -1270,9 +2028,9 @@ def _build_footprints(
     Raises
     ------
     RuntimeError
-        Raised if a peak lies outside every footprint. Every peak is seeded by
-        a candidate inside one of the per-plane footprints, so this indicates
-        a bug upstream.
+        Raised if a peak lies outside every footprint. Every peak is located
+        at a candidate inside one of the per-plane footprints, so this
+        indicates a bug upstream.
 
     Notes
     -----
@@ -1280,8 +2038,8 @@ def _build_footprints(
     split or merged) from one plane to the next, so a footprint is identified
     with a source only after the peaks are grouped: the mask is relabeled into
     4-connected components and each peak is looked up in the component that
-    contains it. A component whose candidates were all linked to a peak
-    seeded in another component ends up with no peak and is dropped, so
+    contains it. A component whose candidates were all grouped with a peak
+    located in another component ends up with no peak and is dropped, so
     ``footprints`` never holds an empty footprint.
     """
     y0, x0 = origin
@@ -1326,10 +2084,12 @@ def _group_peaks(
     candidates: np.ndarray,
     n_bands: int,
     first_scale: int,
-    psf_fwhm: float,
-    blend_policy: str,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Collapse candidates to positions and link positions into detections.
+    psf_fwhm: np.ndarray,
+    radius_rule: str = "min",
+    search_cap: int = 100_000,
+    count_covers: bool = False,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Collapse candidates to positions and group positions into detections.
 
     Parameters
     ----------
@@ -1341,9 +2101,14 @@ def _group_peaks(
     first_scale :
         The first starlet scale in the significance map.
     psf_fwhm :
-        The PSF FWHM in pixels, passed to ``_link_radius``.
-    blend_policy :
-        Passed to ``_assign_peaks``.
+        The PSF FWHM of each single band, in pixels. The largest sets the link
+        radius.
+    radius_rule :
+        Passed to ``_build_pairs``.
+    search_cap :
+        Passed to ``_clique_cover``.
+    count_covers :
+        Passed to ``_clique_cover``.
 
     Returns
     -------
@@ -1351,13 +2116,33 @@ def _group_peaks(
         The unique positions with dtype `POSITION_DTYPE`.
     peaks :
         The detections with dtype `DETECTION_DTYPE`.
+    pairs :
+        The position pairs with dtype `PAIR_DTYPE`.
+    components :
+        The connected components of the position graph with dtype
+        `COMPONENT_DTYPE`.
     """
     if len(candidates) == 0:
-        return np.empty(0, dtype=POSITION_DTYPE), np.empty(0, dtype=DETECTION_DTYPE)
+        return (
+            np.empty(0, dtype=POSITION_DTYPE),
+            np.empty(0, dtype=DETECTION_DTYPE),
+            np.empty(0, dtype=PAIR_DTYPE),
+            np.empty(0, dtype=COMPONENT_DTYPE),
+        )
     positions = _collapse_positions(candidates, n_bands, first_scale)
-    seeds, _ = _assign_peaks(positions, psf_fwhm, blend_policy)
-    peaks = _build_detections(positions, seeds)
-    return positions, peaks
+    pairs = _build_pairs(positions, float(np.max(psf_fwhm)), radius_rule)
+    linked = pairs[pairs["linked"]]
+    edges = np.column_stack([linked["i"], linked["j"]])
+    peak, component, components = _clique_cover(positions["plane_flags"], edges, search_cap, count_covers)
+    positions["peak"] = peak
+    positions["component"] = component
+    n_linked, ambiguous, max_fraction, max_peak = _link_fractions(peak, edges, int(peak.max()) + 1)
+    positions["n_linked"] = n_linked
+    positions["ambiguous"] = ambiguous
+    positions["max_linked_fraction"] = max_fraction
+    positions["max_linked_peak"] = max_peak
+    peaks = _build_detections(positions, candidates, components, psf_fwhm)
+    return positions, peaks, pairs, components
 
 
 def detect_peaks(
@@ -1367,16 +2152,18 @@ def detect_peaks(
     generation: int = 2,
     first_scale: int = 1,
     origin: tuple[int, int] | None = None,
-    min_separation: float = 0,
+    min_separation: float | None = None,
     min_area: int = 4,
     peak_thresh: float = 3,
     footprint_thresh: float = 2,
-    psf_fwhm: float = 3.5,
+    psf_fwhm: float | Sequence[float] = 3.5,
     kappa: float = 3.0,
-    blend_policy: str = "nearest",
     variance_mode: str = "median",
     bad_pixel_mask: np.ndarray | None = None,
     dilation_radius: float = 0,
+    radius_rule: str = "min",
+    search_cap: int = SEARCH_CAP,
+    count_covers: bool = False,
 ) -> PeakDetectionResult:
     """Detect peaks across bands and starlet scales.
 
@@ -1397,6 +2184,8 @@ def detect_peaks(
     min_separation :
         A hard floor on the separation between peaks within a plane, in
         pixels; ``0`` disables it and relies on ``kappa`` alone.
+        `None` uses the smallest PSF FWHM to calculate the minimum separation
+        based on two Gaussians of equal amplitude.
     min_area :
         The minimum area of a footprint in pixels.
     peak_thresh :
@@ -1404,13 +2193,12 @@ def detect_peaks(
     footprint_thresh :
         The footprint detection threshold, in sigma.
     psf_fwhm :
-        The PSF FWHM in pixels, used as a floor on the linking radius.
+        The PSF FWHM in pixels, either one value for every band or one per
+        band. The largest is the floor on the linking radius; the per-band
+        values break ties in the peak location and set the position errors.
     kappa :
         The minimum prominence in sigma of a peak above its saddle to a
         brighter peak in the same plane; smaller bumps are culled.
-    blend_policy :
-        How to assign a position that could join several peaks; see
-        ``_assign_peaks``.
     variance_mode :
         How ``variance`` is reduced to a coefficient noise, either ``"median"``
         for one value per band or ``"pixel"`` to follow the variance plane; see
@@ -1427,6 +2215,17 @@ def detect_peaks(
         it suppresses peaks, to catch the starlet ringing just outside a bad
         region. The radius doubles with each starlet scale, since the kernel
         does; see ``_find_peak_candidates``.
+    radius_rule :
+        Whether two positions link within the smaller (``"min"``) or larger
+        (``"max"``) of their link radii; see ``_build_pairs``.
+    search_cap :
+        The number of nodes the exact clique cover search may visit in a
+        component before it falls back to the greedy cover; see
+        ``_clique_cover``.
+    count_covers :
+        Count the distinct minimum covers of small components; see
+        ``_clique_cover``. This is a diagnostic that should always be
+        ``False`` in production.
 
     Returns
     -------
@@ -1438,8 +2237,19 @@ def detect_peaks(
     ------
     ValueError
         Raised if ``bad_pixel_mask`` is given and does not match the shape of
-        ``images``.
+        ``images``, if ``psf_fwhm`` is a sequence without one value per
+        band, or if ``radius_rule`` is not a key of `RADIUS_RULES`.
     """
+    band_fwhm = np.asarray(psf_fwhm, dtype=float)
+    if band_fwhm.ndim == 0:
+        band_fwhm = np.full(len(images), float(band_fwhm))
+    elif band_fwhm.shape != (len(images),):
+        raise ValueError(f"psf_fwhm must be a scalar or have one value per band, got {band_fwhm.shape}")
+    if radius_rule not in RADIUS_RULES:
+        raise ValueError(f"radius_rule must be one of {list(RADIUS_RULES)}, got {radius_rule!r}")
+    link_fwhm = float(band_fwhm.max())
+    if min_separation is None:
+        min_separation = band_fwhm.min() * 0.84932
     if origin is None:
         origin = (0, 0)
     if bad_pixel_mask is not None and bad_pixel_mask.shape != images.shape:
@@ -1465,8 +2275,19 @@ def detect_peaks(
         dilation_radius,
     )
     n_bands = significance_map.shape[1] - 1
-    positions, peaks = _group_peaks(candidates, n_bands, first_scale, psf_fwhm, blend_policy)
+    positions, peaks, pairs, components = _group_peaks(
+        candidates, n_bands, first_scale, band_fwhm, radius_rule, search_cap, count_covers
+    )
     footprints = _build_footprints(footprint_mask, peaks, origin)
+    link_scales = np.arange(first_scale, first_scale + significance_map.shape[0])
+    metadata = {
+        "psf_fwhm": band_fwhm.tolist(),
+        "link_radius_scales": link_scales.tolist(),
+        "link_radius": np.atleast_1d(_link_radius(link_scales, link_fwhm)).tolist(),
+        "min_separation": float(min_separation),
+        "radius_rule": radius_rule,
+        "search_cap": int(search_cap),
+    }
     return PeakDetectionResult(
         peaks=peaks,
         footprints=footprints,
@@ -1475,4 +2296,7 @@ def detect_peaks(
         significance_map=significance_map,
         starlets=starlets,
         sigma=sigma,
+        pairs=pairs,
+        components=components,
+        metadata=metadata,
     )
