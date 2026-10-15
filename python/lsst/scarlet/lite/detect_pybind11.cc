@@ -145,19 +145,19 @@ public:
         _saddle = saddle;
     }
 
-    int getY(){
+    int getY() const {
         return _y;
     }
 
-    int getX(){
+    int getX() const {
         return _x;
     }
 
-    double getFlux(){
+    double getFlux() const {
         return _flux;
     }
 
-    double getSaddle(){
+    double getSaddle() const {
         return _saddle;
     }
 
@@ -491,6 +491,84 @@ std::vector<Footprint> get_footprints(
 }
 
 
+/**
+ * Build footprints around a supplied set of peaks
+ *
+ * Each peak seeds the connected component of pixels above
+ * `footprint_thresh` that contains it (4-connectivity, as in
+ * `get_connected_pixels`). Components not reached by any peak are
+ * ignored, and a component reached by several peaks yields one
+ * footprint holding all of them. The input peaks carry no watershed
+ * information, so each resulting `Peak` records the image value at its
+ * pixel and a NaN saddle.
+ *
+ * @param image: The image the peaks were detected on
+ * @param peaks: Peak positions as (y, x) pairs in image coordinates
+ * @param min_area: The minimum area of a footprint in pixels
+ * @param footprint_thresh: The minimum flux of a pixel to be included in a footprint
+ * @param y0: The y-coordinate of the top-left corner of the image
+ * @param x0: The x-coordinate of the top-left corner of the image
+ *
+ * @return: A list of Footprints, each containing at least one peak
+ */
+template <typename M>
+std::vector<Footprint> peaks_to_footprints(
+    py::EigenDRef<const M> image,
+    const std::vector<std::vector<int>>& peaks,
+    const int min_area,
+    const double footprint_thresh,
+    const int y0=0,
+    const int x0=0
+){
+    const int height = image.rows();
+    const int width = image.cols();
+
+    std::vector<Footprint> footprints;
+    MatrixB unchecked = MatrixB::Ones(height, width);
+    MatrixB footprint = MatrixB::Zero(height, width);
+
+    for(const auto& peak : peaks){
+        // The catalog is in image coordinates; shift into the local array.
+        const int i = peak[0] - y0;
+        const int j = peak[1] - x0;
+
+        if (i < 0 || i >= height || j < 0 || j >= width) {
+            throw std::out_of_range("Peak coordinates (" + std::to_string(peak[0]) + ", " +
+                                  std::to_string(peak[1]) + ") are out of image bounds");
+        }
+
+        // A peak already swept into an earlier footprint seeds no new one.
+        if(!unchecked(i, j)){
+            continue;
+        }
+
+        Bounds bounds; bounds << i, i, j, j;
+        get_connected_pixels(i, j, image, unchecked, footprint, bounds, footprint_thresh);
+        int subHeight = bounds[1]-bounds[0]+1;
+        int subWidth = bounds[3]-bounds[2]+1;
+        MatrixB subFootprint = footprint.block(bounds[0], bounds[2], subHeight, subWidth);
+        int area = subFootprint.count();
+        if(area >= min_area){
+            // Gather every supplied peak that lands on this footprint.
+            std::vector<Peak> _peaks;
+            for(const auto& other : peaks){
+                const int py = other[0] - y0;
+                const int px = other[1] - x0;
+                if(py >= bounds[0] && py <= bounds[1] && px >= bounds[2] && px <= bounds[3]
+                    && subFootprint(py - bounds[0], px - bounds[2])){
+                    _peaks.push_back(Peak(other[0], other[1], static_cast<double>(image(py, px))));
+                }
+            }
+            Bounds trueBounds; trueBounds << bounds[0] + y0,
+                bounds[1] + y0, bounds[2] + x0, bounds[3] + x0;
+            footprints.push_back(Footprint(subFootprint, _peaks, trueBounds));
+        }
+        footprint.block(bounds[0], bounds[2], subHeight, subWidth) = MatrixB::Zero(subHeight, subWidth);
+    }
+    return footprints;
+}
+
+
 
 PYBIND11_MODULE(detect_pybind11, mod) {
   typedef Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> MatrixF;
@@ -529,6 +607,13 @@ PYBIND11_MODULE(detect_pybind11, mod) {
           "Create a list of all of the footprints in an image, with their peaks",
           "image"_a, "min_separation"_a, "min_area"_a, "peak_thresh"_a, "footprint_thresh"_a,
           "find_peaks"_a=true, "y0"_a=0, "x0"_a=0, "kappa"_a=0.0);
+
+  mod.def("peaks_to_footprints", &peaks_to_footprints<MatrixF>,
+          "Build footprints around a supplied set of peaks",
+          "image"_a, "peaks"_a, "min_area"_a, "footprint_thresh"_a, "y0"_a=0, "x0"_a=0);
+  mod.def("peaks_to_footprints", &peaks_to_footprints<MatrixD>,
+          "Build footprints around a supplied set of peaks",
+          "image"_a, "peaks"_a, "min_area"_a, "footprint_thresh"_a, "y0"_a=0, "x0"_a=0);
 
   py::class_<Footprint>(mod, "Footprint")
         .def(py::init<MatrixB, std::vector<Peak>, Bounds>(),

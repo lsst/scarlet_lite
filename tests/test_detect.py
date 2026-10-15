@@ -65,6 +65,7 @@ from lsst.scarlet.lite.detect_pybind11 import (
     get_connected_multipeak,
     get_connected_pixels,
     get_footprints,
+    peaks_to_footprints,
 )
 from lsst.scarlet.lite.utils import integrated_circular_gaussian
 from lsst.scarlet.lite.wavelet import starlet_transform
@@ -213,6 +214,76 @@ class TestDetect(ScarletTestCase):
         # rejected, confirming the boundary is tight.
         footprints = get_footprints(img, 1, 5, 1e-15, 1e-15, False)
         self.assertEqual(len(footprints), 0)
+
+    def test_peaks_to_footprints(self):
+        # Sources 0 and 1 overlap into one footprint, so passing all four
+        # centers yields three footprints. Footprints follow peak-input
+        # order, and peaks within a footprint keep their input order (unlike
+        # get_footprints, which emits raster order sorted brightest first).
+        peaks = [list(center) for center in self.centers]
+        footprints = peaks_to_footprints(self.image.data, peaks, 4, 1e-15)
+        self.assertEqual(len(footprints), 3)
+
+        # First seeded by center 0; absorbs center 1 as a second peak.
+        merged = self.sources[0] + self.sources[1]
+        assert_array_equal(footprints[0].data, merged.data > 1e-15)
+        self.assertBoxEqual(footprints[0].bbox, merged.bbox)
+        self.assertEqual(
+            [(peak.y, peak.x) for peak in footprints[0].peaks],
+            [self.centers[0], self.centers[1]],
+        )
+
+        # Then the two single-peak footprints, in input order.
+        assert_array_equal(footprints[1].data, self.sources[2].data > 1e-15)
+        self.assertBoxEqual(footprints[1].bbox, self.sources[2].bbox)
+        self.assertEqual([(peak.y, peak.x) for peak in footprints[1].peaks], [self.centers[2]])
+
+        assert_array_equal(footprints[2].data, self.sources[3].data > 1e-15)
+        self.assertBoxEqual(footprints[2].bbox, self.sources[3].bbox)
+        self.assertEqual([(peak.y, peak.x) for peak in footprints[2].peaks], [self.centers[3]])
+
+    def test_peaks_to_footprints_subset(self):
+        # A single peak in the merged (source 0 + source 1) footprint keeps
+        # that footprint but attaches only the supplied peak, and the three
+        # unseeded footprints are dropped.
+        footprints = peaks_to_footprints(self.image.data, [list(self.centers[1])], 4, 1e-15)
+        self.assertEqual(len(footprints), 1)
+        truth = self.sources[0] + self.sources[1]
+        assert_array_equal(footprints[0].data, truth.data > 1e-15)
+        self.assertBoxEqual(footprints[0].bbox, truth.bbox)
+        self.assertEqual(len(footprints[0].peaks), 1)
+        self.assertEqual(footprints[0].peaks[0].y, self.centers[1][0])
+        self.assertEqual(footprints[0].peaks[0].x, self.centers[1][1])
+
+    def test_peaks_to_footprints_min_area(self):
+        # min_area drops a footprint smaller than the threshold.
+        img = np.zeros((10, 10), dtype=np.float32)
+        img[3:5, 5:7] = 1.0  # 2x2 filled square, area 4
+
+        footprints = peaks_to_footprints(img, [[3, 5]], 4, 1e-15)
+        self.assertEqual(len(footprints), 1)
+        footprints = peaks_to_footprints(img, [[3, 5]], 5, 1e-15)
+        self.assertEqual(len(footprints), 0)
+
+    def test_peaks_to_footprints_offset(self):
+        # Peaks are in image coordinates; y0/x0 shift them onto the local
+        # array, and the output stays in image coordinates.
+        img = np.zeros((10, 10), dtype=np.float32)
+        img[3:5, 5:7] = 1.0
+        y0, x0 = 100, 200
+
+        footprints = peaks_to_footprints(img, [[3 + y0, 5 + x0]], 4, 1e-15, y0, x0)
+        self.assertEqual(len(footprints), 1)
+        bounds = list(footprints[0].bounds)
+        self.assertEqual(bounds, [3 + y0, 4 + y0, 5 + x0, 6 + x0])
+        self.assertEqual(footprints[0].peaks[0].y, 3 + y0)
+        self.assertEqual(footprints[0].peaks[0].x, 5 + x0)
+
+    def test_peaks_to_footprints_out_of_bounds(self):
+        img = np.zeros((10, 10), dtype=np.float32)
+        img[3:5, 5:7] = 1.0
+        with self.assertRaises(IndexError):
+            peaks_to_footprints(img, [[20, 20]], 4, 1e-15)
 
     def _check_peaks(self, peaks):
         matched_peaks = []
