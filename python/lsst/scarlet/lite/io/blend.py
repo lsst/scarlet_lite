@@ -177,8 +177,9 @@ class ScarletBlendData(ScarletBlendBaseData):
 
     @staticmethod
     @deprecated(
-        reason="ScarletBlendData.from_blend is deprecated. Use blend.to_data() instead.",
-        version="v30.0",
+        reason="ScarletBlendData.from_blend is deprecated and will be removed "
+        "after v31.0. Use blend.to_data() instead.",
+        version="v31.0",
         category=FutureWarning,
     )
     def from_blend(blend: Blend) -> ScarletBlendData:

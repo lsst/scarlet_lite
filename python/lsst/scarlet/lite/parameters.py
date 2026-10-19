@@ -703,4 +703,4 @@ def relative_step(
     axis: int | Sequence[int] | None = None,
 ):
     """Step size set at `factor` times the mean of `X` in direction `axis`"""
-    return np.maximum(minimum, factor * x.mean(axis=axis))
+    return np.maximum(minimum, factor * x.mean(axis=cast(Any, axis)))

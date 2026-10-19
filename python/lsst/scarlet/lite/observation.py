@@ -73,7 +73,7 @@ def get_filter_coords(filter_values: np.ndarray, center: tuple[int, int] | None 
     return coords
 
 
-def get_filter_bounds(coords: np.ndarray) -> tuple[int, int, int, int]:
+def get_filter_bounds(coords: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Get the slices in x and y to apply a filter
 
     Parameters
@@ -97,7 +97,11 @@ def get_filter_bounds(coords: np.ndarray) -> tuple[int, int, int, int]:
     return y_start, y_end, x_start, x_end
 
 
-def convolve(image: np.ndarray, psf: np.ndarray, bounds: tuple[int, int, int, int]):
+def convolve(
+    image: np.ndarray,
+    psf: np.ndarray,
+    bounds: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+):
     """Convolve an image with a PSF in real space
 
     Parameters
@@ -262,7 +266,7 @@ class Observation:
             self.diff_kernel = None
             self.grad_kernel = None
 
-        self._convolution_bounds: tuple[int, int, int, int] | None = None
+        self._convolution_bounds: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None
 
     @property
     def bands(self) -> tuple:
@@ -518,7 +522,7 @@ class Observation:
         return self.images.dtype
 
     @property
-    def convolution_bounds(self) -> tuple[int, int, int, int]:
+    def convolution_bounds(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Build the slices needed for convolution in real space"""
         if self._convolution_bounds is None:
             coords = get_filter_coords(cast(Fourier, self.diff_kernel).image[0])

@@ -25,6 +25,7 @@ __all__ = [
     "multiband_starlet_transform",
     "multiband_starlet_reconstruction",
     "get_multiresolution_support",
+    "get_multiband_multiresolution_support",
 ]
 
 from dataclasses import dataclass
@@ -245,12 +246,28 @@ class MultiResolutionSupport:
     support:
         A per-scale mask, with the shape of the starlet coefficients,
         that is non-zero where a coefficient is considered significant.
+        Shape ``(scales+1, Ny, Nx)``, or ``(scales+1, bands, Ny, Nx)``
+        when ``multiband`` is `True`.
     sigma:
         The noise standard deviation estimated at each scale.
+        Shape ``(scales+1,)``, or ``(scales+1, bands)`` when
+        ``multiband`` is `True`.
+    multiband:
+        Whether the support spans multiple bands, adding a band axis to
+        both ``support`` and ``sigma``.
     """
 
     support: np.ndarray
     sigma: np.ndarray
+    multiband: bool = False
+
+    def __post_init__(self) -> None:
+        support_ndim = 4 if self.multiband else 3
+        sigma_ndim = 2 if self.multiband else 1
+        if self.support.ndim != support_ndim:
+            raise ValueError(f"Expected support with {support_ndim} dimensions, got {self.support.ndim}")
+        if self.sigma.ndim != sigma_ndim:
+            raise ValueError(f"Expected sigma with {sigma_ndim} dimensions, got {self.sigma.ndim}")
 
 
 def get_multiresolution_support(
@@ -262,6 +279,7 @@ def get_multiresolution_support(
     max_iter: int = 20,
     image_type: str = "ground",
     rng: np.random.Generator | None = None,
+    generation: int = 2,
 ) -> MultiResolutionSupport:
     """Calculate the multi-resolution support for a
     dictionary of starlet coefficients.
@@ -301,6 +319,9 @@ def get_multiresolution_support(
         realization that calibrates ``sigma_je`` in the ``space``
         branch. Defaults to ``np.random.default_rng(0)`` so repeated
         calls with the same input return the same support.
+    generation:
+        The generation of the starlet transform used for the noise
+        realization in the ``space`` branch.
 
     Returns
     -------
@@ -316,7 +337,7 @@ def get_multiresolution_support(
         if rng is None:
             rng = np.random.default_rng(0)
         noise_img = rng.normal(size=image.shape)
-        noise_starlet = starlet_transform(noise_img, generation=1, scales=len(starlets) - 1)
+        noise_starlet = starlet_transform(noise_img, generation=generation, scales=len(starlets) - 1)
         sigma_je = np.zeros((len(noise_starlet),))
         for j, star in enumerate(noise_starlet):
             sigma_je[j] = np.std(star)
@@ -330,7 +351,7 @@ def get_multiresolution_support(
             if np.abs(sigma_i - last_sigma_i) / sigma_i < epsilon:
                 break
             last_sigma_i = sigma_i
-        sigma_j = sigma_je
+        sigma_j = sigma_je * sigma_i
     else:
         # Sigma to use for significance at each scale
         # Initially we use the input `sigma`
@@ -361,6 +382,63 @@ def get_multiresolution_support(
             last_sigma_j = sigma_j
     # noinspection PyUnboundLocalVariable
     return MultiResolutionSupport(support=m.astype(int), sigma=sigma_j)
+
+
+def get_multiband_multiresolution_support(
+    image: np.ndarray,
+    starlets: np.ndarray,
+    sigma: np.floating | Sequence[np.floating] | np.ndarray,
+    sigma_scaling: float = 3,
+    epsilon: float = 1e-1,
+    max_iter: int = 20,
+    image_type: str = "ground",
+    rng: np.random.Generator | None = None,
+    generation: int = 2,
+) -> MultiResolutionSupport:
+    """Calculate the multi-resolution support of a multiband image.
+
+    See `get_multiresolution_support` for a description of the
+    remainder of the parameters.
+
+    Parameters
+    ----------
+    image:
+        The multiband image with dimension (bands, Ny, Nx).
+    starlets:
+        The multiband starlet dictionary with dimension
+        (scales+1, bands, Ny, Nx).
+    sigma:
+        The standard deviation of the image, either a single value used
+        for every band or a per-band sequence of length ``bands``.
+
+    Returns
+    -------
+    support:
+        The multiband support, with ``support`` shaped
+        (scales+1, bands, Ny, Nx) and ``sigma`` shaped (scales+1, bands).
+    """
+    _, bands, height, width = starlets.shape
+    # Broadcast a scalar sigma to one value per band so the loop always
+    # indexes a per-band array.
+    band_sigma = np.broadcast_to(np.asarray(sigma), (bands,))
+
+    support = np.zeros(starlets.shape, dtype=int)
+    sigma_out = np.zeros((len(starlets), bands), dtype=starlets.dtype)
+    for band in range(bands):
+        result = get_multiresolution_support(
+            image=image[band],
+            starlets=starlets[:, band],
+            sigma=band_sigma[band],
+            sigma_scaling=sigma_scaling,
+            epsilon=epsilon,
+            max_iter=max_iter,
+            image_type=image_type,
+            rng=rng,
+            generation=generation,
+        )
+        support[:, band] = result.support
+        sigma_out[:, band] = result.sigma
+    return MultiResolutionSupport(support=support, sigma=sigma_out, multiband=True)
 
 
 def apply_wavelet_denoising(
