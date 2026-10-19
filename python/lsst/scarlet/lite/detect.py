@@ -30,7 +30,7 @@ import numpy as np
 from deprecated.sphinx import deprecated  # type: ignore
 from lsst.scarlet.lite.detect_pybind11 import Footprint, Peak, get_footprints  # type: ignore
 from scipy import special
-from scipy.ndimage import binary_dilation
+from scipy.ndimage import binary_dilation, label
 from scipy.sparse import csr_array
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
@@ -451,6 +451,8 @@ DETECTION_DTYPE = np.dtype(
         ("scatter_x", float),
         ("err_y", float),
         ("err_x", float),
+        ("structure_peaks", int),
+        ("structure_id", int),
     ]
 )
 
@@ -548,7 +550,8 @@ class PeakDetectionResult:
     metadata :
         The settings the peaks were grouped with: the per-band
         ``psf_fwhm``, the ``link_radius`` at each of ``link_radius_scales``,
-        ``min_separation``, ``radius_rule`` and ``search_cap``.
+        ``min_separation``, ``radius_rule`` and ``search_cap``, and the
+        ``structure_thresh`` the structures were found with.
     """
 
     peaks: np.ndarray
@@ -2145,6 +2148,63 @@ def _group_peaks(
     return positions, peaks, pairs, components
 
 
+def find_structures(
+    peaks: np.ndarray,
+    significance: np.ndarray,
+    origin: tuple[int, int] = (0, 0),
+    structure_thresh: float = 1.0,
+) -> None:
+    """Label peaks by the connected region of the finest scale they share.
+
+    Parameters
+    ----------
+    peaks :
+        The detections with dtype `DETECTION_DTYPE`, all inside
+        ``significance``. The ``structure_peaks`` and ``structure_id``
+        fields are filled in place.
+    significance :
+        The chi coadd plane of the finest starlet scale searched, with shape
+        ``(Ny, Nx)`` and in units of Gaussian sigma.
+    origin :
+        The ``(y, x)`` location of the lower corner of ``significance``.
+    structure_thresh :
+        The threshold in sigma above which pixels of ``significance`` are
+        connected into structures.
+
+    Notes
+    -----
+    Spiral arms and star forming regions of a resolved galaxy are detected
+    as separate peaks, which the deblender wants but a catalog user may not.
+    In the chi coadd of the finest starlet scale the pieces of a galaxy are
+    connected at a low threshold into one region, so the peaks of a region
+    are labeled with a common ``structure_id`` (counting from one, in raster
+    order of the region's first pixel) and the number of peaks it holds in
+    ``structure_peaks``. A region of three or more peaks is nearly always a
+    shredded galaxy, whereas a region of two is usually a pair of blended
+    stars, so ``structure_peaks`` is left for the user to cut on.
+
+    A peak found only in one band, or only at a coarser scale, can sit on a
+    pixel below ``structure_thresh`` and belongs to no region: its
+    ``structure_peaks`` and ``structure_id`` are both zero.
+    """
+    y0, x0 = origin
+    peaks["structure_peaks"] = 0
+    peaks["structure_id"] = 0
+    if len(peaks) == 0:
+        return
+    labels, n_labels = label(significance >= structure_thresh)
+    label_of = labels[peaks["y"] - y0, peaks["x"] - x0]
+    used = np.unique(label_of[label_of > 0])
+    # Dense ids for the labels that hold a peak, zero for the rest.
+    structure_of = np.zeros(n_labels + 1, dtype=int)
+    structure_of[used] = np.arange(1, len(used) + 1)
+    structure_id = structure_of[label_of]
+    counts = np.bincount(structure_id, minlength=len(used) + 1)
+    counts[0] = 0
+    peaks["structure_id"] = structure_id
+    peaks["structure_peaks"] = counts[structure_id]
+
+
 def detect_peaks(
     images: np.ndarray,
     variance: np.ndarray,
@@ -2164,6 +2224,7 @@ def detect_peaks(
     radius_rule: str = "min",
     search_cap: int = SEARCH_CAP,
     count_covers: bool = False,
+    structure_thresh: float = 1.0,
 ) -> PeakDetectionResult:
     """Detect peaks across bands and starlet scales.
 
@@ -2226,6 +2287,9 @@ def detect_peaks(
         Count the distinct minimum covers of small components; see
         ``_clique_cover``. This is a diagnostic that should always be
         ``False`` in production.
+    structure_thresh :
+        The threshold in sigma that connects the chi coadd of the first
+        scale into structures; see ``find_structures``.
 
     Returns
     -------
@@ -2279,6 +2343,9 @@ def detect_peaks(
         candidates, n_bands, first_scale, band_fwhm, radius_rule, search_cap, count_covers
     )
     footprints = _build_footprints(footprint_mask, peaks, origin)
+    # Only the finest scale searched separates the pieces of a galaxy from
+    # the sky while keeping them connected; coarser scales merge neighbors.
+    find_structures(peaks, significance_map[0, -1], origin, structure_thresh)
     link_scales = np.arange(first_scale, first_scale + significance_map.shape[0])
     metadata = {
         "psf_fwhm": band_fwhm.tolist(),
@@ -2287,6 +2354,7 @@ def detect_peaks(
         "min_separation": float(min_separation),
         "radius_rule": radius_rule,
         "search_cap": int(search_cap),
+        "structure_thresh": float(structure_thresh),
     }
     return PeakDetectionResult(
         peaks=peaks,

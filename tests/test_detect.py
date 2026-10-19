@@ -55,6 +55,7 @@ from lsst.scarlet.lite.detect import (
     bounds_to_bbox,
     detect_footprints,
     detect_peaks,
+    find_structures,
     footprints_to_image,
     get_detect_wavelets,
     get_wavelets,
@@ -1323,6 +1324,78 @@ class TestPeakDetection(ScarletTestCase):
         self.assertEqual(result.metadata["link_radius_scales"], [1, 2])
         assert_allclose(result.metadata["link_radius"], [4.0, 4.0])
         self.assertAlmostEqual(result.metadata["min_separation"], 3.0 * 0.84932)
+
+    def _make_structured_peaks(self):
+        """Lay out regions on a significance plane and the peaks inside them.
+
+        Region A holds three peaks, B one, and C two; A and B are separated
+        by a gap. Peak D sits on a pixel below the threshold.
+        """
+        significance = np.zeros((40, 80), dtype=np.float32)
+        regions = {
+            "A": ((10, 15, 10, 31), [(12, 12), (12, 20), (12, 28)]),
+            "B": ((10, 15, 33, 36), [(12, 34)]),
+            "C": ((30, 33, 5, 15), [(31, 6), (31, 13)]),
+        }
+        centers = []
+        for (y0, y1, x0, x1), members in regions.values():
+            significance[y0:y1, x0:x1] = 2.0
+            centers.extend(members)
+        centers.append((5, 70))
+        peaks = np.zeros(len(centers), dtype=DETECTION_DTYPE)
+        peaks["y"] = [y for y, _ in centers]
+        peaks["x"] = [x for _, x in centers]
+        return significance, peaks
+
+    def test_find_structures(self):
+        significance, peaks = self._make_structured_peaks()
+        find_structures(peaks, significance)
+        # Structures are numbered in raster order: A, B, C.
+        assert_array_equal(peaks["structure_id"], [1, 1, 1, 2, 3, 3, 0])
+        assert_array_equal(peaks["structure_peaks"], [3, 3, 3, 1, 2, 2, 0])
+
+        # Raising the threshold above the plane leaves every peak unlabeled.
+        find_structures(peaks, significance, structure_thresh=5.0)
+        assert_array_equal(peaks["structure_id"], 0)
+        assert_array_equal(peaks["structure_peaks"], 0)
+
+    def test_find_structures_origin(self):
+        significance, peaks = self._make_structured_peaks()
+        shifted = peaks.copy()
+        find_structures(peaks, significance)
+        origin = (100, 200)
+        shifted["y"] += origin[0]
+        shifted["x"] += origin[1]
+        find_structures(shifted, significance, origin=origin)
+        for field in ("structure_peaks", "structure_id"):
+            assert_array_equal(shifted[field], peaks[field])
+
+    def test_find_structures_empty(self):
+        significance = np.zeros((8, 8), dtype=np.float32)
+        peaks = np.zeros(0, dtype=DETECTION_DTYPE)
+        find_structures(peaks, significance)
+        self.assertEqual(len(peaks), 0)
+
+    def test_detect_peaks_structures(self):
+        # Three sources in a row, close enough to connect at the first
+        # scale but far enough apart to resolve, share one structure.
+        rng = np.random.default_rng(7)
+        shape = (48, 64)
+        yy, xx = np.mgrid[0 : shape[0], 0 : shape[1]]
+        images = rng.standard_normal((self.n_bands,) + shape).astype(np.float32)
+        for cy, cx in [(24, 24), (24, 32), (24, 40)]:
+            images += 40.0 * np.exp(-((yy - cy) ** 2 + (xx - cx) ** 2) / (2 * 2.5**2)).astype(np.float32)
+        variance = np.ones_like(images)
+        result = detect_peaks(images, variance, scales=3, peak_thresh=5, footprint_thresh=3)
+        self.assertEqual(len(result.peaks), 3)
+        assert_array_equal(result.peaks["structure_id"], 1)
+        assert_array_equal(result.peaks["structure_peaks"], 3)
+        self.assertEqual(result.metadata["structure_thresh"], 1.0)
+
+        # Well separated sources each get a structure of their own.
+        result = detect_peaks(self.images, self.variance, scales=3, peak_thresh=5, footprint_thresh=3)
+        assert_array_equal(np.sort(result.peaks["structure_id"]), [1, 2, 3])
+        assert_array_equal(result.peaks["structure_peaks"], 1)
 
     def test_detect_peaks_validation(self):
         with self.assertRaisesRegex(ValueError, "one value per band"):
