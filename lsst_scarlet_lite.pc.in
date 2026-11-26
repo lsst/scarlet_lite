@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+doxygen_tag=${prefix}/doc/scarlet_lite.tag
+lsst_build_requires=pybind11 python3
+
+Name: lsst_scarlet_lite
+Description: Lightweight scarlet deblender
+Version: @VERSION@
+Requires: eigen3
+Cflags:
+Libs:

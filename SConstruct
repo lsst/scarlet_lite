@@ -1,3 +1,3 @@
 # -*- python -*-
 from lsst.sconsUtils import scripts
-scripts.BasicSConstruct("scarlet_lite")
+scripts.BasicSConstruct("scarlet_lite", noCfgFile=True)
